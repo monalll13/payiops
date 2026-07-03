@@ -14,7 +14,8 @@ import {
 import PackingView from './pages/PackingView'
 import DevHub from './pages/DevHub'
 import ClaimView from './pages/ClaimView'
-import SalesView from './pages/SalesView' 
+import SalesView from './pages/SalesView'
+import MonthlyDashboard from './pages/MonthlyDashboard'
 
 const API_BASE = '/api'
 
@@ -123,7 +124,8 @@ const menuGroups = [
   {
     title: 'OVERVIEW',
     items: [
-      { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive }
+      { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
+      { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive }
     ]
   },
   {
@@ -1178,6 +1180,8 @@ export default function App() {
 
           </>)}
           </div>
+        ) : activeTab === 'Monthly' ? (
+            <MonthlyDashboard />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
             <SalesView />
         ) : activeTab === 'Packing' ? (
