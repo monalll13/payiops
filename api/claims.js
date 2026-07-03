@@ -1,6 +1,7 @@
-// /api/claims?view=summary|monthly|sku|imports-list|import
+// /api/claims?view=summary|monthly|sku|by-product|imports-list|import
 // อ่าน/จัดการข้อมูลเคลมจาก sheet "claims" (Google Sheets)
 import { getSheet, batchGetValues, overwriteSheet } from './_lib/sheets.js'
+import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
@@ -115,6 +116,30 @@ export default async function handler(req, res) {
           note: r.note, free_item: r.free_item,
         })),
       })
+    }
+
+    if (view === 'by-product') {
+      // เคลมรวมเป็น "รายกลุ่มสินค้า" (product family) — ใช้ util เดียวกับ Dashboard สินค้า
+      let overrideMap = new Map()
+      try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+
+      const recs = rows.filter((r) => inDate(r.date) && keepBiz(r.business))
+      const groupMap = new Map() // key -> { key, label, count, value, damaged, incomplete, wrong, skus:Set }
+      for (const r of recs) {
+        const { key, label } = deriveGroup(r.display_name, r.master_sku, overrideMap)
+        let g = groupMap.get(key)
+        if (!g) groupMap.set(key, (g = { key, label, count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, skus: new Set() }))
+        g.count++
+        g.value += num(r.claim_value)
+        if (truthy(r.is_damaged)) g.damaged++
+        if (truthy(r.is_incomplete)) g.incomplete++
+        if (truthy(r.is_wrong_item)) g.wrong++
+        if (r.master_sku) g.skus.add(r.master_sku)
+      }
+      const products = [...groupMap.values()]
+        .map((g) => ({ ...g, value: round2(g.value), skuCount: g.skus.size, skus: [...g.skus] }))
+        .sort((a, b) => b.count - a.count)
+      return res.status(200).json({ success: true, totalCount: recs.length, products })
     }
 
     // ---- view === 'summary' ----

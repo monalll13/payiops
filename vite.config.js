@@ -55,5 +55,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(), // 💡 ปลั๊กอินตรงตัวของ Tailwind v4 ตัวเดียวจบ ไม่ต้องตั้งค่า PostCSS อีกต่อไป
       localApi(),
     ],
+    // ให้ dev server ผูกกับ PORT ที่ environment กำหนด (เช่น preview harness) ถ้ามี
+    server: process.env.PORT ? { port: Number(process.env.PORT), strictPort: true } : undefined,
   }
 })

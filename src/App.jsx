@@ -16,6 +16,7 @@ import DevHub from './pages/DevHub'
 import ClaimView from './pages/ClaimView'
 import SalesView from './pages/SalesView'
 import MonthlyDashboard from './pages/MonthlyDashboard'
+import ProductDashboard from './pages/ProductDashboard'
 
 const API_BASE = '/api'
 
@@ -125,7 +126,8 @@ const menuGroups = [
     title: 'OVERVIEW',
     items: [
       { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
-      { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive }
+      { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive },
+      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory }
     ]
   },
   {
@@ -688,6 +690,11 @@ export default function App() {
       title: 'Import Orders',
       eyebrow: 'Sales',
       subtitle: 'Upload marketplace orders and prepare them for reconciliation.'
+    },
+    Products: {
+      title: 'Dashboard สินค้า',
+      eyebrow: 'Overview',
+      subtitle: 'ผลงานสินค้ารายกลุ่ม (รวมไซส์/รุ่นย่อยเป็นตัวเดียว) · สินค้าขายดี แนวโน้ม และ SKU ในกลุ่ม'
     }
   }[activeTab] || {
     title: activeTab,
@@ -1182,6 +1189,8 @@ export default function App() {
           </div>
         ) : activeTab === 'Monthly' ? (
             <MonthlyDashboard />
+        ) : activeTab === 'Products' ? (
+            <ProductDashboard />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
             <SalesView />
         ) : activeTab === 'Packing' ? (

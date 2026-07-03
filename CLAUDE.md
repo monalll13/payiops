@@ -49,15 +49,27 @@ aggregate server-side and set `Cache-Control` s-maxage so we don't hit Sheets ra
 ## Files
 
 - `src/pages/`: `MonthlyDashboard.jsx` (sales by store, MoM, platform donut, trend),
+  `ProductDashboard.jsx` (**product-family** dashboard: KPIs, best-sellers, monthly trend
+  of top groups, product table + drawer with member-SKU breakdown — menu tab `Products`),
   `Upload.jsx` (import orders), `ClaimView.jsx` (claims), `SalesView.jsx` +
   `PackingView.jsx` (**local-first / localStorage — not yet Sheets-backed**),
   `LinksHub.jsx`, `DevHub.jsx`.
 - `src/components/KpiCard.jsx` — reusable KPI card (title, value, subtitle, icon, trend, isPositive).
 - `api/`: `dashboard.js` (Executive daily view), `monthly.js` (monthly by store),
-  `claims.js` (`?view=summary|monthly|sku|imports-list|import[DELETE]`),
+  `products.js` (product-family aggregation for the product dashboard),
+  `claims.js` (`?view=summary|monthly|sku|by-product|imports-list|import[DELETE]`),
   `claims-import.js` (POST parsed xlsx), `import-orders.js` (`?view=log` + POST: map →
   alias-match → dedup → route to `raw_orders_YYYY_MM` → log), plus `summary`, `sheet`,
   `append`, `overwrite`, `_lib/sheets.js`.
+- `api/_lib/productGroup.js` — **the ONE reusable product-family grouping util** (TODO#2).
+  `deriveGroup(displayName, masterSku, overrideMap)` → `{ key, label }`: strips size **and color**
+  tokens that stand alone (space-separated) from display_name — sizes (M/L/XL, ไซส์/เบอร์/ขนาด X,
+  trailing `(...)`) and colors (ดำ/ขาว/ฟ้า/… + English). Honors a manual `product_group` override
+  column in `product_aliases` if present. Used by BOTH `products.js` and `claims.js?view=by-product`.
+  Verified on real data: PY006 "2in1 M" + PY007 "2in1 L" → "ถุงเท้าเจล 2in1"; PY015–018
+  "แผ่นรองเท้า M/L ดำ/ฟ้า" → one "แผ่นรองเท้า" (4 SKUs), while "แผ่นรองเท้า Heavy" stays separate.
+  **Limitation:** colors glued to a word without a space (e.g. "สลิปเปอร์ฟ้า" vs "สลิปเปอร์ขาว")
+  are NOT auto-stripped — use a `product_group` override for those.
 
 ## Status & how to deploy
 
@@ -76,20 +88,31 @@ endpoints are currently open/no-auth.
 ## TODO / roadmap (agreed with owner)
 
 1. **Push to GitHub + deploy to Vercel** (needs owner auth).
-2. **Product-family grouping** — boss wants SKUs of the same product COMBINED (e.g. PY006 "2in1 M"
-   + PY007 "2in1 L" → one product "ถุงเท้าเจล 2in1"). Build ONE reusable grouping util
-   (strip size tokens like M/L/Size from display_name; allow a manual `product_group`
-   override in `product_aliases` later). **Reused by BOTH** the claims-by-product view and
-   the product dashboard — build it once.
+2. ✅ **DONE — Product-family grouping** — built `api/_lib/productGroup.js` (auto-strip
+   size tokens + optional `product_group` override in `product_aliases`). Reused by
+   `products.js` and `claims.js?view=by-product`. Real data verified: 156 SKUs → 142 groups,
+   auto-strips size + color (PY006/PY007 "2in1 M/L" merged; PY015–018 "แผ่นรองเท้า M/L ดำ/ฟ้า"
+   → one group). Next step here = let owner add `product_group` overrides in the sheet for cases
+   auto-strip can't catch (colors glued to the word, or totally different names for the same product).
 3. **Claims redesign — cartoon/visual**, because the actual user (a manager) dislikes
    numbers/tables and distrusts data. Agreed direction: one auto-mood mascot per product
    (happy/neutral/sad face + traffic-light color by claim severity), plain-language speech,
    ONE number per card, and a **"ดูหลักฐาน"** button that drills into the real claim records
    (trust comes from being able to verify). Group by product-family (see #2), not per-SKU.
    Mockups were shown and approved in the originating chat.
+   **Mobile-first / Shopee-style (approved 2026-07-03):** manager uses a phone, so this is a
+   mobile "manager mode" — Shopee Seller look: orange header + search, ONE big number hero
+   (ยอดขายวันนี้), 2-up mini stat cards, a "สินค้าที่ต้องดูแล" list of mascot-mood cards
+   (Tabler `ti-mood-sad/empty/happy` + red/amber/green traffic light + plain-language line +
+   one claim number + "ดูหลักฐาน"), and a 4-item bottom nav (หน้าหลัก/สินค้า/เคลม/ฉัน).
+   Owner said "ประมาณนี้ก็ได้" to this mockup. Open decisions before coding: (a) separate mobile
+   manager mode vs. full responsive; (b) keep Shopee orange or use PAYI mint; (c) landing =
+   sales vs. claims first. Nothing built in the app yet — mockup only.
 4. **Dashboard IA** — split into "Dashboard ยอดขาย" (sales, likely the new home page,
    replacing Executive as landing) and "Dashboard สินค้า" (product performance: best sellers,
-   trends, per-product using #2 grouping).
+   trends, per-product using #2 grouping). ✅ **"Dashboard สินค้า" DONE** = `ProductDashboard.jsx`
+   / `Products` tab (best-sellers, top-8 monthly trend, product table + member-SKU drawer,
+   business/platform filters). **Still pending:** the sales-side split + making it the landing page.
 5. **Ads + TikTok channel data** — the owner's existing Google-Sheet dashboard shows Ad
    spend per store and TikTok GMV split by channel (Affiliate / Live / VDO). That data is
    **NOT in mona-ops-db** — ask the owner where it lives (separate sheet? manual entry?
@@ -100,5 +123,7 @@ endpoints are currently open/no-auth.
 
 - The preview screenshot tool often times out on chart-heavy (Recharts) pages — that's a
   tooling limitation, not an app bug. Verify via DOM/`preview_eval` + `preview_logs`.
-- First `/api/dashboard` / `/api/monthly` call reads all raw_orders (~5–12s); `vercel.json`
-  sets `maxDuration: 60`.
+- First `/api/dashboard` / `/api/monthly` / `/api/products` call reads all raw_orders
+  (~5–12s); `vercel.json` sets `maxDuration: 60`.
+- `vite.config.js` honors `process.env.PORT` (strictPort) so the preview harness can bind the
+  dev server to its assigned port. Without a PORT env, dev picks 5173 as before.
