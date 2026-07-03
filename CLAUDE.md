@@ -100,14 +100,28 @@ endpoints are currently open/no-auth.
    ONE number per card, and a **"ดูหลักฐาน"** button that drills into the real claim records
    (trust comes from being able to verify). Group by product-family (see #2), not per-SKU.
    Mockups were shown and approved in the originating chat.
-   **Mobile-first / Shopee-style (approved 2026-07-03):** manager uses a phone, so this is a
-   mobile "manager mode" — Shopee Seller look: orange header + search, ONE big number hero
-   (ยอดขายวันนี้), 2-up mini stat cards, a "สินค้าที่ต้องดูแล" list of mascot-mood cards
-   (Tabler `ti-mood-sad/empty/happy` + red/amber/green traffic light + plain-language line +
-   one claim number + "ดูหลักฐาน"), and a 4-item bottom nav (หน้าหลัก/สินค้า/เคลม/ฉัน).
-   Owner said "ประมาณนี้ก็ได้" to this mockup. Open decisions before coding: (a) separate mobile
-   manager mode vs. full responsive; (b) keep Shopee orange or use PAYI mint; (c) landing =
-   sales vs. claims first. Nothing built in the app yet — mockup only.
+   **Mobile manager mode — spec locked 2026-07-03. WORKING PROTOTYPE exists:**
+   `src/pages/ManagerClaimsPrototype.jsx`, dummy data only, viewable at `/?manager`
+   (wired in `src/main.jsx` — a URL switch, does NOT touch the desktop app). Decisions:
+   - **Responsive, one app:** desktop = existing control-room (primary); mobile screen =
+     this manager view (auto by width). If bundling ever makes the web heavy, acceptable to
+     make the mobile view a separate externally-linked page instead (the `/?manager` entry
+     already supports that).
+   - **Claims-focused, NOT sales** — manager's job is claims. Home = claim summary
+     (count + damage value) + "สินค้าที่ต้องดูแล" list sorted by **claim RATE %**
+     (claims ÷ units sold), red/amber/green. Rate matters, not raw count (18 claims on
+     70k units = green; 9 on 536 = red). Sales lives on a lower bottom-nav tab.
+   - **Theme = TREASURE white/blue** (owner is a fan): light blue page, white cards,
+     blue `#2F6FE0` accents, a diamond/4-point-star logo (TREASURE lightstick Ver.2 style,
+     original SVG). All colors centralized in the `C` object at top of the prototype file.
+   - **Mascot = "รุรุ / RuRu"** (original chibi, name blends Haruto + Ruka) as the claims
+     reporter at the top; its expression = overall claim health. **Always speaks with ครับ.**
+   - **NO claim photos** (decided — keeps it light). Button renamed **"ดูรายละเอียด"**
+     (not "ดูหลักฐาน"); it expands text detail: common reasons + breakdown by claim type
+     (เสีย/พัง, ส่งไม่ครบ, ส่งผิด).
+   - Still open for tomorrow: rate thresholds for red/amber/green cutoffs (owner to set);
+     wire to real data (claim rate = `claims.js?view=by-product` counts ÷ `products.js` units);
+     auto-switch RuRu mood from data; period selector.
 4. **Dashboard IA** — split into "Dashboard ยอดขาย" (sales, likely the new home page,
    replacing Executive as landing) and "Dashboard สินค้า" (product performance: best sellers,
    trends, per-product using #2 grouping). ✅ **"Dashboard สินค้า" DONE** = `ProductDashboard.jsx`
