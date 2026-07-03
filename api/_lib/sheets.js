@@ -1,0 +1,74 @@
+// Google Sheets helpers — ใช้โดย serverless functions ใน api/
+// ต้องตั้ง env: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, SHEET_ID
+import { google } from 'googleapis'
+
+let client
+
+function getClient() {
+  if (!client) {
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        // Vercel เก็บ private key เป็น string บรรทัดเดียว ต้องแปลง \n กลับเป็น newline
+        private_key: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+      },
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    })
+    client = google.sheets({ version: 'v4', auth })
+  }
+  return client
+}
+
+const sheetId = () => process.env.SHEET_ID
+
+// metadata ของ spreadsheet (รายชื่อ tab ฯลฯ)
+export async function getMeta() {
+  const res = await getClient().spreadsheets.get({ spreadsheetId: sheetId() })
+  return res.data
+}
+
+// อ่านหลาย range ใน API call เดียว
+export async function batchGetValues(ranges) {
+  const res = await getClient().spreadsheets.values.batchGet({
+    spreadsheetId: sheetId(),
+    ranges,
+  })
+  return res.data.valueRanges
+}
+
+// อ่านข้อมูลทั้ง sheet → array ของ object (header เป็น key)
+export async function getSheet(sheetName) {
+  const res = await getClient().spreadsheets.values.get({
+    spreadsheetId: sheetId(),
+    range: `${sheetName}!A:Z`,
+  })
+  const [headers, ...rows] = res.data.values || []
+  if (!headers) return []
+  return rows.map(row =>
+    Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))
+  )
+}
+
+// เขียนต่อท้าย (append)
+export async function appendRows(sheetName, rows) {
+  await getClient().spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: `${sheetName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: rows },
+  })
+}
+
+// เขียนทับทั้ง sheet (สำหรับ product_master)
+export async function overwriteSheet(sheetName, headers, rows) {
+  await getClient().spreadsheets.values.clear({
+    spreadsheetId: sheetId(),
+    range: `${sheetName}!A:Z`,
+  })
+  await getClient().spreadsheets.values.update({
+    spreadsheetId: sheetId(),
+    range: `${sheetName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [headers, ...rows] },
+  })
+}

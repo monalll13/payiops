@@ -1,0 +1,228 @@
+@import "tailwindcss"; /* Tailwind v4 — previously loaded from the now-removed App.css/index.css */
+/* Inter font is loaded via a <link> tag in index.html, not @import here —
+   a CSS @import for a remote font blocks rendering and (with Tailwind's
+   @import expanding inline) also triggers a build-time ordering warning. */
+
+/*
+ * PAYI theme
+ * -----------------------------------------------------------------
+ * Replaces the two inline <style> blocks that used to live in
+ * index.html (~330 lines of `#root > div > div:nth-child(N) ...`
+ * selectors stacked with `!important`). That structural-selector
+ * approach broke every time the component tree shifted shape
+ * (e.g. inputs losing their background/backdrop-filter), because
+ * two separate theme layers were fighting over the same elements.
+ *
+ * This file only defines the design tokens (CSS variables) and a
+ * small set of reusable utility classes. Apply the classes in JSX
+ * (e.g. className="payi-glass-card", className="payi-input") so the
+ * styling is tied to semantics, not DOM position.
+ */
+
+:root {
+  /* -- brand palette -- */
+  --payi-mint: #20b8a6;
+  --payi-mint-strong: #0f9f92;
+  --payi-mint-soft: #e3fbf6;
+  --payi-cyan: #48bbb7;
+  --payi-cyan-hot: #54f1e8;
+  --payi-deep: #2f6b68;
+  --payi-deep-2: #173f40;
+
+  --payi-ink: #203f3d;
+  --payi-muted: #6d8c88;
+
+  --payi-line: rgba(72, 187, 183, 0.3);
+  --payi-glass: rgba(255, 255, 255, 0.66);
+  --payi-shadow: 0 20px 60px rgba(47, 107, 104, 0.14);
+
+  /* logo now lives as a real asset (src/assets/payi-logo.png), not a
+     450KB base64 blob in CSS. App.jsx sets this var via inline style
+     using the Vite-resolved import URL — see the brand block below. */
+  --payi-logo: none;
+
+  /* -- neutrals (text / borders), kept close to the original slate
+        palette so layout/contrast doesn't shift, just the hue -- */
+  --payi-text-strong: #111827;   /* was #111827 / #101828 */
+  --payi-text: #334155;          /* was #334155 / #475569 */
+  --payi-text-muted: #64748b;    /* was #64748b / #667085 */
+  --payi-text-faint: #94a3b8;    /* was #94a3b8 / #6b7280 */
+  --payi-text-on-dark-muted: #c4cdd5; /* was #d0d5dd — inactive nav text etc. on dark surfaces */
+  --payi-border: rgba(72, 187, 183, 0.22); /* was #e2e8f0 / #e5e7eb / #dfe4ea */
+  --payi-surface: #ffffff;       /* was #ffffff / #fff */
+  --payi-surface-muted: #f8fafc; /* was #f8fafc / #f1f5f9 */
+  --payi-surface-dark: #14302f;  /* was #101828 / #111827 dark panels */
+
+  /* -- status colors stay semantic, not re-themed to brand -- */
+  --payi-success: #10b981;
+  --payi-success-bg: #ecfdf3;
+  --payi-danger: #ef4444;
+  --payi-danger-bg: #fef2f2;
+  --payi-warning: #d97706;
+  --payi-warning-bg: #fffbeb;
+}
+
+/* ---------- base page background ---------- */
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(circle at 12% 14%, rgba(171, 238, 228, 0.5), transparent 30%),
+    radial-gradient(circle at 86% 4%, rgba(217, 250, 244, 0.85), transparent 34%),
+    linear-gradient(135deg, #f8fffd 0%, #ecfaf7 45%, #f7fbff 100%);
+  color: var(--payi-ink);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--payi-line);
+  border-radius: 9999px;
+}
+
+/* ---------- reusable surfaces ---------- */
+.payi-sidebar {
+  position: relative;
+  background: rgba(255, 255, 255, 0.68);
+  border-right: 1px solid var(--payi-line);
+  box-shadow: 18px 0 50px rgba(42, 139, 128, 0.1);
+  backdrop-filter: blur(20px);
+}
+
+.payi-brand {
+  position: relative;
+  min-height: 58px;
+  padding-left: 62px;
+  padding-top: 6px;
+  margin-bottom: 22px;
+}
+
+.payi-brand::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background-image: var(--payi-logo);
+  background-size: cover;
+  background-position: center;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 0 20px rgba(84, 241, 232, 0.4),
+    0 10px 28px rgba(47, 107, 104, 0.18);
+}
+
+.payi-brand-title {
+  color: var(--payi-deep-2);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.payi-brand-subtitle {
+  color: var(--payi-cyan);
+}
+
+.payi-glass-card {
+  background: var(--payi-glass);
+  border: 1px solid var(--payi-line);
+  border-radius: 12px;
+  box-shadow: var(--payi-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.payi-hero-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--payi-deep), var(--payi-cyan) 60%, var(--payi-cyan-hot));
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(47, 107, 104, 0.22);
+  color: #fff;
+}
+
+/* ---------- form controls ----------
+ * The fragile part: instead of targeting
+ *   #root > div > div:nth-child(2) > div:first-child input
+ * apply `.payi-input` directly on the <input>/<select> in JSX.
+ * Plain CSS (no !important) means the cascade still works normally
+ * and nothing fights it for specificity.
+ */
+.payi-input,
+.payi-select,
+.payi-date-input {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--payi-line);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(42, 139, 128, 0.08);
+  backdrop-filter: blur(16px);
+  color: var(--payi-ink);
+}
+
+.payi-input:focus,
+.payi-select:focus,
+.payi-date-input:focus {
+  outline: none;
+  border-color: var(--payi-mint);
+  box-shadow: 0 0 0 3px rgba(32, 184, 166, 0.18);
+}
+
+.payi-btn-primary {
+  background: var(--payi-mint);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+}
+
+.payi-btn-primary:hover {
+  background: var(--payi-mint-strong);
+}
+
+.payi-table th,
+.payi-table td {
+  color: var(--payi-ink);
+}
+
+/* ---------- shared keyframes / utility animations ----------
+ * Previously duplicated as inline <style> tags inside App.jsx
+ * (slideIn, shimmer, spin each defined more than once).
+ */
+@keyframes payi-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes payi-shimmer {
+  0% { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+@keyframes payi-spin {
+  to { transform: rotate(360deg); }
+}
+
+.payi-skeleton {
+  background: linear-gradient(90deg, var(--payi-line) 25%, var(--payi-line) 50%, var(--payi-line) 75%);
+  background-size: 600px 100%;
+  animation: payi-shimmer 1.4s infinite;
+  border-radius: 16px;
+}
+
+.payi-spin {
+  animation: payi-spin 1s linear infinite;
+}
+
+.payi-drawer-slide-in {
+  animation: payi-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.payi-interactive-row:hover {
+  background-color: var(--payi-surface-muted);
+}

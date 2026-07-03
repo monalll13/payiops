@@ -1,0 +1,176 @@
+// GET /api/dashboard?business=&platform=&startDate=&endDate=
+// สรุปข้อมูลสำหรับหน้า Executive จากทุก tab raw_orders_* (Google Sheets)
+import { getMeta, batchGetValues } from './_lib/sheets.js'
+
+const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
+const round2 = (n) => Math.round(n * 100) / 100
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
+
+  const { business = 'all', platform = 'all', startDate = '', endDate = '' } = req.query
+  const inDate = (d) => (!startDate || d >= startDate) && (!endDate || d <= endDate)
+  const keepBiz = (b) => business === 'all' || b === business
+  const keepPlat = (p) => platform === 'all' || p === platform
+
+  try {
+    const meta = await getMeta()
+    const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
+
+    // อ่าน B:F (order_id, order_item_id, date, platform, business) และ J:N (master_sku, display_name, qty, revenue, status)
+    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`])
+    const vr = await batchGetValues(ranges)
+
+    // ---- PASS 1: หา distinct dates ที่ผ่าน filter เพื่อกำหนด "today / yesterday" ----
+    const dateSet = new Set()
+    for (let i = 0; i < tabs.length; i++) {
+      const left = vr[2 * i].values || []
+      for (let j = 1; j < left.length; j++) {
+        const row = left[j]
+        if (!row) continue
+        const date = row[2], plat = row[3], biz = row[4]
+        if (!date || !inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
+        dateSet.add(date)
+      }
+    }
+    const sortedDates = [...dateSet].sort()
+    const todayD = sortedDates[sortedDates.length - 1] || null
+    const yestD = sortedDates[sortedDates.length - 2] || null
+
+    // ---- ช่วงก่อนหน้า (สำหรับ trend %) เมื่อมี date range ----
+    let prevStart = null, prevEnd = null
+    if (startDate && endDate) {
+      const s = new Date(startDate), e = new Date(endDate)
+      const days = Math.round((e - s) / 86400000) + 1
+      const pe = new Date(s); pe.setDate(pe.getDate() - 1)
+      const ps = new Date(pe); ps.setDate(ps.getDate() - days + 1)
+      prevStart = ps.toISOString().slice(0, 10)
+      prevEnd = pe.toISOString().slice(0, 10)
+    }
+    const inPrev = (d) => prevStart && d >= prevStart && d <= prevEnd
+
+    // ---- PASS 2: aggregate ----
+    let revenue = 0, units = 0
+    const orderIds = new Set()
+    let prevRevenue = 0, prevUnits = 0
+    const prevOrderIds = new Set()
+
+    const dailyRev = new Map()          // date -> amount
+    const dailyOrders = new Map()       // date -> Set(order_id)
+    const bizRev = new Map()            // business -> amount
+    const platRev = new Map()           // platform -> amount
+    const sku = new Map()               // master_sku -> { name, orderIds:Set, qty, revenue, platforms:Map, platformUnits:Map }
+    const skuToday = new Map()          // master_sku -> revenue (today)
+    const skuYest = new Map()           // master_sku -> revenue (yesterday)
+
+    for (let i = 0; i < tabs.length; i++) {
+      const left = vr[2 * i].values || []
+      const right = vr[2 * i + 1].values || []
+      const n = Math.max(left.length, right.length)
+      for (let j = 1; j < n; j++) {
+        const l = left[j] || [], r = right[j] || []
+        const orderId = l[0], date = l[2], plat = l[3], biz = l[4]
+        const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
+        if (!date || isCancelled(status)) continue
+
+        // ช่วงก่อนหน้า (ไม่สน platform/biz filter ยกเว้นที่ผู้ใช้เลือก) — ใช้เทียบ trend
+        if (inPrev(date) && keepBiz(biz) && keepPlat(plat)) {
+          prevRevenue += rev; prevUnits += qty
+          if (orderId) prevOrderIds.add(orderId)
+        }
+
+        if (!inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
+
+        revenue += rev; units += qty
+        if (orderId) orderIds.add(orderId)
+
+        dailyRev.set(date, (dailyRev.get(date) || 0) + rev)
+        let ds = dailyOrders.get(date); if (!ds) dailyOrders.set(date, (ds = new Set())); if (orderId) ds.add(orderId)
+        bizRev.set(biz, (bizRev.get(biz) || 0) + rev)
+        platRev.set(plat, (platRev.get(plat) || 0) + rev)
+
+        const key = masterSku || '(ไม่ระบุ)'
+        let s = sku.get(key)
+        if (!s) sku.set(key, (s = { name: name || key, orderIds: new Set(), qty: 0, revenue: 0, platforms: new Map(), platformUnits: new Map() }))
+        s.qty += qty; s.revenue += rev
+        if (orderId) s.orderIds.add(orderId)
+        if (plat) {
+          s.platforms.set(plat, (s.platforms.get(plat) || 0) + rev)
+          s.platformUnits.set(plat, (s.platformUnits.get(plat) || 0) + qty)
+        }
+
+        if (date === todayD) skuToday.set(key, (skuToday.get(key) || 0) + rev)
+        else if (date === yestD) skuYest.set(key, (skuYest.get(key) || 0) + rev)
+      }
+    }
+
+    const orders = orderIds.size
+    const aov = orders ? revenue / orders : 0
+
+    // ---- trends (%) ----
+    const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null)
+    const prevOrders = prevOrderIds.size
+    const revenueTrend = prevStart ? pct(revenue, prevRevenue) : null
+    const ordersTrend = prevStart ? pct(orders, prevOrders) : null
+    const unitsTrend = prevStart ? pct(units, prevUnits) : null
+    const aovTrend = prevStart ? pct(aov, prevOrders ? prevRevenue / prevOrders : 0) : null
+
+    // ---- breakdowns ----
+    const revenueByDay = [...dailyRev.entries()].map(([date, amount]) => ({ date, amount: round2(amount) })).sort((a, b) => a.date.localeCompare(b.date))
+    const ordersByDay = [...dailyOrders.entries()].map(([date, set]) => ({ date, count: set.size })).sort((a, b) => a.date.localeCompare(b.date))
+    const businessBreakdown = [...bizRev.entries()].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount)
+    const platformBreakdown = [...platRev.entries()].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount)
+
+    const topSkus = [...sku.entries()]
+      .map(([sk, v]) => ({
+        sku: sk,
+        display_name: v.name,
+        orders: v.orderIds.size,
+        qty: v.qty,
+        amount: round2(v.revenue),
+        platforms: Object.fromEntries([...v.platforms.entries()].map(([k, x]) => [k, round2(x)])),
+        platformUnits: Object.fromEntries(v.platformUnits.entries()),
+      }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 50)
+
+    // ---- command center ----
+    const todayRevenue = todayD ? round2(dailyRev.get(todayD) || 0) : 0
+    const yestRevenue = yestD ? (dailyRev.get(yestD) || 0) : 0
+    const revenueGrowth = yestRevenue > 0 ? Math.round(((todayRevenue - yestRevenue) / yestRevenue) * 100) : null
+
+    const deltas = [...new Set([...skuToday.keys(), ...skuYest.keys()])].map((k) => {
+      const t = skuToday.get(k) || 0, y = skuYest.get(k) || 0
+      const s = sku.get(k)
+      return { master_sku: k, display_name: s?.name || k, delta: round2(t - y), todayRevenue: round2(t) }
+    })
+    const trendingUp = deltas.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5)
+    const trendingDown = deltas.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5)
+
+    const alerts = []
+    if (revenueGrowth !== null && revenueGrowth <= -30) {
+      alerts.push({ type: 'critical', category: 'ยอดขายตก', message: `รายได้วันนี้ (${todayD}) ต่ำกว่าเมื่อวาน ${Math.abs(revenueGrowth)}% — ควรตรวจสอบช่องทางที่ตก` })
+    }
+    if (trendingDown.length > 0 && trendingDown[0].delta < 0) {
+      const t = trendingDown[0]
+      alerts.push({ type: 'warning', category: 'SKU ยอดตก', message: `${t.display_name} (${t.master_sku}) ยอดตกจากเมื่อวาน ฿${Math.abs(t.delta).toLocaleString()}` })
+    }
+
+    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.status(200).json({
+      success: true,
+      revenue: round2(revenue),
+      orders,
+      units,
+      aov: Math.round(aov),
+      revenueTrend, ordersTrend, unitsTrend, aovTrend,
+      revenueByDay, ordersByDay,
+      businessBreakdown, platformBreakdown,
+      topSkus,
+      commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth },
+    })
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message })
+  }
+}
