@@ -26,12 +26,17 @@ const COLOR_TOKENS = new Set([
 // รูปแบบ "ไซส์/size/เบอร์/ขนาด X" ที่ตัดทั้งวลี
 const SIZE_PHRASE = /(?:ไซส์|ไซซ์|size|เบอร์|ขนาด|no\.?)\s*[:：]?\s*[\wก-๙]+/gi
 
+// สระบน/ล่าง + วรรณยุกต์ไทย (combining marks) — ใช้ยุบตัวที่พิมพ์ซ้ำติดกัน (typo)
+// เช่น "ที่แยกนิ้วโป้งแบบผ้านุุ่่ม" → "...ผ้านุ่ม" (สระอุ/ไม้เอกเกินมา)
+const THAI_MARK_DUP = /([ัิ-ฺ็-๎])\1+/g
+const collapseThaiMarks = (s) => String(s).normalize('NFC').replace(THAI_MARK_DUP, '$1')
+
 // วงเล็บ/ก้อน variation ท้ายชื่อ เช่น "... (M)", "...(คละสี)", "…[L]"
 const TRAILING_PAREN = /[([（【][^)\]）】]*[)\]）】]\s*$/
 
 // แปลง display_name → ชื่อกลุ่มสินค้า (ตัดไซส์/รุ่นย่อยออก)
 export function normalizeGroupLabel(name = '') {
-  const raw = String(name).trim()
+  const raw = collapseThaiMarks(String(name).trim())
   if (!raw) return ''
 
   // 1) ตัดก้อนในวงเล็บท้ายชื่อ (มักเป็นสี/ไซส์)
@@ -52,9 +57,10 @@ export function normalizeGroupLabel(name = '') {
   return out || raw
 }
 
-// คีย์สำหรับจับกลุ่ม (ไม่สนตัวพิมพ์/ช่องว่างซ้ำ)
+// คีย์สำหรับจับกลุ่ม — ไม่สนตัวพิมพ์/เว้นวรรค/สระซ้ำ
+// (ตัดเว้นวรรคทิ้งทั้งหมด เพื่อให้ "ม้าดำเล็ก กรอบทอง" = "ม้าดำเล็กกรอบทอง")
 export function groupKey(label = '') {
-  return String(label).toLowerCase().replace(/\s+/g, ' ').trim()
+  return collapseThaiMarks(label).toLowerCase().replace(/\s+/g, '').trim()
 }
 
 // สร้าง map: master_sku → product_group (จากคอลัมน์ product_group ใน product_aliases ถ้ามี)
@@ -68,11 +74,22 @@ export function buildOverrideMap(aliasRows = []) {
   return map
 }
 
+// override รายตัวในโค้ด (deterministic) — สำหรับเคสที่ auto-strip จับไม่ได้ เช่น "สีติดกับคำ"
+// เฉพาะสินค้า Payi ที่ยืนยันกับเจ้าของแล้วว่าเป็นตัวเดียวกันต่างแค่สี
+// หมายเหตุ: กรอบรูป (ม้า/ปลา/เรือ/… แดง/ดำ) จงใจไม่ใส่ที่นี่ — เจ้าของต้องการให้แยกตามสี
+// ลำดับความสำคัญ: override จากชีต (product_aliases.product_group) > BUILTIN นี้ > auto-strip
+const BUILTIN_GROUP = new Map([
+  ['PY030', 'รองเท้าสลิปเปอร์'],  // สลิปเปอร์ขาว
+  ['PY031', 'รองเท้าสลิปเปอร์'],  // สลิปเปอร์ฟ้า
+  ['PY040', 'ถุงเท้าสปา'],        // สปาเขียว
+  ['PY065', 'ถุงเท้าสปา'],        // สปาชมพู
+])
+
 // หากลุ่มของ 1 แถว: คืน { key, label }
 // overrideMap = ผลจาก buildOverrideMap (optional)
 export function deriveGroup(displayName, masterSku, overrideMap) {
   const sku = masterSku != null ? String(masterSku).trim() : ''
-  const ov = overrideMap && sku ? overrideMap.get(sku) : null
+  const ov = (overrideMap && sku ? overrideMap.get(sku) : null) || BUILTIN_GROUP.get(sku)
   const label = ov || normalizeGroupLabel(displayName || sku || '(ไม่ระบุ)')
   return { key: groupKey(label) || '(ไม่ระบุ)', label: label || '(ไม่ระบุ)' }
 }
