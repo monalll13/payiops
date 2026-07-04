@@ -231,11 +231,15 @@ function buildRadar(events) {
   return buckets
 }
 
-function buildProductSignals(orders) {
-  const today = todayIso()
-  const thisStart = addDays(today, -6)
-  const prevStart = addDays(today, -13)
-  const prevEnd = addDays(today, -7)
+// ยึด "วันล่าสุดที่มีข้อมูลจริง" (anchor) แทนวันนี้ — กันพาเนลว่างตอนข้อมูลไม่สด
+function latestOrderDate(orders) {
+  return orders.reduce((max, o) => (o.date > max ? o.date : max), '') || todayIso()
+}
+
+function buildProductSignals(orders, anchor = latestOrderDate(orders)) {
+  const thisStart = addDays(anchor, -6)
+  const prevStart = addDays(anchor, -13)
+  const prevEnd = addDays(anchor, -7)
   const products = new Map()
 
   for (const order of orders) {
@@ -252,7 +256,7 @@ function buildProductSignals(orders) {
       }
       products.set(order.product_key, product)
     }
-    if (order.date >= thisStart && order.date <= today) {
+    if (order.date >= thisStart && order.date <= anchor) {
       product.revenue7 += order.revenue
       product.units7 += order.qty
       product.platforms.set(order.platform, (product.platforms.get(order.platform) || 0) + order.revenue)
@@ -288,21 +292,30 @@ function buildProductOptions(orders) {
       product = {
         product_key: order.product_key || key,
         display_name: order.product_label || order.display_name || order.master_sku || key,
-        master_sku: order.master_sku || '',
+        master_sku: '',
         revenue: 0,
         units: 0,
         lastDate: '',
+        skuSet: new Set(),
       }
       products.set(key, product)
     }
     product.revenue += order.revenue
     product.units += order.qty
     if (order.date > product.lastDate) product.lastDate = order.date
-    if (!product.master_sku && order.master_sku) product.master_sku = order.master_sku
+    if (order.master_sku) product.skuSet.add(order.master_sku)
   }
 
   return [...products.values()]
-    .map((product) => ({ ...product, revenue: round2(product.revenue) }))
+    .map((product) => ({
+      product_key: product.product_key,
+      display_name: product.display_name,
+      master_sku: '',
+      revenue: round2(product.revenue),
+      units: product.units,
+      lastDate: product.lastDate,
+      skuCount: product.skuSet.size,
+    }))
     .sort((a, b) => b.lastDate.localeCompare(a.lastDate) || b.revenue - a.revenue)
     .slice(0, 200)
 }
@@ -316,13 +329,15 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const [events, orders] = await Promise.all([getMarketingRows(), readOrderRows()])
       const decorated = decorateEvents(events, orders)
+      const anchor = latestOrderDate(orders)
       res.setHeader('Cache-Control', 'no-store')
       return res.status(200).json({
         success: true,
         events: decorated,
         radar: buildRadar(decorated),
-        productSignals: buildProductSignals(orders),
+        productSignals: buildProductSignals(orders, anchor),
         productOptions: buildProductOptions(orders),
+        signalWindow: { start: addDays(anchor, -6), end: anchor },
       })
     }
 

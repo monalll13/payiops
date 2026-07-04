@@ -47,15 +47,16 @@ export default function MarketingRadar() {
           setData(d)
           return
         }
-        return fetch('/api/dashboard')
+        return fetch('/api/products')
           .then((r) => r.json())
-          .then((dash) => {
-            const fallbackOptions = (dash.topSkus || []).map((item) => ({
-              product_key: item.sku,
-              master_sku: item.sku,
-              display_name: item.display_name || item.sku,
-              revenue: item.amount || 0,
-              units: item.qty || 0,
+          .then((products) => {
+            const fallbackOptions = (products.groups || []).map((item) => ({
+              product_key: item.key,
+              master_sku: '',
+              display_name: item.label || item.key,
+              revenue: item.revenue || 0,
+              units: item.units || 0,
+              skuCount: item.skuCount || item.members?.length || 0,
             }))
             setData({ ...d, productOptions: fallbackOptions })
           })
@@ -73,6 +74,7 @@ export default function MarketingRadar() {
   const events = useMemo(() => data?.events || [], [data])
   const radar = useMemo(() => data?.radar || {}, [data])
   const signals = useMemo(() => data?.productSignals || [], [data])
+  const signalWindow = data?.signalWindow
 
   const filteredSignals = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -183,10 +185,15 @@ export default function MarketingRadar() {
 
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="payi-glass-card" style={{ padding: 14, borderRadius: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 2 }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)' }}>สินค้าที่น่าดันต่อ</div>
               <Film size={16} color="var(--payi-text-muted)" />
             </div>
+            {signalWindow && (
+              <div style={{ fontSize: 10.5, color: 'var(--payi-text-muted)', marginBottom: 10 }}>
+                เทียบ 7 วันล่าสุดที่มีข้อมูล · {signalWindow.start} – {signalWindow.end}
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--payi-border)', background: 'var(--payi-surface)', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
               <Search size={15} color="var(--payi-text-muted)" />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหา SKU / สินค้า" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: 'transparent', fontSize: 13 }} />
@@ -366,7 +373,9 @@ function QuickCapture({ draft, setDraft, createEvent, saving, productOptions = [
             {productChoices.slice(0, 8).map((item) => (
               <button key={item.product_key || item.master_sku || item.display_name} type="button" onMouseDown={() => pickProduct(item)} style={dropdownItemStyle}>
                 <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.display_name || item.master_sku || item.product_key}</span>
-                <span style={{ fontSize: 10, color: 'var(--payi-text-muted)', fontFamily: 'monospace' }}>{item.master_sku || item.product_key}</span>
+                <span style={{ fontSize: 10, color: 'var(--payi-text-muted)', fontFamily: 'monospace' }}>
+                  {item.skuCount ? `รวม ${item.skuCount} SKU` : (item.master_sku || item.product_key)}
+                </span>
               </button>
             ))}
             {!productChoices.length && (
