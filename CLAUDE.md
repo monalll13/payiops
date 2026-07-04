@@ -119,9 +119,21 @@ endpoints are currently open/no-auth.
    - **NO claim photos** (decided — keeps it light). Button renamed **"ดูรายละเอียด"**
      (not "ดูหลักฐาน"); it expands text detail: common reasons + breakdown by claim type
      (เสีย/พัง, ส่งไม่ครบ, ส่งผิด).
-   - Still open for tomorrow: rate thresholds for red/amber/green cutoffs (owner to set);
-     wire to real data (claim rate = `claims.js?view=by-product` counts ÷ `products.js` units);
-     auto-switch RuRu mood from data; period selector.
+   - ✅ **Wired to real data (2026-07-04):** new endpoint `api/manager-claims.js` joins
+     claims (per group) with raw_orders units (per group) via the shared `deriveGroup`, so
+     claim rate = claims ÷ units. RuRu mood + speech now auto from `alertCount`. Verified on
+     real data: 486 claims / 61 groups. Also returns global claim-type totals
+     (damaged/incomplete/wrong) + `monthly` counts → mobile view shows a "แยกตามประเภทเคลม"
+     breakdown and a monthly-trend mini-bar, mirroring the desktop `ClaimView` KPIs
+     (matches exactly: 141 / 132 / 208 = 29% / 27% / 43%).
+   - **CRITICAL small-sample guard:** rate% on tiny volume is misleading (1 claim / 3 units =
+     33% but meaningless). Endpoint requires `MIN_UNITS = 100` before a group can be red/amber;
+     below that → level `low`, pushed to the bottom and shown only as a "+N รายการข้อมูลน้อย"
+     footnote. This cut false alarms from 29 → 8 red. Thresholds live at the top of
+     `manager-claims.js`: `RED = 1.0`, `AMBER = 0.2`, `MIN_UNITS = 100`.
+   - Still open: **owner must confirm the 3 thresholds** (currently 8 red / 24 amber — feels
+     reasonable but unconfirmed); period selector (all-time now); make "ดูรายละเอียด" drill to
+     the actual claim records (date/note) later; wire the other bottom-nav tabs (สินค้า/ยอดขาย).
 4. **Dashboard IA** — split into "Dashboard ยอดขาย" (sales, likely the new home page,
    replacing Executive as landing) and "Dashboard สินค้า" (product performance: best sellers,
    trends, per-product using #2 grouping). ✅ **"Dashboard สินค้า" DONE** = `ProductDashboard.jsx`
