@@ -17,6 +17,7 @@ import ClaimView from './pages/ClaimView'
 import SalesView from './pages/SalesView'
 import MonthlyDashboard from './pages/MonthlyDashboard'
 import ProductDashboard from './pages/ProductDashboard'
+import ProductTrends from './pages/ProductTrends'
 
 const API_BASE = '/api'
 
@@ -127,7 +128,8 @@ const menuGroups = [
     items: [
       { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
       { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive },
-      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory }
+      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory },
+      { id: 'ProductTrends', label: '% เปลี่ยนแปลงสินค้า', renderIcon: Icons.StockMovement }
     ]
   },
   {
@@ -695,6 +697,11 @@ export default function App() {
       title: 'Dashboard สินค้า',
       eyebrow: 'Overview',
       subtitle: 'ผลงานสินค้ารายกลุ่ม (รวมไซส์/รุ่นย่อยเป็นตัวเดียว) · สินค้าขายดี แนวโน้ม และ SKU ในกลุ่ม'
+    },
+    ProductTrends: {
+      title: '% เปลี่ยนแปลงสินค้า',
+      eyebrow: 'Overview',
+      subtitle: 'จำนวนชิ้น & ยอดขายรายเดือน + % เปลี่ยนแปลง MoM · แยกแพลตฟอร์ม · กดดู SKU แยกในกลุ่ม'
     }
   }[activeTab] || {
     title: activeTab,
@@ -1191,6 +1198,8 @@ export default function App() {
             <MonthlyDashboard />
         ) : activeTab === 'Products' ? (
             <ProductDashboard />
+        ) : activeTab === 'ProductTrends' ? (
+            <ProductTrends />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
             <SalesView />
         ) : activeTab === 'Packing' ? (

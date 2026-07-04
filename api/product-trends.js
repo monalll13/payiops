@@ -1,0 +1,109 @@
+// GET /api/product-trends?business=&platform=
+// % เปลี่ยนแปลงรายเดือน (MoM) ของสินค้าแต่ละกลุ่ม — ทั้ง "จำนวนชิ้น" และ "ยอดขาย"
+// รองรับกรองแพลตฟอร์ม/ร้าน (กรองแล้ว re-fetch เหมือน products.js)
+// คืนค่ารายเดือน per กลุ่มสินค้า + per SKU สมาชิก (สำหรับกดขยายดู) — % คำนวณฝั่ง frontend
+import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
+import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
+
+const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
+const round2 = (n) => Math.round(n * 100) / 100
+
+// จำนวนกลุ่มสูงสุดที่ส่งกลับ (คุมขนาด response — เรียงตามยอดขายรวม)
+const MAX_GROUPS = 120
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
+
+  const { business = 'all', platform = 'all' } = req.query
+  const keepBiz = (b) => business === 'all' || b === business
+  const keepPlat = (p) => platform === 'all' || p === platform
+
+  try {
+    let overrideMap = new Map()
+    try {
+      overrideMap = buildOverrideMap(await getSheet('product_aliases'))
+    } catch { /* ไม่มี sheet — ใช้ auto-strip แทน */ }
+
+    const meta = await getMeta()
+    const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
+
+    // B:F = order_id, order_item_id, date, platform, business ; J:N = master_sku, display_name, qty, revenue, status
+    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`])
+    const vr = await batchGetValues(ranges)
+
+    const groups = new Map()  // key -> { key, label, totalRev, monthly:Map(ym->{units,revenue}), skus:Map }
+    const monthsSet = new Set()
+
+    // helper: บวกค่ารายเดือนเข้าไปใน Map(ym -> {units,revenue})
+    const addMonthly = (map, ym, qty, rev) => {
+      let m = map.get(ym)
+      if (!m) map.set(ym, (m = { units: 0, revenue: 0 }))
+      m.units += qty; m.revenue += rev
+    }
+
+    for (let i = 0; i < tabs.length; i++) {
+      const left = vr[2 * i].values || []
+      const right = vr[2 * i + 1].values || []
+      const n = Math.max(left.length, right.length)
+      for (let j = 1; j < n; j++) {
+        const l = left[j] || [], r = right[j] || []
+        const date = l[2], plat = l[3], biz = l[4]
+        const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
+        if (!date || isCancelled(status)) continue
+        if (!keepBiz(biz) || !keepPlat(plat)) continue
+
+        const ym = String(date).slice(0, 7)
+        monthsSet.add(ym)
+
+        const { key, label } = deriveGroup(name, masterSku, overrideMap)
+        let g = groups.get(key)
+        if (!g) groups.set(key, (g = { key, label, totalRev: 0, monthly: new Map(), skus: new Map() }))
+        g.totalRev += rev
+        addMonthly(g.monthly, ym, qty, rev)
+
+        const sk = masterSku || '(ไม่ระบุ)'
+        let m = g.skus.get(sk)
+        if (!m) g.skus.set(sk, (m = { master_sku: sk, display_name: name || sk, monthly: new Map() }))
+        if (!m.display_name && name) m.display_name = name
+        addMonthly(m.monthly, ym, qty, rev)
+      }
+    }
+
+    const months = [...monthsSet].sort()
+    // แปลง Map(ym) → array ตามลำดับเดือนทั้งหมด (เดือนไม่มีข้อมูล = 0)
+    const toRow = (map) => months.map((ym) => {
+      const v = map.get(ym) || { units: 0, revenue: 0 }
+      return { month: ym, units: v.units, revenue: round2(v.revenue) }
+    })
+
+    const groupArr = [...groups.values()]
+      .sort((a, b) => b.totalRev - a.totalRev)
+      .slice(0, MAX_GROUPS)
+      .map((g) => ({
+        key: g.key,
+        label: g.label,
+        skuCount: g.skus.size,
+        monthly: toRow(g.monthly),
+        members: [...g.skus.values()]
+          .map((m) => ({
+            master_sku: m.master_sku,
+            display_name: m.display_name,
+            monthly: toRow(m.monthly),
+            _rev: [...m.monthly.values()].reduce((s, v) => s + v.revenue, 0),
+          }))
+          .sort((a, b) => b._rev - a._rev)
+          .map(({ _rev, ...m }) => m),
+      }))
+
+    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.status(200).json({
+      success: true,
+      months,
+      groups: groupArr,
+      groupCount: groups.size,
+    })
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message })
+  }
+}
