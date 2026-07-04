@@ -60,6 +60,34 @@ export async function appendRows(sheetName, rows) {
 }
 
 // เขียนทับทั้ง sheet (สำหรับ product_master)
+export async function ensureSheet(sheetName, headers) {
+  const meta = await getMeta()
+  const exists = meta.sheets.some((s) => s.properties.title === sheetName)
+  if (!exists) {
+    await getClient().spreadsheets.batchUpdate({
+      spreadsheetId: sheetId(),
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: sheetName } } }],
+      },
+    })
+  }
+
+  const res = await getClient().spreadsheets.values.get({
+    spreadsheetId: sheetId(),
+    range: `${sheetName}!A1:Z1`,
+  })
+  const current = res.data.values?.[0] || []
+  const missingHeader = headers.some((h, i) => current[i] !== h)
+  if (!current.length || missingHeader) {
+    await getClient().spreadsheets.values.update({
+      spreadsheetId: sheetId(),
+      range: `${sheetName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [headers] },
+    })
+  }
+}
+
 export async function overwriteSheet(sheetName, headers, rows) {
   await getClient().spreadsheets.values.clear({
     spreadsheetId: sheetId(),

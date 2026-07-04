@@ -18,6 +18,7 @@ import SalesView from './pages/SalesView'
 import MonthlyDashboard from './pages/MonthlyDashboard'
 import ProductDashboard from './pages/ProductDashboard'
 import ProductTrends from './pages/ProductTrends'
+import MarketingRadar from './pages/MarketingRadar'
 
 const API_BASE = '/api'
 
@@ -124,49 +125,55 @@ const Icons = {
 
 const menuGroups = [
   {
-    title: 'OVERVIEW',
+    title: 'ภาพรวม',
     items: [
-      { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
+      { id: 'Executive', label: 'ภาพรวมผู้บริหาร', renderIcon: Icons.Executive },
       { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive },
       { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory },
       { id: 'ProductTrends', label: '% เปลี่ยนแปลงสินค้า', renderIcon: Icons.StockMovement }
     ]
   },
   {
-    title: 'SALES',
+    title: 'ยอดขาย',
     items: [
-      { id: 'Import Orders', label: 'Import Orders', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
-      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Executive }
+      { id: 'Import Orders', label: 'นำเข้าออเดอร์', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
+      { id: 'Sales', label: 'ยอดขายนอกแพลตฟอร์ม', renderIcon: Icons.Executive }
     ]
   },
   {
-    title: 'INVENTORY',
+    title: 'การตลาด',
     items: [
-      { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
-      { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement }
+      { id: 'MarketingRadar', label: 'เรดาร์การตลาด', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' }
     ]
   },
   {
-    title: 'OPS',
+    title: 'คลังสินค้า',
     items: [
-      { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
-      { id: 'Packing', label: 'Packing', renderIcon: Icons.Tasks },
-      { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks }
+      { id: 'Inventory', label: 'สต็อกสินค้า', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
+      { id: 'Stock Movement', label: 'ความเคลื่อนไหวสต็อก', renderIcon: Icons.StockMovement }
     ]
   },
   {
-    title: 'TOOLS',
+    title: 'งานปฏิบัติการ',
     items: [
-      { id: 'SOPs', label: 'SOPs', renderIcon: Icons.SOPs },
-      { id: 'Links Hub', label: 'Links Hub', helper: 'Boss / Manager', renderIcon: Icons.LinksHub },
-      { id: 'Dev Hub', label: 'Dev Hub', helper: 'Dev / New joiner', renderIcon: Icons.DevHub }
+      { id: 'Tasks', label: 'งานค้าง', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
+      { id: 'Packing', label: 'แพ็กสินค้า', renderIcon: Icons.Tasks },
+      { id: 'Claims', label: 'เคลมสินค้า', renderIcon: Icons.Tasks }
+    ]
+  },
+  {
+    title: 'เครื่องมือ',
+    items: [
+      { id: 'SOPs', label: 'คู่มือ SOP', renderIcon: Icons.SOPs },
+      { id: 'Links Hub', label: 'ลิงก์สำคัญ', helper: 'บอส / ผู้จัดการ', renderIcon: Icons.LinksHub },
+      { id: 'Dev Hub', label: 'มุม Dev', helper: 'ทีมพัฒนา / คนใหม่', renderIcon: Icons.DevHub }
     ]
   },
   {
     title: 'AI',
     items: [
       { id: 'AI Assistant', label: 'PAYI Brain', renderIcon: Icons.AIAssistant },
-      { id: 'Settings', label: 'Settings', renderIcon: Icons.Settings }
+      { id: 'Settings', label: 'ตั้งค่า', renderIcon: Icons.Settings }
     ]
   }
 ]
@@ -702,6 +709,11 @@ export default function App() {
       title: '% เปลี่ยนแปลงสินค้า',
       eyebrow: 'Overview',
       subtitle: 'จำนวนชิ้น & ยอดขายรายเดือน + % เปลี่ยนแปลง MoM · แยกแพลตฟอร์ม · กดดู SKU แยกในกลุ่ม'
+    },
+    MarketingRadar: {
+      title: 'เรดาร์การตลาด',
+      eyebrow: 'Marketing',
+      subtitle: 'ติดตามงานแก้รูป ลงสินค้าใหม่ ลงคลิป และดูผลยอดขายหลังเปลี่ยนแบบสั้น ๆ'
     }
   }[activeTab] || {
     title: activeTab,
@@ -783,7 +795,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: '10px 12px', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}>
               <Search size={16} color="var(--payi-text-muted)" />
               <input
-                placeholder="Search SKU or campaign"
+                placeholder="ค้นหา SKU หรือแคมเปญ"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', fontSize: 13, color: 'var(--payi-surface-dark)', background: 'transparent' }}
@@ -1200,6 +1212,8 @@ export default function App() {
             <ProductDashboard />
         ) : activeTab === 'ProductTrends' ? (
             <ProductTrends />
+        ) : activeTab === 'MarketingRadar' ? (
+            <MarketingRadar />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
             <SalesView />
         ) : activeTab === 'Packing' ? (

@@ -28,7 +28,7 @@ function localApi() {
         // แปลง req/res ของ node ให้เข้ากับรูปแบบ handler ของ Vercel
         const url = new URL(req.url, 'http://localhost')
         req.query = Object.fromEntries(url.searchParams)
-        if (req.method === 'POST' || req.method === 'PUT') {
+        if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
           const chunks = []
           for await (const c of req) chunks.push(c)
           try { req.body = JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { req.body = {} }
