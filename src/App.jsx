@@ -125,55 +125,55 @@ const Icons = {
 
 const menuGroups = [
   {
-    title: 'ภาพรวม',
+    title: 'OVERVIEW',
     items: [
-      { id: 'Executive', label: 'ภาพรวมผู้บริหาร', renderIcon: Icons.Executive },
-      { id: 'Monthly', label: 'สรุปรายเดือน', renderIcon: Icons.Executive },
-      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory },
-      { id: 'ProductTrends', label: '% เปลี่ยนแปลงสินค้า', renderIcon: Icons.StockMovement }
+      { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
+      { id: 'Monthly', label: 'Monthly Summary', renderIcon: Icons.Executive },
+      { id: 'Products', label: 'Product Dashboard', renderIcon: Icons.Inventory },
+      { id: 'ProductTrends', label: 'Product Trends %', renderIcon: Icons.StockMovement }
     ]
   },
   {
-    title: 'ยอดขาย',
+    title: 'SALES',
     items: [
-      { id: 'Import Orders', label: 'นำเข้าออเดอร์', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
-      { id: 'Sales', label: 'ยอดขายนอกแพลตฟอร์ม', renderIcon: Icons.Executive }
+      { id: 'Import Orders', label: 'Import Orders', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
+      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Executive }
     ]
   },
   {
-    title: 'การตลาด',
+    title: 'MARKETING',
     items: [
-      { id: 'MarketingRadar', label: 'เรดาร์การตลาด', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' }
+      { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' }
     ]
   },
   {
-    title: 'คลังสินค้า',
+    title: 'INVENTORY',
     items: [
-      { id: 'Inventory', label: 'สต็อกสินค้า', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
-      { id: 'Stock Movement', label: 'ความเคลื่อนไหวสต็อก', renderIcon: Icons.StockMovement }
+      { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
+      { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement }
     ]
   },
   {
-    title: 'งานปฏิบัติการ',
+    title: 'OPS',
     items: [
-      { id: 'Tasks', label: 'งานค้าง', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
-      { id: 'Packing', label: 'แพ็กสินค้า', renderIcon: Icons.Tasks },
-      { id: 'Claims', label: 'เคลมสินค้า', renderIcon: Icons.Tasks }
+      { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
+      { id: 'Packing', label: 'Packing', renderIcon: Icons.Tasks },
+      { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks }
     ]
   },
   {
-    title: 'เครื่องมือ',
+    title: 'TOOLS',
     items: [
-      { id: 'SOPs', label: 'คู่มือ SOP', renderIcon: Icons.SOPs },
-      { id: 'Links Hub', label: 'ลิงก์สำคัญ', helper: 'บอส / ผู้จัดการ', renderIcon: Icons.LinksHub },
-      { id: 'Dev Hub', label: 'มุม Dev', helper: 'ทีมพัฒนา / คนใหม่', renderIcon: Icons.DevHub }
+      { id: 'SOPs', label: 'SOPs', renderIcon: Icons.SOPs },
+      { id: 'Links Hub', label: 'Links Hub', helper: 'Boss / Manager', renderIcon: Icons.LinksHub },
+      { id: 'Dev Hub', label: 'Dev Hub', helper: 'Dev / New joiner', renderIcon: Icons.DevHub }
     ]
   },
   {
     title: 'AI',
     items: [
       { id: 'AI Assistant', label: 'PAYI Brain', renderIcon: Icons.AIAssistant },
-      { id: 'Settings', label: 'ตั้งค่า', renderIcon: Icons.Settings }
+      { id: 'Settings', label: 'Settings', renderIcon: Icons.Settings }
     ]
   }
 ]

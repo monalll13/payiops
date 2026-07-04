@@ -25,7 +25,7 @@ const COLUMNS = [
   { id: 'content', title: 'ดันคอนเทนต์', icon: Megaphone, tone: '#db2777' },
 ]
 
-const BUSINESSES = ['all', 'Payi', 'Payi Outlet', 'กรอบรูป']
+const BUSINESSES = ['all', 'Payi', 'กรอบรูป']
 const PLATFORMS = ['all', 'Shopee', 'TikTok Shop', 'Lazada']
 
 export default function MarketingRadar() {
@@ -43,7 +43,22 @@ export default function MarketingRadar() {
       .then((r) => r.json())
       .then((d) => {
         if (!d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-        setData(d)
+        if (d.productOptions?.length) {
+          setData(d)
+          return
+        }
+        return fetch('/api/dashboard')
+          .then((r) => r.json())
+          .then((dash) => {
+            const fallbackOptions = (dash.topSkus || []).map((item) => ({
+              product_key: item.sku,
+              master_sku: item.sku,
+              display_name: item.display_name || item.sku,
+              revenue: item.amount || 0,
+              units: item.qty || 0,
+            }))
+            setData({ ...d, productOptions: fallbackOptions })
+          })
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -196,7 +211,7 @@ export default function MarketingRadar() {
 
           <div className="payi-glass-card" style={{ padding: 14, borderRadius: 8 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)', marginBottom: 10 }}>จดเหตุการณ์เร็ว</div>
-            <QuickCapture draft={draft} setDraft={setDraft} createEvent={createEvent} saving={saving} />
+            <QuickCapture draft={draft} setDraft={setDraft} createEvent={createEvent} saving={saving} productOptions={data?.productOptions || []} />
           </div>
         </aside>
       </div>
@@ -291,7 +306,8 @@ function SignalItem({ item, onTrack }) {
   )
 }
 
-function QuickCapture({ draft, setDraft, createEvent, saving }) {
+function QuickCapture({ draft, setDraft, createEvent, saving, productOptions = [] }) {
+  const [productOpen, setProductOpen] = useState(false)
   const value = draft || {
     product_key: '',
     master_sku: '',
@@ -305,12 +321,62 @@ function QuickCapture({ draft, setDraft, createEvent, saving }) {
     note: '',
   }
   const set = (patch) => setDraft({ ...value, ...patch })
+  const productValue = value.master_sku || value.display_name || value.product_key
+  const productQuery = productValue.trim().toLowerCase()
+  const productChoices = productOptions
+    .filter((item) => item.product_key || item.master_sku || item.display_name)
+    .filter((item) => {
+      if (!productQuery) return true
+      return [item.display_name, item.master_sku, item.product_key]
+        .some((part) => String(part || '').toLowerCase().includes(productQuery))
+    })
+    .slice(0, 80)
+  const pickProduct = (picked) => {
+    set({
+      display_name: picked.display_name || picked.master_sku || picked.product_key,
+      master_sku: picked.master_sku || '',
+      product_key: picked.product_key || picked.master_sku || picked.display_name,
+    })
+    setProductOpen(false)
+  }
+  const setProduct = (raw) => {
+    set({
+      display_name: raw,
+      master_sku: raw,
+      product_key: raw,
+    })
+    setProductOpen(true)
+  }
+  const platformOptions = value.business === 'Payi' ? [...PLATFORMS, 'Payi Outlet'] : PLATFORMS
   const canSave = value.product_key || value.master_sku
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      <input value={value.display_name} onChange={(e) => set({ display_name: e.target.value })} placeholder="ชื่อสินค้า" style={inputStyle} />
-      <input value={value.master_sku} onChange={(e) => set({ master_sku: e.target.value, product_key: e.target.value })} placeholder="SKU หรือรหัสสินค้า" style={inputStyle} />
+      <div style={{ position: 'relative' }}>
+        <input
+          value={productValue}
+          onChange={(e) => setProduct(e.target.value)}
+          onFocus={() => setProductOpen(true)}
+          onBlur={() => window.setTimeout(() => setProductOpen(false), 140)}
+          placeholder="สินค้า / SKU"
+          style={inputStyle}
+        />
+        {productOpen && (
+          <div style={dropdownStyle}>
+            {productChoices.slice(0, 8).map((item) => (
+              <button key={item.product_key || item.master_sku || item.display_name} type="button" onMouseDown={() => pickProduct(item)} style={dropdownItemStyle}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.display_name || item.master_sku || item.product_key}</span>
+                <span style={{ fontSize: 10, color: 'var(--payi-text-muted)', fontFamily: 'monospace' }}>{item.master_sku || item.product_key}</span>
+              </button>
+            ))}
+            {!productChoices.length && (
+              <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--payi-text-muted)' }}>
+                ไม่พบสินค้าเดิม กดบันทึกเพื่อใช้เป็นสินค้าใหม่ได้
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <select value={value.event_type} onChange={(e) => set({ event_type: e.target.value })} style={inputStyle}>
           {EVENT_TYPES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
@@ -318,11 +384,18 @@ function QuickCapture({ draft, setDraft, createEvent, saving }) {
         <input type="date" value={value.event_date} onChange={(e) => set({ event_date: e.target.value })} style={inputStyle} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <select value={value.business} onChange={(e) => set({ business: e.target.value })} style={inputStyle}>
+        <select
+          value={value.business}
+          onChange={(e) => set({
+            business: e.target.value,
+            platform: e.target.value === 'Payi' ? value.platform : (value.platform === 'Payi Outlet' ? 'all' : value.platform),
+          })}
+          style={inputStyle}
+        >
           {BUSINESSES.map((item) => <option key={item} value={item}>{optionLabel(item)}</option>)}
         </select>
         <select value={value.platform} onChange={(e) => set({ platform: e.target.value })} style={inputStyle}>
-          {PLATFORMS.map((item) => <option key={item} value={item}>{optionLabel(item)}</option>)}
+          {platformOptions.map((item) => <option key={item} value={item}>{optionLabel(item)}</option>)}
         </select>
       </div>
       <textarea value={value.note} onChange={(e) => set({ note: e.target.value })} placeholder="โน้ตสั้น ๆ" rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
@@ -403,7 +476,9 @@ function Center({ children }) {
 }
 
 function optionLabel(value) {
-  return value === 'all' ? 'ทั้งหมด' : value
+  if (value === 'all') return 'ทั้งหมด'
+  if (value === 'Payi Outlet') return 'Outlet'
+  return value
 }
 
 const inputStyle = {
@@ -416,6 +491,32 @@ const inputStyle = {
   fontSize: 12,
   color: 'var(--payi-text-strong)',
   outline: 'none',
+}
+
+const dropdownStyle = {
+  position: 'absolute',
+  zIndex: 30,
+  left: 0,
+  right: 0,
+  top: 'calc(100% + 4px)',
+  maxHeight: 260,
+  overflowY: 'auto',
+  background: 'var(--payi-surface)',
+  border: '1px solid var(--payi-border)',
+  borderRadius: 8,
+  boxShadow: '0 18px 42px rgba(15,23,42,0.12)',
+}
+
+const dropdownItemStyle = {
+  width: '100%',
+  border: 'none',
+  borderBottom: '1px solid var(--payi-border)',
+  background: 'transparent',
+  padding: '9px 11px',
+  display: 'grid',
+  gap: 2,
+  textAlign: 'left',
+  cursor: 'pointer',
 }
 
 const primaryBtnStyle = {

@@ -121,9 +121,12 @@ function matchEvent(order, event) {
   const key = String(event.product_key || '').trim()
   const platform = String(event.platform || 'all').trim()
   const business = String(event.business || 'all').trim()
+  const outletSelected = platform === 'Payi Outlet'
   if (sku && order.master_sku !== sku) return false
   if (!sku && key && order.product_key !== key) return false
-  if (platform && platform !== 'all' && order.platform !== platform) return false
+  if (outletSelected && order.business !== 'Payi Outlet') return false
+  if (!outletSelected && platform && platform !== 'all' && order.platform !== platform) return false
+  if (outletSelected) return true
   if (business && business !== 'all' && order.business !== business) return false
   return true
 }
@@ -275,6 +278,35 @@ function buildProductSignals(orders) {
     .slice(0, 20)
 }
 
+function buildProductOptions(orders) {
+  const products = new Map()
+  for (const order of orders) {
+    const key = order.product_key || order.master_sku || order.display_name
+    if (!key) continue
+    let product = products.get(key)
+    if (!product) {
+      product = {
+        product_key: order.product_key || key,
+        display_name: order.product_label || order.display_name || order.master_sku || key,
+        master_sku: order.master_sku || '',
+        revenue: 0,
+        units: 0,
+        lastDate: '',
+      }
+      products.set(key, product)
+    }
+    product.revenue += order.revenue
+    product.units += order.qty
+    if (order.date > product.lastDate) product.lastDate = order.date
+    if (!product.master_sku && order.master_sku) product.master_sku = order.master_sku
+  }
+
+  return [...products.values()]
+    .map((product) => ({ ...product, revenue: round2(product.revenue) }))
+    .sort((a, b) => b.lastDate.localeCompare(a.lastDate) || b.revenue - a.revenue)
+    .slice(0, 200)
+}
+
 function bodyFromReq(req) {
   return typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
 }
@@ -290,6 +322,7 @@ export default async function handler(req, res) {
         events: decorated,
         radar: buildRadar(decorated),
         productSignals: buildProductSignals(orders),
+        productOptions: buildProductOptions(orders),
       })
     }
 
