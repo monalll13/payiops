@@ -19,6 +19,8 @@ import MonthlyDashboard from './pages/MonthlyDashboard'
 import ProductDashboard from './pages/ProductDashboard'
 import ProductTrends from './pages/ProductTrends'
 import MarketingRadar from './pages/MarketingRadar'
+import AdsChannels from './pages/AdsChannels'
+import ContentOSPrototype from './pages/ContentOSPrototype'
 
 const API_BASE = '/api'
 
@@ -127,10 +129,8 @@ const menuGroups = [
   {
     title: 'OVERVIEW',
     items: [
-      { id: 'Executive', label: 'Executive', renderIcon: Icons.Executive },
-      { id: 'Monthly', label: 'Monthly Summary', renderIcon: Icons.Executive },
-      { id: 'Products', label: 'Product Dashboard', renderIcon: Icons.Inventory },
-      { id: 'ProductTrends', label: 'Product Trends %', renderIcon: Icons.StockMovement }
+      { id: 'Executive', label: 'Dashboard สรุปยอดขาย', renderIcon: Icons.Executive, group: ['Executive', 'Monthly'] },
+      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory, group: ['Products', 'ProductTrends'] }
     ]
   },
   {
@@ -143,7 +143,9 @@ const menuGroups = [
   {
     title: 'MARKETING',
     items: [
-      { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' }
+      { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' },
+      { id: 'AdsChannels', label: 'Ads & Channels', renderIcon: Icons.StockMovement },
+      { id: 'ContentOS', label: 'Content OS Prototype', renderIcon: Icons.AIAssistant, dotColor: 'var(--payi-mint)' }
     ]
   },
   {
@@ -177,6 +179,14 @@ const menuGroups = [
     ]
   }
 ]
+
+// แท็บย่อยของ Dashboard ใหญ่ที่ยุบมาจากหลายหน้า (render เดิมของแต่ละหน้ายังอยู่ครบ)
+const SALES_SUBTABS = [['Executive', 'ภาพรวม'], ['Monthly', 'รายเดือน']]
+const PRODUCT_SUBTABS = [['Products', 'ภาพรวมสินค้า'], ['ProductTrends', '% เปลี่ยนแปลง']]
+const SUB_TABS = {
+  Executive: SALES_SUBTABS, Monthly: SALES_SUBTABS,
+  Products: PRODUCT_SUBTABS, ProductTrends: PRODUCT_SUBTABS,
+}
 
 function AlertsSection({ alerts }) {
   if (!alerts || alerts.length === 0) return null;
@@ -686,9 +696,14 @@ export default function App() {
 
   const pageMeta = {
     Executive: {
-      title: 'Executive',
+      title: 'Dashboard สรุปยอดขาย',
       eyebrow: 'Overview',
-      subtitle: 'Daily command view for sales, stock signals, tasks, and alerts.'
+      subtitle: 'ภาพรวมคำสั่งซื้อรายวัน + สรุปรายเดือน (ยอดขาย ออเดอร์ ร้าน แพลตฟอร์ม)'
+    },
+    Monthly: {
+      title: 'Dashboard สรุปยอดขาย',
+      eyebrow: 'Overview',
+      subtitle: 'ภาพรวมคำสั่งซื้อรายวัน + สรุปรายเดือน (ยอดขาย ออเดอร์ ร้าน แพลตฟอร์ม)'
     },
     Sales: {
       title: 'Off-Platform Sales',
@@ -706,9 +721,14 @@ export default function App() {
       subtitle: 'ผลงานสินค้ารายกลุ่ม (รวมไซส์/รุ่นย่อยเป็นตัวเดียว) · สินค้าขายดี แนวโน้ม และ SKU ในกลุ่ม'
     },
     ProductTrends: {
-      title: '% เปลี่ยนแปลงสินค้า',
+      title: 'Dashboard สินค้า',
       eyebrow: 'Overview',
-      subtitle: 'จำนวนชิ้น & ยอดขายรายเดือน + % เปลี่ยนแปลง MoM · แยกแพลตฟอร์ม · กดดู SKU แยกในกลุ่ม'
+      subtitle: 'ผลงานสินค้ารายกลุ่ม + % เปลี่ยนแปลงรายเดือน (จำนวนชิ้น & ยอดขาย)'
+    },
+    AdsChannels: {
+      title: 'Ads & Channels',
+      eyebrow: 'Marketing',
+      subtitle: 'ค่า Ads และ TikTok channel (Affiliate/Live/VDO) รายเดือน · กรอกมือ + กราฟเทียบกับ Orders'
     },
     MarketingRadar: {
       title: 'เรดาร์การตลาด',
@@ -753,7 +773,7 @@ export default function App() {
             <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div style={{ fontSize: '10px', fontWeight: '800', color: 'var(--payi-text-muted)', letterSpacing: '0.08em', padding: '4px 8px' }}>{group.title}</div>
               {group.items.map((item) => {
-                const isActive = activeTab === item.id
+                const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
                 return (
                   <button
                     key={item.id}
@@ -808,6 +828,22 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* SUB-TABS ของ Dashboard ใหญ่ (สรุปยอดขาย / สินค้า) */}
+        {SUB_TABS[activeTab] && (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--payi-border)' }}>
+            {SUB_TABS[activeTab].map(([id, label]) => {
+              const on = activeTab === id
+              return (
+                <button key={id} onClick={() => setActiveTab(id)} style={{
+                  padding: '9px 18px', fontSize: 13, fontWeight: on ? 800 : 600, border: 'none', cursor: 'pointer',
+                  background: 'transparent', color: on ? 'var(--payi-mint-strong)' : 'var(--payi-text-muted)',
+                  borderBottom: on ? '2px solid var(--payi-mint)' : '2px solid transparent', marginBottom: -1,
+                }}>{label}</button>
+              )
+            })}
+          </div>
+        )}
 
         {(activeTab === 'Executive') ? (
           <div style={{ width: '100%' }}>
@@ -1212,6 +1248,10 @@ export default function App() {
             <ProductDashboard />
         ) : activeTab === 'ProductTrends' ? (
             <ProductTrends />
+        ) : activeTab === 'AdsChannels' ? (
+            <AdsChannels />
+        ) : activeTab === 'ContentOS' ? (
+            <ContentOSPrototype />
         ) : activeTab === 'MarketingRadar' ? (
             <MarketingRadar />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
@@ -1251,3 +1291,4 @@ export default function App() {
     </div>
   )
 }
+
