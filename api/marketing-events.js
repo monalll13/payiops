@@ -221,6 +221,7 @@ function buildRadar(events) {
   }
 
   for (const event of events) {
+    if (event.status === 'done') continue // เสร็จแล้ว → ออกจากบอร์ด เหลือแค่ในประวัติ
     if (!event.confirmed_at || event.status === 'waiting') buckets.waiting.push(event)
     else if (event.snapshot?.check30Due || event.status === 'check30') buckets.check30.push(event)
     else if (event.snapshot?.check7Due || event.status === 'check7') buckets.check7.push(event)
@@ -386,6 +387,16 @@ export default async function handler(req, res) {
       })
       await overwriteSheet(SHEET, HEADERS, nextRows.map(eventToRow))
       return res.status(200).json({ success: true })
+    }
+
+    if (req.method === 'DELETE') {
+      // event_id ส่งมาทาง query (dev middleware ไม่ parse body ของ DELETE)
+      const eventId = String(req.query.event_id || '').trim()
+      if (!eventId) return res.status(400).json({ success: false, error: 'event_id is required' })
+      const rows = await getMarketingRows()
+      const nextRows = rows.filter((event) => event.event_id !== eventId)
+      await overwriteSheet(SHEET, HEADERS, nextRows.map(eventToRow))
+      return res.status(200).json({ success: true, deleted: rows.length - nextRows.length })
     }
 
     return res.status(405).json({ success: false, error: 'Method not allowed' })
