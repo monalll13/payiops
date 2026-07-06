@@ -10,7 +10,7 @@ const baht = (n) => `฿${fmt(n)}`
 const pages = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3, title: 'Content Dashboard', subtitle: 'ภาพรวม performance จากไฟล์ Video Performance List เดือน June 2026' },
   { id: 'intelligence', label: 'Intelligence', icon: Sparkles, title: 'Performance Intelligence', subtitle: 'ถอด pattern, score, hook และ action จากคลิปที่ชนะ' },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays, title: 'Content Calendar', subtitle: 'แผนโพสต์ 7 วันจาก insight ที่ระบบแนะนำ' },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays, title: 'Content Calendar', subtitle: 'ปฏิทินคอนเทนต์รายเดือน 30 วัน จาก insight ที่ระบบแนะนำ' },
   { id: 'detail', label: 'Video Detail', icon: Film, title: 'Video Detail Page', subtitle: 'ดูคลิปชนะรายตัว แล้วแตก hook/script ต่อ' },
   { id: 'upload', label: 'Upload Flow', icon: UploadCloud, title: 'Upload Excel Flow', subtitle: 'mockup การนำเข้า Excel แล้วแปลงเป็น insight' },
   { id: 'brief', label: 'Brief Builder', icon: ClipboardList, title: 'AI Brief Builder', subtitle: 'สร้าง brief ให้ทีมถ่ายคลิปจากสินค้าและ pain point' },
@@ -48,6 +48,32 @@ const ideas = [
   ['How-to: วิธีใช้ลูกกลิ้งนวดเท้า 30 วินาทีก่อนนอน', 'Demo'],
   ['Before/After: ใส่ถุงเท้าเจลแล้วเดินสบายขึ้นยังไง', 'Proof'],
 ]
+
+// แผนโพสต์ทั้งเดือน (mockup) — วันที่ → [ชื่อคอนเทนต์, ชนิด]
+const TAG_COLOR = {
+  Reel: '#bb583c', Compare: '#3864a8', 'Q&A': '#1f8a83', UGC: '#b98120',
+  Test: '#7c3aed', Demo: '#0891b2', Proof: '#16a34a', Live: '#db2777',
+  Ads: '#d64545', Restock: '#6b7280', Plan: '#347f75',
+}
+const calendarPlan = {
+  2: [['Reel: เดินเยอะ ยืนนาน ปวดรองช้ำ ใช้อะไรก่อน', 'Reel']],
+  3: [['Live: พาช้อปถุงเท้าเจล + โค้ดส่วนลด', 'Live']],
+  5: [['Compare: ลูกกลิ้งนวดเท้า vs ถุงเท้าเจล', 'Compare']],
+  6: [['Q&A: ปวดส้นเท้าตอนเช้าใช่รองช้ำไหม', 'Q&A']],
+  9: [['UGC: แม่ค้ายืนขายทั้งวัน รีวิวจริง', 'UGC']],
+  10: [['A/B Hook: ปวดเท้าอย่าปล่อยไว้', 'Test']],
+  12: [['Demo: ใช้ลูกกลิ้ง 30 วิ ก่อนนอน', 'Demo']],
+  13: [['Live: ศุกร์เย็นดันยอด', 'Live']],
+  16: [['Before/After: ใส่ถุงเท้าเจลเดินสบายขึ้น', 'Proof']],
+  17: [['Reel: 3 อาการที่ห้ามมองข้าม', 'Reel']],
+  19: [['Ads: ดันคลิป Winner ต่อ', 'Ads']],
+  20: [['Restock: แผ่นรองเท้าเข้าใหม่', 'Restock']],
+  23: [['Compare: แผ่นรองเท้า M vs L เลือกยังไง', 'Compare']],
+  24: [['Q&A: กรอบรูปมงคล ตั้งตรงไหนดี', 'Q&A']],
+  26: [['Live: สิ้นเดือนเคลียร์สต็อก', 'Live']],
+  27: [['UGC: รีวิวลูกค้ากรอบรูป', 'UGC']],
+  30: [['สรุปเดือน + วางแผนเดือนหน้า', 'Plan']],
+}
 
 const scoreCards = [
   ['96', 'Winner', 'เดินเยอะ ยืนนาน ปวดรองช้ำ', 'GMV สูงสุด ฿182K · ควรทำ sequel 3 เวอร์ชัน'],
@@ -183,11 +209,68 @@ function IntelligencePage() {
 }
 
 function CalendarPage() {
+  const [mode, setMode] = useState('month')
   const days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์']
+  const total = Object.values(calendarPlan).reduce((s, arr) => s + arr.length, 0)
   return (
-    <Card title="Content Calendar" subtitle="ตัวอย่างตารางโพสต์ 7 วัน พร้อมชนิดคอนเทนต์และเป้าหมาย">
-      <div style={styles.calendar}>{days.map((day, idx) => <div key={day} style={styles.day}><strong>{day}<span>{String(idx + 6).padStart(2, '0')}</span></strong><p>{ideas[idx][0]}</p><span style={styles.chip}>{ideas[idx][1]}</span></div>)}</div>
+    <Card title="Content Calendar" subtitle={mode === 'month' ? `แผนโพสต์ทั้งเดือน · มิถุนายน 2026 · ${total} โพสต์` : 'ตัวอย่างตารางโพสต์ 7 วัน พร้อมชนิดคอนเทนต์และเป้าหมาย'}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px 0', flexWrap: 'wrap' }}>
+        <div style={styles.calToggleWrap}>
+          {[['month', 'เดือน (30 วัน)'], ['week', '7 วัน']].map(([id, label]) => (
+            <button key={id} onClick={() => setMode(id)} style={{ ...styles.calToggle, ...(mode === id ? styles.calToggleOn : null) }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {mode === 'month' ? (
+        <MonthCalendar />
+      ) : (
+        <div style={styles.calendar}>{days.map((day, idx) => <div key={day} style={styles.day}><strong>{day}<span>{String(idx + 6).padStart(2, '0')}</span></strong><p>{ideas[idx][0]}</p><span style={styles.chip}>{ideas[idx][1]}</span></div>)}</div>
+      )}
     </Card>
+  )
+}
+
+function MonthCalendar() {
+  const weekdays = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา']
+  const year = 2026, month = 5 // มิถุนายน (0-indexed)
+  const firstDow = new Date(year, month, 1).getDay()       // 0 = อาทิตย์
+  const lead = (firstDow + 6) % 7                            // ปรับให้เริ่มวันจันทร์
+  const daysInMonth = new Date(year, month + 1, 0).getDate() // 30
+  const cells = []
+  for (let i = 0; i < lead; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7) cells.push(null)
+
+  const legendTags = [...new Set(Object.values(calendarPlan).flat().map(([, tag]) => tag))]
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={styles.legend}>
+        {legendTags.map((tag) => (
+          <span key={tag} style={styles.legendItem}><i style={{ background: TAG_COLOR[tag] || '#94a3b8' }} />{tag}</span>
+        ))}
+      </div>
+      <div style={styles.monthHead}>{weekdays.map((w) => <div key={w} style={styles.weekday}>{w}</div>)}</div>
+      <div style={styles.monthGrid}>
+        {cells.map((d, i) => (
+          <div key={i} style={{ ...styles.monthCell, ...(d ? null : styles.monthCellEmpty) }}>
+            {d && (
+              <>
+                <div style={styles.dateNum}>{d}</div>
+                <div style={styles.postList}>
+                  {(calendarPlan[d] || []).map(([text, tag], j) => (
+                    <div key={j} style={styles.post} title={text}>
+                      <span style={{ ...styles.postDot, background: TAG_COLOR[tag] || '#94a3b8' }} />
+                      <span style={styles.postText}>{text}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -360,4 +443,19 @@ const styles = {
   roadmap: { background: '#fff', border: '1px solid var(--payi-border)', borderRadius: 8, padding: 13, display: 'grid', gap: 8 },
   entityGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, minmax(140px, 1fr))', gap: 10, padding: 16, overflowX: 'auto' },
   entity: { background: '#fff', border: '1px solid var(--payi-border)', borderRadius: 8, padding: 12 },
+  calToggleWrap: { display: 'flex', gap: 4, background: 'var(--payi-surface-muted)', padding: 3, borderRadius: 9 },
+  calToggle: { border: 0, background: 'transparent', color: 'var(--payi-text-muted)', borderRadius: 7, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' },
+  calToggleOn: { background: '#fff', color: 'var(--payi-text-strong)', boxShadow: '0 1px 3px rgba(15,23,42,.08)' },
+  legend: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 },
+  legendItem: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: 'var(--payi-text-muted)' },
+  monthHead: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 8 },
+  weekday: { textAlign: 'center', fontSize: 12, fontWeight: 800, color: 'var(--payi-text-muted)' },
+  monthGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 },
+  monthCell: { background: '#fff', border: '1px solid var(--payi-border)', borderRadius: 8, minHeight: 108, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflow: 'hidden' },
+  monthCellEmpty: { background: 'transparent', border: '1px solid transparent' },
+  dateNum: { fontSize: 12, fontWeight: 800, color: 'var(--payi-text-strong)' },
+  postList: { display: 'grid', gap: 4 },
+  post: { display: 'flex', alignItems: 'flex-start', gap: 5, background: 'var(--payi-surface-muted)', borderRadius: 6, padding: '3px 6px' },
+  postDot: { width: 7, height: 7, borderRadius: 2, flexShrink: 0, marginTop: 3 },
+  postText: { fontSize: 10, lineHeight: 1.3, color: 'var(--payi-text)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' },
 }
