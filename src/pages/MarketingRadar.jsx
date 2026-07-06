@@ -28,6 +28,11 @@ const COLUMNS = [
 const BUSINESSES = ['all', 'Payi', 'กรอบรูป']
 const PLATFORMS = ['all', 'Shopee', 'TikTok Shop', 'Lazada']
 
+// ความคืบหน้าตาม stage ของงาน (pipeline) — ใช้ทำ progress bar แบบ Notion
+const STAGE_PCT = { waiting: 10, live: 40, check7: 65, check30: 85, content: 95, done: 100 }
+const stageColor = (status) => (COLUMNS.find((c) => c.id === status)?.tone) || (status === 'done' ? '#16a34a' : 'var(--payi-mint)')
+const eventTypeLabel = (id) => EVENT_TYPES.find(([k]) => k === id)?.[1] || id
+
 export default function MarketingRadar() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -35,6 +40,8 @@ export default function MarketingRadar() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState(null)
+  const [view, setView] = useState('board')      // board | list
+  const [typeFilter, setTypeFilter] = useState('all') // กรองตามประเภทงาน
 
   const load = useCallback(() => {
     setLoading(true)
@@ -75,6 +82,18 @@ export default function MarketingRadar() {
   const radar = useMemo(() => data?.radar || {}, [data])
   const signals = useMemo(() => data?.productSignals || [], [data])
   const signalWindow = data?.signalWindow
+
+  // กรองตามประเภทงาน — ใช้ทั้งบอร์ดและรายการ
+  const radarFiltered = useMemo(() => {
+    if (typeFilter === 'all') return radar
+    const out = {}
+    for (const k of Object.keys(radar)) out[k] = (radar[k] || []).filter((e) => e.event_type === typeFilter)
+    return out
+  }, [radar, typeFilter])
+  const listEvents = useMemo(
+    () => events.filter((e) => typeFilter === 'all' || e.event_type === typeFilter),
+    [events, typeFilter]
+  )
 
   const filteredSignals = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -217,20 +236,41 @@ export default function MarketingRadar() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'start' }}>
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(160px, 1fr))', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-          {COLUMNS.map((column) => (
-            <RadarColumn
-              key={column.id}
-              column={column}
-              items={radar[column.id] || []}
-              onDropStatus={onDropStatus}
-              updateEvent={updateEvent}
-              onEdit={startEdit}
-              onDelete={deleteEvent}
-            />
+      {/* Toolbar: สลับมุมมอง + กรองประเภทงาน (แบบ Notion) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--payi-surface-muted)', padding: 3, borderRadius: 9 }}>
+          {[['board', 'บอร์ด'], ['list', 'รายการ']].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={segStyle(view === id)}>{label}</button>
           ))}
-        </section>
+        </div>
+        <div style={{ width: 1, height: 20, background: 'var(--payi-border)' }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--payi-text-muted)' }}>ประเภทงาน:</span>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button onClick={() => setTypeFilter('all')} style={typePill(typeFilter === 'all')}>ทั้งหมด</button>
+          {EVENT_TYPES.map(([id, label]) => (
+            <button key={id} onClick={() => setTypeFilter(id)} style={typePill(typeFilter === id)}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'start' }}>
+        {view === 'board' ? (
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(160px, 1fr))', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+            {COLUMNS.map((column) => (
+              <RadarColumn
+                key={column.id}
+                column={column}
+                items={radarFiltered[column.id] || []}
+                onDropStatus={onDropStatus}
+                updateEvent={updateEvent}
+                onEdit={startEdit}
+                onDelete={deleteEvent}
+              />
+            ))}
+          </section>
+        ) : (
+          <ListView events={listEvents} updateEvent={updateEvent} onEdit={startEdit} onDelete={deleteEvent} />
+        )}
 
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="payi-glass-card" style={{ padding: 14, borderRadius: 8 }}>
@@ -328,6 +368,7 @@ function EventCard({ event, updateEvent, onEdit, onDelete }) {
         </div>
         <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--payi-mint-strong)', background: 'var(--payi-mint-soft)', borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>{event.event_label}</span>
       </div>
+      <ProgressBar status={event.status} label={event.status_label} style={{ marginTop: 10 }} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 10 }}>
         <Tiny label="Before 7d" value={fmtBaht(event.snapshot?.before7?.revenue)} />
         <Tiny label="After 7d" value={fmtBaht(event.snapshot?.after7?.revenue)} />
@@ -353,6 +394,66 @@ function EventCard({ event, updateEvent, onEdit, onDelete }) {
         <button onClick={() => onDelete(event.event_id)} title="ลบ" style={{ ...cardIconBtn, color: 'var(--payi-danger)' }}><Trash2 size={12} /></button>
       </div>
     </article>
+  )
+}
+
+function ProgressBar({ status, label, style }) {
+  const pct = STAGE_PCT[status] ?? 0
+  return (
+    <div style={style}>
+      {label !== false && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: 'var(--payi-text-muted)', marginBottom: 3 }}>
+          <span>{label || status}</span><span style={{ fontWeight: 700 }}>{pct}%</span>
+        </div>
+      )}
+      <div style={{ height: 5, borderRadius: 999, background: 'var(--payi-surface-muted)', overflow: 'hidden' }}>
+        <div style={{ width: pct + '%', height: '100%', background: stageColor(status), borderRadius: 999 }} />
+      </div>
+    </div>
+  )
+}
+
+// มุมมองรายการ (Notion database style)
+function ListView({ events, updateEvent, onEdit, onDelete }) {
+  if (!events.length) return <div className="payi-glass-card" style={{ padding: 30, textAlign: 'center', color: 'var(--payi-text-faint)', fontSize: 13 }}>ยังไม่มีงาน — เพิ่มจาก Quick Capture ด้านขวา</div>
+  return (
+    <div className="payi-glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 720 }}>
+          <thead>
+            <tr style={{ color: 'var(--payi-text-muted)', fontSize: 11, textAlign: 'left' }}>
+              <th style={lTh}>งาน</th><th style={lTh}>ประเภท</th><th style={lTh}>สถานะ</th>
+              <th style={{ ...lTh, width: 150 }}>ความคืบหน้า</th>
+              <th style={{ ...lTh, textAlign: 'right' }}>lift 7 วัน</th>
+              <th style={{ ...lTh, textAlign: 'right' }}>วันที่</th><th style={lTh} />
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((e) => {
+              const lift = e.snapshot?.lift7
+              return (
+                <tr key={e.event_id} style={{ borderTop: '1px solid var(--payi-border)' }}>
+                  <td style={lTd}>
+                    <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{e.display_name || e.master_sku || e.product_key}</div>
+                    <div style={{ fontSize: 10, color: 'var(--payi-text-faint)', fontFamily: 'monospace' }}>{e.master_sku || e.product_key}</div>
+                  </td>
+                  <td style={lTd}><span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--payi-mint-strong)', background: 'var(--payi-mint-soft)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{e.event_label}</span></td>
+                  <td style={{ ...lTd, whiteSpace: 'nowrap' }}>{e.status_label}</td>
+                  <td style={lTd}><ProgressBar status={e.status} label={false} /></td>
+                  <td style={{ ...lTd, textAlign: 'right', fontWeight: 800, color: lift == null ? 'var(--payi-text-muted)' : lift >= 0 ? 'var(--payi-success)' : 'var(--payi-danger)' }}>{lift == null ? '-' : `${lift >= 0 ? '+' : ''}${lift}%`}</td>
+                  <td style={{ ...lTd, textAlign: 'right', color: 'var(--payi-text-muted)', whiteSpace: 'nowrap' }}>{e.event_date}</td>
+                  <td style={{ ...lTd, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {e.status !== 'done' && <button onClick={() => updateEvent(e.event_id, { status: 'done' })} title="ทำเสร็จ" style={cardIconBtn}><CheckCircle2 size={12} /></button>}
+                    <button onClick={() => onEdit(e)} title="แก้ไข" style={{ ...cardIconBtn, marginLeft: 4 }}><Pencil size={12} /></button>
+                    <button onClick={() => onDelete(e.event_id)} title="ลบ" style={{ ...cardIconBtn, marginLeft: 4, color: 'var(--payi-danger)' }}><Trash2 size={12} /></button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
@@ -636,11 +737,28 @@ const cardIconBtn = {
   padding: '4px 7px',
   fontSize: 10,
   fontWeight: 800,
-  display: 'flex',
+  display: 'inline-flex',
   alignItems: 'center',
   gap: 3,
   cursor: 'pointer',
 }
+
+function segStyle(active) {
+  return {
+    padding: '6px 16px', fontSize: 12.5, fontWeight: active ? 800 : 600, border: 'none', borderRadius: 7, cursor: 'pointer',
+    background: active ? 'var(--payi-surface)' : 'transparent', color: active ? 'var(--payi-text-strong)' : 'var(--payi-text-muted)',
+    boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+  }
+}
+function typePill(active) {
+  return {
+    padding: '5px 11px', fontSize: 11.5, fontWeight: active ? 800 : 600, borderRadius: 999, cursor: 'pointer',
+    border: `1px solid ${active ? 'var(--payi-mint)' : 'var(--payi-border)'}`,
+    background: active ? 'var(--payi-mint-soft)' : 'var(--payi-surface)', color: active ? 'var(--payi-mint-strong)' : 'var(--payi-text)',
+  }
+}
+const lTh = { padding: '10px 12px', fontWeight: 700, whiteSpace: 'nowrap' }
+const lTd = { padding: '10px 12px', verticalAlign: 'middle' }
 
 function iconButton(color, background) {
   return {
