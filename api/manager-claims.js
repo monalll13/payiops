@@ -51,7 +51,8 @@ export default async function handler(req, res) {
     let gDamaged = 0, gIncomplete = 0, gWrong = 0
     const monthly = new Map() // 'YYYY-MM' -> count
     for (const c of claims) {
-      const { key, label } = deriveGroup(c.display_name, c.master_sku, overrideMap)
+      // เคลมบางแถวมีแต่ product_name (display_name ว่าง) — fallback กันจับคู่ยอดขายไม่ติด
+      const { key, label } = deriveGroup(c.display_name || c.product_name, c.master_sku, overrideMap)
       let x = g.get(key)
       if (!x) g.set(key, (x = { key, label, claims: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0 }))
       x.claims++

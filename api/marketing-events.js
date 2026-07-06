@@ -44,12 +44,13 @@ const round2 = (n) => Math.round(n * 100) / 100
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 const dayMs = 86400000
 const todayIso = () => new Date().toISOString().slice(0, 10)
+const day10 = (v) => String(v ?? '').slice(0, 10) // กันกรณีค่ามี timestamp ปน (เช่น "2026-05-01T..") ไม่ให้ Date พัง
 const addDays = (iso, days) => {
-  const d = new Date(`${iso}T00:00:00.000Z`)
+  const d = new Date(`${day10(iso)}T00:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
-const daysBetween = (start, end) => Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / dayMs)
+const daysBetween = (start, end) => Math.floor((new Date(`${day10(end)}T00:00:00Z`) - new Date(`${day10(start)}T00:00:00Z`)) / dayMs)
 const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null)
 
 function rowToEvent(row) {
@@ -380,7 +381,10 @@ export default async function handler(req, res) {
         if (event.event_id !== eventId) return event
         const next = { ...event, updated_at: now }
         for (const key of ['status', 'confirmed_at', 'note', 'owner', 'event_type', 'event_date', 'platform', 'business']) {
-          if (body[key] !== undefined) next[key] = String(body[key]).trim()
+          if (body[key] !== undefined) {
+            const v = String(body[key]).trim()
+            next[key] = (key === 'confirmed_at' || key === 'event_date') ? v.slice(0, 10) : v
+          }
         }
         if (next.status === 'live' && !next.confirmed_at) next.confirmed_at = todayIso()
         return next

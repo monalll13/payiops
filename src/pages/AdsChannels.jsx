@@ -106,7 +106,7 @@ export default function AdsChannels() {
       ads,
       sales,
       orders: ordersByMonth[m] || 0,
-      adsPct: sales > 0 ? Math.round((ads / sales) * 1000) / 10 : 0, // Ads คิดเป็น % ของยอดขาย
+      adsPct: sales > 0 ? Math.round((ads / sales) * 1000) / 10 : null, // Ads คิดเป็น % ของยอดขาย (null = ยังไม่มียอดขายเดือนนั้น)
     }
   }), [months, adsByMonth, ordersByMonth, salesByMonth])
 
