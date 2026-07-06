@@ -21,20 +21,20 @@
 
 :root {
   /* -- brand palette -- */
-  --payi-mint: #20b8a6;
-  --payi-mint-strong: #0f9f92;
-  --payi-mint-soft: #e3fbf6;
-  --payi-cyan: #48bbb7;
-  --payi-cyan-hot: #54f1e8;
-  --payi-deep: #2f6b68;
-  --payi-deep-2: #173f40;
+  --payi-mint: #5fbfaf;
+  --payi-mint-strong: #347f75;
+  --payi-mint-soft: #eefaf7;
+  --payi-cyan: #8bcfca;
+  --payi-cyan-hot: #c8f4ee;
+  --payi-deep: #557e7b;
+  --payi-deep-2: #243f3e;
 
-  --payi-ink: #203f3d;
-  --payi-muted: #6d8c88;
+  --payi-ink: #263f3d;
+  --payi-muted: #77908c;
 
-  --payi-line: rgba(72, 187, 183, 0.3);
-  --payi-glass: rgba(255, 255, 255, 0.66);
-  --payi-shadow: 0 20px 60px rgba(47, 107, 104, 0.14);
+  --payi-line: rgba(109, 141, 138, 0.18);
+  --payi-glass: rgba(255, 255, 255, 0.78);
+  --payi-shadow: 0 18px 48px rgba(38, 63, 61, 0.09);
 
   /* logo now lives as a real asset (src/assets/payi-logo.png), not a
      450KB base64 blob in CSS. App.jsx sets this var via inline style
@@ -48,10 +48,10 @@
   --payi-text-muted: #64748b;    /* was #64748b / #667085 */
   --payi-text-faint: #94a3b8;    /* was #94a3b8 / #6b7280 */
   --payi-text-on-dark-muted: #c4cdd5; /* was #d0d5dd — inactive nav text etc. on dark surfaces */
-  --payi-border: rgba(72, 187, 183, 0.22); /* was #e2e8f0 / #e5e7eb / #dfe4ea */
+  --payi-border: rgba(126, 149, 146, 0.2); /* was #e2e8f0 / #e5e7eb / #dfe4ea */
   --payi-surface: #ffffff;       /* was #ffffff / #fff */
-  --payi-surface-muted: #f8fafc; /* was #f8fafc / #f1f5f9 */
-  --payi-surface-dark: #14302f;  /* was #101828 / #111827 dark panels */
+  --payi-surface-muted: #f7faf9; /* was #f8fafc / #f1f5f9 */
+  --payi-surface-dark: #243f3e;  /* was #101828 / #111827 dark panels */
 
   /* -- status colors stay semantic, not re-themed to brand -- */
   --payi-success: #10b981;
@@ -68,9 +68,9 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(circle at 12% 14%, rgba(171, 238, 228, 0.5), transparent 30%),
-    radial-gradient(circle at 86% 4%, rgba(217, 250, 244, 0.85), transparent 34%),
-    linear-gradient(135deg, #f8fffd 0%, #ecfaf7 45%, #f7fbff 100%);
+    radial-gradient(circle at 12% 10%, rgba(221, 246, 241, 0.66), transparent 31%),
+    radial-gradient(circle at 86% 0%, rgba(232, 242, 255, 0.78), transparent 34%),
+    linear-gradient(135deg, #fbfefd 0%, #f5faf9 48%, #f8fbff 100%);
   color: var(--payi-ink);
 }
 
@@ -89,10 +89,10 @@ body {
 /* ---------- reusable surfaces ---------- */
 .payi-sidebar {
   position: relative;
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.76);
   border-right: 1px solid var(--payi-line);
-  box-shadow: 18px 0 50px rgba(42, 139, 128, 0.1);
-  backdrop-filter: blur(20px);
+  box-shadow: 18px 0 46px rgba(38, 63, 61, 0.08);
+  backdrop-filter: blur(24px);
 }
 
 .payi-brand {
@@ -116,8 +116,8 @@ body {
   background-position: center;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.9),
-    0 0 20px rgba(84, 241, 232, 0.4),
-    0 10px 28px rgba(47, 107, 104, 0.18);
+    0 0 18px rgba(200, 244, 238, 0.56),
+    0 10px 26px rgba(38, 63, 61, 0.12);
 }
 
 .payi-brand-title {
@@ -141,10 +141,10 @@ body {
 .payi-hero-card {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--payi-deep), var(--payi-cyan) 60%, var(--payi-cyan-hot));
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: linear-gradient(135deg, #476f6c, #84c6bf 62%, #d4f7f0);
+  border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 12px;
-  box-shadow: 0 24px 64px rgba(47, 107, 104, 0.22);
+  box-shadow: 0 22px 56px rgba(38, 63, 61, 0.14);
   color: #fff;
 }
 
@@ -161,7 +161,7 @@ body {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--payi-line);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(42, 139, 128, 0.08);
+  box-shadow: 0 10px 28px rgba(38, 63, 61, 0.06);
   backdrop-filter: blur(16px);
   color: var(--payi-ink);
 }
@@ -171,7 +171,7 @@ body {
 .payi-date-input:focus {
   outline: none;
   border-color: var(--payi-mint);
-  box-shadow: 0 0 0 3px rgba(32, 184, 166, 0.18);
+  box-shadow: 0 0 0 3px rgba(95, 191, 175, 0.16);
 }
 
 .payi-btn-primary {
