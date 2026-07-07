@@ -1,5 +1,6 @@
 // /api/claims?view=summary|monthly|sku|by-product|imports-list|import
 // อ่าน/จัดการข้อมูลเคลมจาก sheet "claims" (Google Sheets)
+import { requireAuth } from './_lib/auth.js'
 import { getSheet, batchGetValues, overwriteSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -12,6 +13,7 @@ async function loadClaims() {
 }
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   const view = req.query.view || 'summary'
 
   try {

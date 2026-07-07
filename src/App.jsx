@@ -822,9 +822,21 @@ export default function App() {
               />
             </div>
             <button title="Notifications" style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}><Bell size={18} color="var(--payi-text-muted)" /></button>
-            <button style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1px solid var(--payi-border)', borderRadius: 8, padding: '9px 12px', background: 'var(--payi-surface)', boxShadow: '0 8px 20px rgba(16,24,40,0.04)', color: 'var(--payi-surface-dark)' }}>
+            <button
+              title="ออกจากระบบ"
+              onClick={() => {
+                if (!localStorage.getItem('payi-api-token')) return // โหมด dev ไม่มี login
+                if (window.confirm('ออกจากระบบ?')) {
+                  localStorage.removeItem('payi-api-token')
+                  localStorage.removeItem('payi-user')
+                  window.location.reload()
+                }
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1px solid var(--payi-border)', borderRadius: 8, padding: '9px 12px', background: 'var(--payi-surface)', boxShadow: '0 8px 20px rgba(16,24,40,0.04)', color: 'var(--payi-surface-dark)', cursor: 'pointer' }}>
               <UserCircle2 size={20} color="var(--payi-text-muted)" />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Nook</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>
+                {(() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null')?.name || 'Nook' } catch { return 'Nook' } })()}
+              </span>
             </button>
           </div>
         </div>

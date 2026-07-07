@@ -1,6 +1,7 @@
 // GET /api/products?business=&platform=&startDate=&endDate=
 // สรุปผลงานสินค้าแบบ "รายกลุ่มสินค้า" (product family) สำหรับหน้า Dashboard สินค้า
 // รวม SKU คนละไซส์เข้าเป็นสินค้าเดียวด้วย api/_lib/productGroup.js (TODO#2/#4)
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -12,6 +13,7 @@ const round2 = (n) => Math.round(n * 100) / 100
 const TREND_TOP_N = 8
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
   const { business = 'all', platform = 'all', startDate = '', endDate = '' } = req.query

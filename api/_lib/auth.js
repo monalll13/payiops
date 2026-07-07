@@ -1,0 +1,55 @@
+// ระบบยืนยันตัวตนรายบัญชี — token แบบ HMAC-signed (ไม่มี session store, เหมาะกับ serverless)
+// - เปิด/ปิดด้วย env AUTH_SECRET: ไม่ตั้ง = ไม่บังคับ auth (dev ในเครื่อง)
+// - บน Vercel ต้องตั้ง AUTH_SECRET (สุ่มยาวๆ เดายาก) — ใช้เซ็น token ตอน login
+// - ผู้ใช้เก็บในแท็บ `users` ของชีต จัดการผ่าน /api/auth (login / setup / create-user)
+// guard ใช้เป็นบรรทัดแรกของทุก handler: if (!requireAuth(req, res)) return
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+
+const b64u = (buf) => Buffer.from(buf).toString('base64url')
+const fromB64u = (s) => Buffer.from(String(s), 'base64url')
+
+export const authEnabled = () => Boolean(process.env.AUTH_SECRET)
+
+export function hashPassword(password, salt = randomBytes(16).toString('hex')) {
+  const hash = scryptSync(String(password), salt, 32).toString('hex')
+  return { salt, hash }
+}
+
+export function verifyPassword(password, salt, expectedHash) {
+  try {
+    const got = scryptSync(String(password), String(salt), 32)
+    const exp = Buffer.from(String(expectedHash), 'hex')
+    return got.length === exp.length && timingSafeEqual(got, exp)
+  } catch { return false }
+}
+
+// token = base64url(payload JSON).base64url(HMAC-SHA256)
+export function signToken(payload, days = 30) {
+  const body = b64u(JSON.stringify({ ...payload, exp: Date.now() + days * 86400000 }))
+  const sig = createHmac('sha256', process.env.AUTH_SECRET).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
+
+export function verifyToken(token) {
+  try {
+    const [body, sig] = String(token || '').split('.')
+    if (!body || !sig) return null
+    const expect = createHmac('sha256', process.env.AUTH_SECRET).update(body).digest()
+    const got = fromB64u(sig)
+    if (expect.length !== got.length || !timingSafeEqual(expect, got)) return null
+    const payload = JSON.parse(fromB64u(body).toString())
+    if (!payload.exp || Date.now() > payload.exp) return null
+    return payload
+  } catch { return null }
+}
+
+export function requireAuth(req, res) {
+  if (!authEnabled()) return true // โหมดเปิด (local dev)
+  const user = verifyToken(req.headers['x-api-token'])
+  if (!user) {
+    res.status(401).json({ success: false, error: 'unauthorized' })
+    return false
+  }
+  req.user = user // ให้ endpoint รู้ว่าใครเรียก (username/role)
+  return true
+}

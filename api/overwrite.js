@@ -1,7 +1,9 @@
 // POST /api/overwrite  body: { "sheetName": "product_master", "headers": [...], "rows": [[...]] }
+import { requireAuth } from './_lib/auth.js'
 import { overwriteSheet } from './_lib/sheets.js'
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }

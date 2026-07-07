@@ -1,5 +1,6 @@
 // GET /api/monthly?year=2026
 // สรุปยอดขาย/ออเดอร์ แยกรายเดือน และแยกร้าน (business × platform) จาก raw_orders_*
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues } from './_lib/sheets.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
@@ -8,6 +9,7 @@ const round2 = (n) => Math.round(n * 100) / 100
 const platShort = (p) => String(p || '').replace(' Shop', '')
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
   const year = String(req.query.year || '').trim()
 

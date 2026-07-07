@@ -8,12 +8,14 @@
 //   skus:  [{ sku, name, business, platform, revenue, qty, orders }], // ยอดรวมราย SKU
 //   imports: [{ file, business, platform, rows, at }]              // การ import ล่าสุด
 // }
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 
 const isCancelled = (status = '') =>
   status.includes('ยกเลิก') || status.toLowerCase().includes('cancel')
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }

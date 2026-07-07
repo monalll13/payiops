@@ -1,7 +1,9 @@
 // GET /api/sheet?name=raw_orders → อ่านข้อมูลจาก sheet นั้นทั้งหมด
+import { requireAuth } from './_lib/auth.js'
 import { getSheet } from './_lib/sheets.js'
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }

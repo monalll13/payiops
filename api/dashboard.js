@@ -1,5 +1,6 @@
 // GET /api/dashboard?business=&platform=&startDate=&endDate=
 // สรุปข้อมูลสำหรับหน้า Executive จากทุก tab raw_orders_* (Google Sheets)
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues } from './_lib/sheets.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
@@ -7,6 +8,7 @@ const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
   const { business = 'all', platform = 'all', startDate = '', endDate = '' } = req.query

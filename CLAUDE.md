@@ -75,15 +75,26 @@ aggregate server-side and set `Cache-Control` s-maxage so we don't hit Sheets ra
 
 Local git initialized and committed (user `monalll13`). **NOT yet pushed to GitHub, NOT
 yet deployed to Vercel** — both need the owner's auth. To deploy: push to a GitHub repo,
-import on Vercel, set 3 env vars (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`,
-`SHEET_ID`). See `README.md`. Real service-account key backup: `MONA\hide\sales-dashboard-497407-*.json`.
+import on Vercel, set 4 env vars (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`,
+`SHEET_ID`, `API_TOKEN`). See `README.md`. Real service-account key backup: `MONA\hide\sales-dashboard-497407-*.json`.
 
 ## Security
 
 `.env` / `backend/.env` are gitignored and contain a real Google **private key** — never
 commit secrets, always verify before `git add`. The Sheet is currently link-public
-readable (owner should turn that off — the service account already has access). API
-endpoints are currently open/no-auth.
+readable (owner should turn that off — the service account already has access).
+
+**API auth — per-user login (added 2026-07-06):** every `api/*.js` handler starts with
+`if (!requireAuth(req, res)) return` (`api/_lib/auth.js`). Auth = HMAC-signed tokens
+(no session store): users live in a `users` sheet tab (scrypt-hashed passwords), issued
+by `api/auth.js` (`?action=status` / POST `login` / `setup` [first-run creates admin] /
+`create-user` [admin only]). `api/auth.js` is deliberately NOT behind requireAuth.
+**No `AUTH_SECRET` env set = auth disabled** (local-dev default; local `.env`
+deliberately has none). On Vercel the owner MUST set `AUTH_SECRET`, otherwise
+`/api/overwrite`, `/api/append` etc. let anyone wipe the Sheet. Frontend: `src/main.jsx`
+wraps `window.fetch` (attaches localStorage `payi-api-token`, clears+reloads on 401) and
+gates the app behind `src/pages/Login.jsx` when `status.enabled`. Logout = user chip
+top-right. New endpoints must keep the `requireAuth` guard as the first handler line.
 
 ## TODO / roadmap (agreed with owner)
 
@@ -143,7 +154,10 @@ endpoints are currently open/no-auth.
    spend per store and TikTok GMV split by channel (Affiliate / Live / VDO). That data is
    **NOT in mona-ops-db** — ask the owner where it lives (separate sheet? manual entry?
    TikTok/Shopee ads export?) before building those charts.
-6. Add auth to the open API; move Sales/Packing from localStorage to Sheets.
+6. ✅ **API auth DONE (2026-07-06) — per-user login** — see Security section
+   (`api/_lib/auth.js` + `api/auth.js` + `src/pages/Login.jsx`; users in `users` sheet;
+   enable by setting env `AUTH_SECRET` on Vercel at deploy; first open = create admin).
+   Still pending: move Sales/Packing from localStorage to Sheets.
 
 ## Gotchas
 

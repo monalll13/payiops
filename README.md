@@ -55,15 +55,18 @@ git push -u origin main
 
 1. สมัคร [vercel.com](https://vercel.com) ด้วยบัญชี GitHub (ฟรี ไม่ต้องใส่บัตร)
 2. **Add New → Project** → เลือก repo `mona-ops` (Vercel ตรวจเจอ Vite อัตโนมัติ)
-3. ตั้ง **Environment Variables** 3 ตัว (ค่าเดียวกับใน `.env`):
+3. ตั้ง **Environment Variables** 4 ตัว (3 ตัวแรกค่าเดียวกับใน `.env`):
 
    | ชื่อ | ค่า |
    |---|---|
    | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | อีเมล service account |
    | `GOOGLE_PRIVATE_KEY` | private key ทั้งก้อน (รวม `\n`) |
    | `SHEET_ID` | `13eMPa3ISNd8HwrlsK-CtQsmzRvzqxpimy67cJVRBZGg` |
+   | `AUTH_SECRET` | **ข้อความสุ่มยาวๆ เดายาก** สำหรับระบบ login (สำคัญมาก ไม่ตั้ง = ใครก็อ่าน/ลบข้อมูลได้) |
 
 4. กด **Deploy** → ได้ URL `.vercel.app` — push ครั้งต่อไป deploy อัตโนมัติ
+5. เปิดเว็บครั้งแรก → ระบบให้**สร้างบัญชี admin คนแรก** (ชื่อผู้ใช้+รหัสผ่าน) แล้ว login ให้เลย
+   คนอื่นในทีมให้ admin สั่งเพิ่มผ่าน `POST /api/auth` action `create-user` (หรือให้ Claude เพิ่มให้)
 
 ## ข้อมูลจริง
 

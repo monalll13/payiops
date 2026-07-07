@@ -2,6 +2,7 @@
 // % เปลี่ยนแปลงรายเดือน (MoM) ของสินค้าแต่ละกลุ่ม — ทั้ง "จำนวนชิ้น" และ "ยอดขาย"
 // รองรับกรองแพลตฟอร์ม/ร้าน (กรองแล้ว re-fetch เหมือน products.js)
 // คืนค่ารายเดือน per กลุ่มสินค้า + per SKU สมาชิก (สำหรับกดขยายดู) — % คำนวณฝั่ง frontend
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -13,6 +14,7 @@ const round2 = (n) => Math.round(n * 100) / 100
 const MAX_GROUPS = 120
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
   const { business = 'all', platform = 'all' } = req.query

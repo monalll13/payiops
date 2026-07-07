@@ -2,6 +2,7 @@
 // รวมข้อมูลสำหรับ "โหมดผู้จัดการ" (มือถือ): เคลมรายกลุ่มสินค้า + อัตราเคลม (เคลม ÷ ยอดขาย)
 // เคลมมาจาก sheet "claims", ยอดขาย(units) มาจาก raw_orders_* — จับกลุ่มด้วย deriveGroup
 // ตัวเดียวกันทั้งคู่ (key จึงตรงกัน) ตาม TODO#2/#3
+import { requireAuth } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -22,6 +23,7 @@ const levelOf = (rate, units) => {
 }
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
   try {

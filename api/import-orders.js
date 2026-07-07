@@ -1,6 +1,7 @@
 // /api/import-orders
 //   GET  ?view=log            → ประวัติการนำเข้าจาก import_log
 //   POST { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
+import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows, batchGetValues } from './_lib/sheets.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -44,6 +45,7 @@ function genImportId() {
 }
 
 export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
   try {
     if (req.method === 'GET' && (req.query.view || 'log') === 'log') {
       let imports = []
