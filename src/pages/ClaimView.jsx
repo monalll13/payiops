@@ -343,16 +343,17 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                     รายการเคลมทั้งหมด ({fmtC(detail.records.length)} รายการ)
                   </div>
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 500 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 680 }}>
                       <thead>
                         <tr style={{ background: '#f8fafc', color: '#64748b' }}>
                           <th style={{ padding: '8px 10px', textAlign: 'left' }}>วันที่</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left' }}>แบรนด์</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>สินค้าที่เคลม</th>
                           <th style={{ padding: '8px 10px', textAlign: 'right' }}>มูลค่า (฿)</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center' }}>เสียหาย</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center' }}>ไม่ครบ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center' }}>ผิด</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>หมายเหตุ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>ได้รับผิด/หมายเหตุ</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -363,13 +364,18 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                           >
                             <td style={{ padding: '8px 10px', color: '#64748b' }}>{rec.date}</td>
                             <td style={{ padding: '8px 10px', color: '#1e293b' }}>{rec.business}</td>
+                            <td style={{ padding: '8px 10px', color: '#1e293b', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rec.display_name || rec.product_name || rec.master_sku}>
+                              {rec.display_name || rec.product_name || rec.master_sku || '—'}
+                            </td>
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: rec.claim_value > 0 ? '#dc2626' : '#cbd5e1' }}>
                               {rec.claim_value > 0 ? `฿${fmtC(rec.claim_value)}` : '—'}
                             </td>
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_damaged ? <span style={{ color: FLAG_COLORS.damaged, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_incomplete ? <span style={{ color: FLAG_COLORS.incomplete, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_wrong_item ? <span style={{ color: FLAG_COLORS.wrong, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
-                            <td style={{ padding: '8px 10px', color: '#94a3b8', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.note || rec.free_item || '—'}</td>
+                            <td style={{ padding: '8px 10px', color: '#94a3b8', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[rec.free_item, rec.note].filter(Boolean).join(' · ')}>
+                              {[rec.free_item, rec.note].filter(Boolean).join(' · ') || '—'}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

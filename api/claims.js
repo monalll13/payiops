@@ -122,7 +122,8 @@ export default async function handler(req, res) {
         byBusiness: [...bizMap.values()].map((x) => ({ ...x, value: round2(x.value) })).sort((a, b) => b.count - a.count),
         reasonSummary: reason,
         records: recs.map((r) => ({
-          date: r.date, business: r.business, claim_value: num(r.claim_value),
+          date: r.date, business: r.business, master_sku: r.master_sku, display_name: r.display_name, product_name: r.product_name,
+          claim_value: num(r.claim_value),
           is_damaged: truthy(r.is_damaged), is_incomplete: truthy(r.is_incomplete), is_wrong_item: truthy(r.is_wrong_item),
           note: r.note, free_item: r.free_item,
         })),
