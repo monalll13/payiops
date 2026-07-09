@@ -37,12 +37,21 @@ export default async function handler(req, res) {
     let aliasByName = new Map()
     try {
       const aliases = await getSheet('product_aliases')
+      const candidates = new Map()
+      const addCandidate = (name, alias) => {
+        const key = normalize(name)
+        if (!key) return
+        if (!candidates.has(key)) candidates.set(key, [])
+        candidates.get(key).push(alias)
+      }
       for (const a of aliases) {
         const master = a.master_sku, disp = a.display_name
-        for (const nameField of [a.alias_product_name, a.display_name]) {
-          const key = normalize(nameField)
-          if (key && !aliasByName.has(key)) aliasByName.set(key, { master_sku: master, display_name: disp })
-        }
+        addCandidate(a.alias_product_name, { master_sku: master, display_name: disp })
+        addCandidate(a.display_name, { master_sku: master, display_name: disp })
+      }
+      for (const [key, list] of candidates) {
+        const skus = [...new Set(list.map((x) => String(x.master_sku || '').trim()).filter(Boolean))]
+        if (skus.length === 1) aliasByName.set(key, list[0])
       }
     } catch { /* ไม่มี tab product_aliases ก็ข้าม */ }
 
