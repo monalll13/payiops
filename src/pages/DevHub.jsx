@@ -29,8 +29,8 @@ const sections = [
       'GET /api/dashboard — สรุป Executive (totals, trends, top SKUs)',
       'GET /api/claims?view=summary|monthly|sku — ข้อมูลเคลม',
       'POST /api/claims-import — นำเข้าไฟล์เคลม',
-      'GET /api/summary — สรุปยอดขายรวม',
-      'GET /api/sheet?name=... — อ่าน sheet ตรง ๆ',
+      'GET /api/sheet-tools?op=summary — สรุปยอดขายรวม',
+      'GET /api/sheet-tools?op=sheet&name=... — อ่าน sheet ตรง ๆ',
     ],
   },
   {

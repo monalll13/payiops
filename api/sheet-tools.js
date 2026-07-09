@@ -1,24 +1,15 @@
-// GET /api/summary → สรุปยอดขายจาก raw_orders_* ทุก tab ให้เป็นก้อนเล็กพอส่งให้หน้าเว็บ
-// (ออเดอร์ดิบมีเป็นแสนแถว ส่งตรงไม่ได้ ต้อง aggregate ฝั่ง server)
-//
-// ตอบกลับ:
-// {
-//   maxDate: "2026-05-31",
-//   daily: [{ date, business, platform, revenue, qty, orders }],   // ยอดรวมรายวัน
-//   skus:  [{ sku, name, business, platform, revenue, qty, orders }], // ยอดรวมราย SKU
-//   imports: [{ file, business, platform, rows, at }]              // การ import ล่าสุด
-// }
+// GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite
+// รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
+// เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth } from './_lib/auth.js'
-import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
+import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet } from './_lib/sheets.js'
 
 const isCancelled = (status = '') =>
   status.includes('ยกเลิก') || status.toLowerCase().includes('cancel')
 
-export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+// ── op=summary: สรุปยอดขายจาก raw_orders_* (รายวัน + ราย SKU + import ล่าสุด) ──
+async function opSummary(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
   try {
     const meta = await getMeta()
     const tabs = meta.sheets
@@ -26,7 +17,6 @@ export default async function handler(req, res) {
       .filter(t => t.startsWith('raw_orders'))
 
     // ต่อ tab อ่าน 2 ช่วง: B:F (order_id, -, date, platform, business) และ J:N (sku, name, qty, revenue, status)
-    // เลี่ยงคอลัมน์ G-I (ชื่อสินค้ายาว ๆ) เพื่อลด payload จาก Sheets API
     const ranges = tabs.flatMap(t => [`${t}!B:F`, `${t}!J:N`])
     const valueRanges = await batchGetValues(ranges)
 
@@ -81,7 +71,6 @@ export default async function handler(req, res) {
       }
     })
 
-    // การ import ล่าสุด (เฉพาะที่ยัง active)
     let imports = []
     try {
       const log = await getSheet('import_log')
@@ -98,7 +87,6 @@ export default async function handler(req, res) {
         }))
     } catch { /* ไม่มี tab import_log ก็ข้าม */ }
 
-    // cache ที่ Vercel CDN 5 นาที — ลดจำนวนครั้งที่ต้องอ่าน Sheets
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=3600')
     res.status(200).json({
       maxDate: dailyRows.length ? dailyRows[dailyRows.length - 1].date : null,
@@ -109,4 +97,54 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
+}
+
+// ── op=sheet: อ่านทั้ง sheet (?name=) ──
+async function opSheet(req, res) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  const { name } = req.query
+  if (!name) return res.status(400).json({ error: 'ต้องระบุ &name=<ชื่อ sheet>' })
+  try {
+    res.status(200).json(await getSheet(name))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+}
+
+// ── op=append: เขียนต่อท้าย body { sheetName, rows } ──
+async function opAppend(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const { sheetName, rows } = req.body || {}
+  if (!sheetName || !Array.isArray(rows)) return res.status(400).json({ error: 'ต้องส่ง sheetName และ rows (array)' })
+  try {
+    await appendRows(sheetName, rows)
+    res.status(200).json({ ok: true, appended: rows.length })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+}
+
+// ── op=overwrite: เขียนทับทั้ง sheet body { sheetName, headers, rows } ──
+async function opOverwrite(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const { sheetName, headers, rows } = req.body || {}
+  if (!sheetName || !Array.isArray(headers) || !Array.isArray(rows)) {
+    return res.status(400).json({ error: 'ต้องส่ง sheetName, headers (array) และ rows (array)' })
+  }
+  try {
+    await overwriteSheet(sheetName, headers, rows)
+    res.status(200).json({ ok: true, written: rows.length })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+}
+
+export default async function handler(req, res) {
+  if (!requireAuth(req, res)) return
+  const op = String(req.query.op || '')
+  if (op === 'summary') return opSummary(req, res)
+  if (op === 'sheet') return opSheet(req, res)
+  if (op === 'append') return opAppend(req, res)
+  if (op === 'overwrite') return opOverwrite(req, res)
+  return res.status(400).json({ error: 'ต้องระบุ ?op=summary|sheet|append|overwrite' })
 }

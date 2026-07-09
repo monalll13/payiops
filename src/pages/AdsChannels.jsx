@@ -25,7 +25,7 @@ const STORE_COLORS = ['#e08a1e', '#d64545', '#e4c65a', '#4a90d9', '#3f7f6f', '#b
 const comboKey = (b, p) => `${b}|${p}`
 
 export default function AdsChannels() {
-  const [inputs, setInputs] = useState(null)   // /api/marketing-inputs
+  const [inputs, setInputs] = useState(null)   // /api/marketing?kind=inputs
   const [monthly, setMonthly] = useState(null) // /api/monthly
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -36,7 +36,7 @@ export default function AdsChannels() {
   const load = () => {
     setLoading(true); setError(null)
     Promise.all([
-      fetch('/api/marketing-inputs').then((r) => r.json()),
+      fetch('/api/marketing?kind=inputs').then((r) => r.json()),
       fetch('/api/monthly').then((r) => r.json()),
     ])
       .then(([mi, mo]) => {
@@ -142,7 +142,7 @@ export default function AdsChannels() {
         const v = parseFloat(form.tt[b]?.[id]) || 0
         if (v) rows.push({ business: b, platform: 'TikTok Shop', metric: id, value: v })
       }
-      const res = await fetch('/api/marketing-inputs', {
+      const res = await fetch('/api/marketing?kind=inputs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: selMonth, rows }),
       })

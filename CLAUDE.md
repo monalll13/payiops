@@ -59,8 +59,13 @@ aggregate server-side and set `Cache-Control` s-maxage so we don't hit Sheets ra
   `products.js` (product-family aggregation for the product dashboard),
   `claims.js` (`?view=summary|monthly|sku|by-product|imports-list|import[DELETE]`),
   `claims-import.js` (POST parsed xlsx), `import-orders.js` (`?view=log` + POST: map →
-  alias-match → dedup → route to `raw_orders_YYYY_MM` → log), plus `summary`, `sheet`,
-  `append`, `overwrite`, `_lib/sheets.js`.
+  alias-match → dedup → route to `raw_orders_YYYY_MM` → log),
+  `marketing.js` (`?kind=events|inputs` — impls in `_lib/marketingEvents.js` /
+  `_lib/marketingInputs.js`), `sheet-tools.js` (`?op=summary|sheet|append|overwrite`),
+  `product-trends.js`, `manager-claims.js`, `auth.js`, `_lib/sheets.js`.
+  **⚠️ Vercel Hobby caps 12 serverless functions** — files directly under `api/` each
+  count as one (now 11). New sub-features must piggyback on an existing endpoint via
+  query param + `_lib/` impl, not a new `api/*.js` file.
 - `api/_lib/productGroup.js` — **the ONE reusable product-family grouping util** (TODO#2).
   `deriveGroup(displayName, masterSku, overrideMap)` → `{ key, label }`: strips size **and color**
   tokens that stand alone (space-separated) from display_name — sizes (M/L/XL, ไซส์/เบอร์/ขนาด X,
@@ -91,7 +96,7 @@ by `api/auth.js` (`?action=status` / POST `login` / `setup` [first-run creates a
 `create-user` [admin only]). `api/auth.js` is deliberately NOT behind requireAuth.
 **No `AUTH_SECRET` env set = auth disabled** (local-dev default; local `.env`
 deliberately has none). On Vercel the owner MUST set `AUTH_SECRET`, otherwise
-`/api/overwrite`, `/api/append` etc. let anyone wipe the Sheet. Frontend: `src/main.jsx`
+`/api/sheet-tools?op=overwrite|append` etc. let anyone wipe the Sheet. Frontend: `src/main.jsx`
 wraps `window.fetch` (attaches localStorage `payi-api-token`, clears+reloads on 401) and
 gates the app behind `src/pages/Login.jsx` when `status.enabled`. Logout = user chip
 top-right. New endpoints must keep the `requireAuth` guard as the first handler line.

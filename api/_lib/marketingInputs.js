@@ -2,8 +2,8 @@
 // ตัวเลข "กรอกมือ" รายเดือน: ค่า Ads (ต่อร้าน/แพลตฟอร์ม) และ TikTok channel (Affiliate/Live/VDO/อื่นๆ)
 // ข้อมูลนี้ไม่มีใน raw_orders — เจ้าของกรอกเอง เก็บในแท็บ marketing_inputs (สร้างอัตโนมัติ)
 // Sales/Orders รายเดือนดึงจาก /api/monthly (raw_orders) แล้ว frontend รวมเอง
-import { requireAuth } from './_lib/auth.js'
-import { ensureSheet, getSheet, overwriteSheet } from './_lib/sheets.js'
+import { requireAuth } from './auth.js'
+import { ensureSheet, getSheet, overwriteSheet } from './sheets.js'
 
 const SHEET = 'marketing_inputs'
 const HEADERS = ['month', 'business', 'platform', 'metric', 'value', 'updated_at']

@@ -1,8 +1,8 @@
 // GET/POST/PATCH /api/marketing-events
 // Lightweight marketing action log plus sales snapshots from raw_orders_*.
-import { requireAuth } from './_lib/auth.js'
-import { appendRows, batchGetValues, ensureSheet, getMeta, getSheet, overwriteSheet } from './_lib/sheets.js'
-import { buildOverrideMap, deriveGroup } from './_lib/productGroup.js'
+import { requireAuth } from './auth.js'
+import { appendRows, batchGetValues, ensureSheet, getMeta, getSheet, overwriteSheet } from './sheets.js'
+import { buildOverrideMap, deriveGroup } from './productGroup.js'
 
 const SHEET = 'marketing_events'
 const HEADERS = [

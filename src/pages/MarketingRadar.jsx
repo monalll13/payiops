@@ -46,7 +46,7 @@ export default function MarketingRadar() {
   const load = useCallback(() => {
     setLoading(true)
     setError('')
-    fetch('/api/marketing-events')
+    fetch('/api/marketing')
       .then((r) => r.json())
       .then((d) => {
         if (!d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
@@ -108,7 +108,7 @@ export default function MarketingRadar() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/marketing-events', {
+      const res = await fetch('/api/marketing', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event_id: eventId, ...patch }),
@@ -127,7 +127,7 @@ export default function MarketingRadar() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/marketing-events', {
+      const res = await fetch('/api/marketing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -164,7 +164,7 @@ export default function MarketingRadar() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch(`/api/marketing-events?event_id=${encodeURIComponent(eventId)}`, { method: 'DELETE' })
+      const res = await fetch(`/api/marketing?event_id=${encodeURIComponent(eventId)}`, { method: 'DELETE' })
       const json = await res.json()
       if (!json.success) throw new Error(json.error || 'ลบไม่สำเร็จ')
       if (draft?.event_id === eventId) setDraft(null)
