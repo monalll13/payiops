@@ -4,6 +4,7 @@ import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows } from './_lib/sheets.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+const aliasKey = (name, variation) => `${normalize(name)}|${normalize(variation)}`
 const truthy = (v) => {
   const s = String(v ?? '').trim().toLowerCase()
   return s === '1' || s === 'true' || s === 'yes' || s === 'x' || s === '✓' || s === 'y'
@@ -33,7 +34,10 @@ export default async function handler(req, res) {
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
 
   try {
-    // สร้าง lookup จาก product_aliases: ชื่อสินค้า -> { master_sku, display_name }
+    // สร้าง lookup จาก product_aliases:
+    // - ชื่อสินค้า + variation -> SKU ใช้เป็นหลัก เพราะชื่อยาวซ้ำข้ามไซซ์/สีได้
+    // - ชื่อสินค้าอย่างเดียว -> ใช้เฉพาะกรณีไม่กำกวม
+    let aliasByKey = new Map()
     let aliasByName = new Map()
     try {
       const aliases = await getSheet('product_aliases')
@@ -46,8 +50,10 @@ export default async function handler(req, res) {
       }
       for (const a of aliases) {
         const master = a.master_sku, disp = a.display_name
-        addCandidate(a.alias_product_name, { master_sku: master, display_name: disp })
-        addCandidate(a.display_name, { master_sku: master, display_name: disp })
+        const alias = { master_sku: master, display_name: disp }
+        if (a.alias_product_name && a.alias_variation) aliasByKey.set(aliasKey(a.alias_product_name, a.alias_variation), alias)
+        addCandidate(a.alias_product_name, alias)
+        addCandidate(a.display_name, alias)
       }
       for (const [key, list] of candidates) {
         const skus = [...new Set(list.map((x) => String(x.master_sku || '').trim()).filter(Boolean))]
@@ -62,7 +68,8 @@ export default async function handler(req, res) {
     let mapped = 0
     const out = rows.map((row) => {
       const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'สินค้า', 'product'])
-      const alias = aliasByName.get(normalize(productName))
+      const variation = pick(row, ['alias_variation', 'variation_name', 'variation', 'ตัวเลือกสินค้า', 'ประเภทสินค้า', 'แบบ', 'ไซซ์', 'ขนาด', 'สี'])
+      const alias = aliasByKey.get(aliasKey(productName, variation)) || aliasByName.get(normalize(productName))
       if (alias) mapped++
       const dateRaw = pick(row, ['date', 'วันที่'])
       let date = String(dateRaw)
