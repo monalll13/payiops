@@ -240,7 +240,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
       }}
     >
       <div style={{
-        background: '#fff', borderRadius: 20, width: '100%', maxWidth: 680,
+        background: '#fff', borderRadius: 20, width: 'min(1120px, 94vw)', maxWidth: 1120,
         maxHeight: '88vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
       }}>
@@ -342,17 +342,17 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
                     รายการเคลมทั้งหมด ({fmtC(detail.records.length)} รายการ)
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 680 }}>
+                  <div style={{ overflowX: 'visible' }}>
+                    <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
                       <thead>
                         <tr style={{ background: '#f8fafc', color: '#64748b' }}>
-                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>วันที่</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>แบรนด์</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left', width: 92 }}>วันที่</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left', width: 74 }}>แบรนด์</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left' }}>สินค้าที่เคลม</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>มูลค่า (฿)</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>เสียหาย</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>ไม่ครบ</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>ผิด</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right', width: 86 }}>มูลค่า (฿)</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', width: 54 }}>เสียหาย</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', width: 54 }}>ไม่ครบ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', width: 42 }}>ผิด</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left' }}>ได้รับผิด/หมายเหตุ</th>
                         </tr>
                       </thead>
@@ -364,7 +364,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                           >
                             <td style={{ padding: '8px 10px', color: '#64748b' }}>{rec.date}</td>
                             <td style={{ padding: '8px 10px', color: '#1e293b' }}>{rec.business}</td>
-                            <td style={{ padding: '8px 10px', color: '#1e293b', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rec.display_name || rec.product_name || rec.master_sku}>
+                            <td style={{ padding: '8px 10px', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rec.display_name || rec.product_name || rec.master_sku}>
                               {rec.display_name || rec.product_name || rec.master_sku || '—'}
                             </td>
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: rec.claim_value > 0 ? '#dc2626' : '#cbd5e1' }}>
@@ -373,7 +373,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_damaged ? <span style={{ color: FLAG_COLORS.damaged, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_incomplete ? <span style={{ color: FLAG_COLORS.incomplete, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
                             <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_wrong_item ? <span style={{ color: FLAG_COLORS.wrong, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
-                            <td style={{ padding: '8px 10px', color: '#94a3b8', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[rec.free_item, rec.note].filter(Boolean).join(' · ')}>
+                            <td style={{ padding: '8px 10px', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[rec.free_item, rec.note].filter(Boolean).join(' · ')}>
                               {[rec.free_item, rec.note].filter(Boolean).join(' · ') || '—'}
                             </td>
                           </tr>
