@@ -8,9 +8,10 @@ function getClient() {
   if (!client) {
     const auth = new google.auth.GoogleAuth({
       credentials: {
-        client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        client_email: (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim().replace(/^["']|["']$/g, ''),
         // Vercel เก็บ private key เป็น string บรรทัดเดียว ต้องแปลง \n กลับเป็น newline
-        private_key: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+        // + กัน paste ผิด: ตัดเครื่องหมายคำพูดที่เผลอก๊อปติดมาจาก .env
+        private_key: (process.env.GOOGLE_PRIVATE_KEY || '').trim().replace(/^["']|["']$/g, '').replace(/\\n/g, '\n'),
       },
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     })

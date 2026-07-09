@@ -1,6 +1,6 @@
 // GET /api/monthly?year=2026
 // สรุปยอดขาย/ออเดอร์ แยกรายเดือน และแยกร้าน (business × platform) จาก raw_orders_*
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues } from './_lib/sheets.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         .sort((a, b) => b.sales - a.sales)
     }
 
-    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=1800')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=1800'))
     res.status(200).json({
       success: true,
       year: year || null,

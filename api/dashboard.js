@@ -1,6 +1,6 @@
 // GET /api/dashboard?business=&platform=&startDate=&endDate=
 // สรุปข้อมูลสำหรับหน้า Executive จากทุก tab raw_orders_* (Google Sheets)
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues } from './_lib/sheets.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
       alerts.push({ type: 'warning', category: 'SKU ยอดตก', message: `${t.display_name} (${t.master_sku}) ยอดตกจากเมื่อวาน ฿${Math.abs(t.delta).toLocaleString()}` })
     }
 
-    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
     res.status(200).json({
       success: true,
       revenue: round2(revenue),

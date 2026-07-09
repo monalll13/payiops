@@ -2,7 +2,7 @@
 // % เปลี่ยนแปลงรายเดือน (MoM) ของสินค้าแต่ละกลุ่ม — ทั้ง "จำนวนชิ้น" และ "ยอดขาย"
 // รองรับกรองแพลตฟอร์ม/ร้าน (กรองแล้ว re-fetch เหมือน products.js)
 // คืนค่ารายเดือน per กลุ่มสินค้า + per SKU สมาชิก (สำหรับกดขยายดู) — % คำนวณฝั่ง frontend
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
           .map(({ _rev, ...m }) => m),
       }))
 
-    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
     res.status(200).json({
       success: true,
       months,

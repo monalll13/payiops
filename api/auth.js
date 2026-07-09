@@ -29,8 +29,11 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       // status — ปิด auth อยู่ก็บอกตรงๆ ให้ frontend ข้ามจอ login
       if (!authEnabled()) return res.status(200).json({ success: true, enabled: false, hasUsers: true })
-      const users = await getUsers()
-      return res.status(200).json({ success: true, enabled: true, hasUsers: users.length > 0 })
+      // อ่านชีตพัง (เช่น Google key ตั้งผิด) ต้องไม่ทำให้ status ล่ม — ถือว่ามี user ไปก่อน
+      // ไม่งั้น frontend เข้าใจผิดว่าไม่ต้อง login → ยิง API → 401 → reload วน
+      let hasUsers = true
+      try { hasUsers = (await getUsers()).length > 0 } catch { /* ให้จอ login โชว์ error จริงแทน */ }
+      return res.status(200).json({ success: true, enabled: true, hasUsers })
     }
 
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })

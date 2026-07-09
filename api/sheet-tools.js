@@ -1,7 +1,7 @@
 // GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite
 // รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet } from './_lib/sheets.js'
 
 const isCancelled = (status = '') =>
@@ -87,7 +87,7 @@ async function opSummary(req, res) {
         }))
     } catch { /* ไม่มี tab import_log ก็ข้าม */ }
 
-    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=3600')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=3600'))
     res.status(200).json({
       maxDate: dailyRows.length ? dailyRows[dailyRows.length - 1].date : null,
       daily: dailyRows,

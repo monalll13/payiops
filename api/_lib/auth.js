@@ -43,6 +43,10 @@ export function verifyToken(token) {
   } catch { return null }
 }
 
+// ค่า Cache-Control ที่ปลอดภัย: ถ้าเปิด auth ห้าม cache แบบ public ที่ CDN
+// (ไม่งั้น response ที่ login แล้วถูก cache ไว้ จะถูกเสิร์ฟให้คนไม่มี token ได้ = ข้อมูลรั่ว)
+export const cacheable = (value) => (authEnabled() ? 'no-store' : value)
+
 export function requireAuth(req, res) {
   if (!authEnabled()) return true // โหมดเปิด (local dev)
   const user = verifyToken(req.headers['x-api-token'])

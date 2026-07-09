@@ -2,7 +2,7 @@
 // รวมข้อมูลสำหรับ "โหมดผู้จัดการ" (มือถือ): เคลมรายกลุ่มสินค้า + อัตราเคลม (เคลม ÷ ยอดขาย)
 // เคลมมาจาก sheet "claims", ยอดขาย(units) มาจาก raw_orders_* — จับกลุ่มด้วย deriveGroup
 // ตัวเดียวกันทั้งคู่ (key จึงตรงกัน) ตาม TODO#2/#3
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -88,7 +88,7 @@ export default async function handler(req, res) {
     const alertCount = products.filter((p) => p.level === 'red').length
     const lowDataCount = products.filter((p) => p.level === 'low').length
 
-    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
     res.status(200).json({
       success: true,
       thresholds: { red: RED, amber: AMBER, minUnits: MIN_UNITS },

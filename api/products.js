@@ -1,7 +1,7 @@
 // GET /api/products?business=&platform=&startDate=&endDate=
 // สรุปผลงานสินค้าแบบ "รายกลุ่มสินค้า" (product family) สำหรับหน้า Dashboard สินค้า
 // รวม SKU คนละไซส์เข้าเป็นสินค้าเดียวด้วย api/_lib/productGroup.js (TODO#2/#4)
-import { requireAuth } from './_lib/auth.js'
+import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
     // ตัด _monthly ออกจาก payload หลัก (ใหญ่เกินจำเป็น) — ส่งเฉพาะใน trendTopGroups
     for (const g of groupArr) delete g._monthly
 
-    res.setHeader('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
     res.status(200).json({
       success: true,
       totals: { ...totals, groupCount: groupArr.length },
