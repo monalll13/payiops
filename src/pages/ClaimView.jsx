@@ -204,28 +204,29 @@ function BrandClaimSummary({ data }) {
 
 
 // ============================================================
-// COMPONENT: SKU Detail Popup Panel (เหมือนหน้ายอดขาย)
+// COMPONENT: Product Detail Popup Panel (เหมือนหน้ายอดขาย)
 // ============================================================
-function SkuDetailPanel({ masterSku, displayName, startDate, endDate, business, onClose }) {
+function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDate, endDate, business, onClose }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
 
   useEffect(() => {
-    if (!masterSku) return
+    if (!masterSku && !productKey) return
     setLoading(true); setErr(null)
     const params = new URLSearchParams()
     if (startDate) params.set('startDate', startDate)
     if (endDate)   params.set('endDate', endDate)
     if (business)  params.set('business', business)
     params.set('view', 'sku')
-    params.set('sku', masterSku)
+    if (productKey) params.set('productKey', productKey)
+    else params.set('sku', masterSku)
     fetch(`${API_BASE_C}/claims?${params}`)
       .then(r => r.json())
       .then(d => { if (d.success) setDetail(d); else setErr(d.error) })
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false))
-  }, [masterSku, startDate, endDate, business])
+  }, [masterSku, productKey, startDate, endDate, business])
 
   // Close on backdrop click
   const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose() }
@@ -246,10 +247,11 @@ function SkuDetailPanel({ masterSku, displayName, startDate, endDate, business, 
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', marginBottom: 4 }}>MASTER SKU</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', marginBottom: 4 }}>{productKey ? 'สินค้า' : 'MASTER SKU'}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, fontFamily: 'monospace', fontWeight: 800, color: '#2563eb' }}>{masterSku}</span>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{displayName}</span>
+              <span style={{ fontSize: 16, fontFamily: productKey ? 'inherit' : 'monospace', fontWeight: 800, color: '#2563eb' }}>{productKey ? (displayName || masterSku) : masterSku}</span>
+              {productKey && <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', background: '#f1f5f9', borderRadius: 999, padding: '3px 8px' }}>รวม {fmtC(skuCount)} SKU</span>}
+              {!productKey && <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{displayName}</span>}
             </div>
           </div>
           <button
@@ -405,7 +407,7 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: '#111827' }}>
-            🏆 อันดับสินค้าเสียทั้งหมด ({fmtC(topSkus.length)} SKU)
+            🏆 อันดับสินค้าเสียทั้งหมด ({fmtC(topSkus.length)} สินค้า)
           </div>
           <button
             onClick={onClose}
@@ -420,8 +422,8 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
                 <th style={{ padding: '10px 16px', textAlign: 'left', width: 36 }}>#</th>
-                <th style={{ padding: '10px 16px', textAlign: 'left' }}>MASTER SKU</th>
-                <th style={{ padding: '10px 16px', textAlign: 'left' }}>ชื่อสินค้า</th>
+                <th style={{ padding: '10px 16px', textAlign: 'left' }}>สินค้า</th>
+                <th style={{ padding: '10px 16px', textAlign: 'left' }}>จำนวน SKU</th>
                 <th style={{ padding: '10px 16px', textAlign: 'right' }}>จำนวนเคส</th>
                 <th style={{ padding: '10px 16px', textAlign: 'right' }}>มูลค่าทุนเสียหาย</th>
               </tr>
@@ -430,14 +432,14 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
               {topSkus.map((s, i) => (
                 <tr
                   key={i}
-                  onClick={() => { onSelectSku({ master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ' }); onClose() }}
+                  onClick={() => { onSelectSku({ product_key: s.product_key, master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ', skuCount: s.skuCount || 0 }); onClose() }}
                   style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent' }}
                   onMouseEnter={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#ffe4e4' : '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent'}
                 >
                   <td style={{ padding: '11px 16px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>{i + 1}</td>
-                  <td style={{ padding: '11px 16px', fontFamily: 'monospace', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#2563eb', fontWeight: 700 }}>{s.master_sku || 'UNMAPPED'}</td>
-                  <td style={{ padding: '11px 16px', color: '#1e293b' }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 16px', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 16px', color: '#64748b' }}>{fmtC(s.skuCount || 0)}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
                 </tr>
@@ -618,7 +620,7 @@ export default function ClaimView() {
       {/* ตารางจัดอันดับ Top 10 */}
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>ตารางจัดอันดับรายการสินค้าเสียสูงสุด (Top 10 SKU)</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>ตารางจัดอันดับสินค้าเคลมสูงสุด (Top 10 สินค้า)</div>
           {topSkus.length > 10 && (
             <button
               onClick={() => setShowAllSkus(true)}
@@ -631,7 +633,7 @@ export default function ClaimView() {
               onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#bfdbfe' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.borderColor = '#e2e8f0' }}
             >
-              <ExternalLink size={12} /> ดูทั้งหมด ({fmtC(topSkus.length)} SKU)
+              <ExternalLink size={12} /> ดูทั้งหมด ({fmtC(topSkus.length)} สินค้า)
             </button>
           )}
         </div>
@@ -640,8 +642,8 @@ export default function ClaimView() {
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
                 <th style={{ padding: '10px 14px', textAlign: 'left' }}>#</th>
-                <th style={{ padding: '10px 14px', textAlign: 'left' }}>MASTER SKU</th>
-                <th style={{ padding: '10px 14px', textAlign: 'left' }}>ชื่อสินค้าจริงในระบบ</th>
+                <th style={{ padding: '10px 14px', textAlign: 'left' }}>สินค้า</th>
+                <th style={{ padding: '10px 14px', textAlign: 'left' }}>จำนวน SKU</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right' }}>จำนวนเคส</th>
                 <th style={{ padding: '10px 14px', textAlign: 'right' }}>มูลค่าทุนเสียหาย</th>
               </tr>
@@ -650,14 +652,14 @@ export default function ClaimView() {
               {topSkus.slice(0, 10).map((s, i) => (
                 <tr
                   key={i}
-                  onClick={() => setSelectedSku({ master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ' })}
+                  onClick={() => setSelectedSku({ product_key: s.product_key, master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ', skuCount: s.skuCount || 0 })}
                   style={{ borderBottom: '1px solid #f1f5f9', background: s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent', cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#ffe4e4' : '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent'}
                 >
                   <td style={{ padding: '11px 14px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: i < 3 ? 800 : 400 }}>{i + 1}</td>
-                  <td style={{ padding: '11px 14px', fontFamily: 'monospace', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#2563eb', fontWeight: 700 }}>{s.master_sku || 'UNMAPPED'}</td>
-                  <td style={{ padding: '11px 14px', color: '#1e293b' }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 14px', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 14px', color: '#64748b' }}>{fmtC(s.skuCount || 0)}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
                 </tr>
@@ -677,7 +679,7 @@ export default function ClaimView() {
               onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc' }}
             >
-              ดูทั้งหมด {fmtC(topSkus.length)} SKU →
+              ดูทั้งหมด {fmtC(topSkus.length)} สินค้า →
             </button>
           </div>
         )}
@@ -696,7 +698,9 @@ export default function ClaimView() {
       {selectedSku && (
         <SkuDetailPanel
           masterSku={selectedSku.master_sku}
+          productKey={selectedSku.product_key}
           displayName={selectedSku.display_name}
+          skuCount={selectedSku.skuCount}
           startDate={startDate}
           endDate={endDate}
           business={business}

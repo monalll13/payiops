@@ -93,7 +93,16 @@ export default async function handler(req, res) {
 
     if (view === 'sku') {
       const sku = req.query.sku
-      const recs = rows.filter((r) => (r.master_sku || 'UNMAPPED') === sku && inDate(r.date) && keepBiz(r.business))
+      const productKey = String(req.query.productKey || '').trim()
+      let overrideMap = new Map()
+      if (productKey) {
+        try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+      }
+      const recs = rows.filter((r) => {
+        if (!inDate(r.date) || !keepBiz(r.business)) return false
+        if (productKey) return deriveGroup(r.display_name, r.master_sku, overrideMap).key === productKey
+        return (r.master_sku || 'UNMAPPED') === sku
+      })
       const bizMap = new Map()
       const reason = { damaged: { count: 0, value: 0 }, incomplete: { count: 0, value: 0 }, wrong: { count: 0, value: 0 } }
       let totalValue = 0
@@ -147,16 +156,19 @@ export default async function handler(req, res) {
     // ---- view === 'summary' ----
     const filtered = rows.filter((r) => inDate(r.date) && keepBiz(r.business))
     let claimValue = 0, damageCount = 0, incompleteCount = 0, wrongItemCount = 0
-    const skuMap = new Map()
+    let overrideMap = new Map()
+    try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+    const productMap = new Map()
     const dateMap = new Map()
     for (const r of filtered) {
       const val = num(r.claim_value); claimValue += val
       if (truthy(r.is_damaged)) damageCount++
       if (truthy(r.is_incomplete)) incompleteCount++
       if (truthy(r.is_wrong_item)) wrongItemCount++
-      const key = r.master_sku || 'UNMAPPED'
-      if (!skuMap.has(key)) skuMap.set(key, { master_sku: key, display_name: r.display_name || '', count: 0, value: 0 })
-      const s = skuMap.get(key); s.count++; s.value += val
+      const { key, label } = deriveGroup(r.display_name, r.master_sku, overrideMap)
+      if (!productMap.has(key)) productMap.set(key, { product_key: key, master_sku: '', display_name: label, count: 0, value: 0, skus: new Set() })
+      const s = productMap.get(key); s.count++; s.value += val
+      if (r.master_sku) s.skus.add(r.master_sku)
       if (r.date) dateMap.set(r.date, (dateMap.get(r.date) || 0) + 1)
     }
     return res.status(200).json({
@@ -165,7 +177,9 @@ export default async function handler(req, res) {
       claimValue: round2(claimValue),
       totalValue: round2(claimValue),
       damageCount, incompleteCount, wrongItemCount,
-      topClaimSkus: [...skuMap.values()].map((s) => ({ ...s, value: round2(s.value) })).sort((a, b) => b.count - a.count),
+      topClaimSkus: [...productMap.values()]
+        .map((s) => ({ ...s, value: round2(s.value), skuCount: s.skus.size, skus: [...s.skus] }))
+        .sort((a, b) => b.count - a.count),
       claimByDate: [...dateMap.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)),
     })
   } catch (e) {

@@ -1,9 +1,10 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './theme.css'
 import App from './App.jsx'
-import ManagerClaimsPrototype from './pages/ManagerClaimsPrototype.jsx'
 import Login from './pages/Login.jsx'
+
+const ManagerClaimsPrototype = lazy(() => import('./pages/ManagerClaimsPrototype.jsx'))
 
 // ── API auth: แนบ token กับทุก fetch ที่ยิง /api (จุดเดียว ครอบทุกหน้า) ──
 // token มาจากการ login (/api/auth) เก็บใน localStorage — ถ้า server ตอบ 401 (token หมดอายุ/ผิด)
@@ -74,7 +75,11 @@ function Root() {
   const needLogin = status.enabled && !(localStorage.getItem(TOKEN_KEY) && user)
   if (needLogin) return <Login firstTime={!status.hasUsers} onLogin={setUser} />
 
-  return showManagerPrototype ? <ManagerClaimsPrototype /> : <App />
+  return showManagerPrototype ? (
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'var(--payi-text-muted)', fontSize: 14 }}>กำลังโหลด...</div>}>
+      <ManagerClaimsPrototype />
+    </Suspense>
+  ) : <App />
 }
 
 createRoot(document.getElementById('root')).render(

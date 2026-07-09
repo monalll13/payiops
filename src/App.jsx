@@ -1,30 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import payiLogo from './assets/payi-logo.png'
 import { 
   Bell, Search, UserCircle2, DollarSign, ShoppingBag, TrendingUp, BarChart3,
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2
 } from 'lucide-react'
 import KpiCard from './components/KpiCard'
-import Upload from './pages/Upload'
-import LinksHub from './pages/LinksHub'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell
 } from 'recharts'
-import PackingView from './pages/PackingView'
-import DevHub from './pages/DevHub'
-import ClaimView from './pages/ClaimView'
-import SalesView from './pages/SalesView'
-import MonthlyDashboard from './pages/MonthlyDashboard'
-import ProductDashboard from './pages/ProductDashboard'
-import ProductTrends from './pages/ProductTrends'
-import MarketingRadar from './pages/MarketingRadar'
-import AdsChannels from './pages/AdsChannels'
-import ContentOSPrototype from './pages/ContentOSPrototype'
+
+const Upload = lazy(() => import('./pages/Upload'))
+const LinksHub = lazy(() => import('./pages/LinksHub'))
+const PackingView = lazy(() => import('./pages/PackingView'))
+const DevHub = lazy(() => import('./pages/DevHub'))
+const ClaimView = lazy(() => import('./pages/ClaimView'))
+const SalesView = lazy(() => import('./pages/SalesView'))
+const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
+const ProductDashboard = lazy(() => import('./pages/ProductDashboard'))
+const ProductTrends = lazy(() => import('./pages/ProductTrends'))
+const MarketingRadar = lazy(() => import('./pages/MarketingRadar'))
+const AdsChannels = lazy(() => import('./pages/AdsChannels'))
+const ContentOSPrototype = lazy(() => import('./pages/ContentOSPrototype'))
 
 const API_BASE = '/api'
 
 const fmt = n => Number(n).toLocaleString('th-TH', { maximumFractionDigits: 0 })
+
+function ModuleFallback() {
+  return (
+    <div style={{ minHeight: 260, display: 'grid', placeItems: 'center', color: 'var(--payi-text-muted)', fontSize: 13 }}>
+      กำลังโหลด...
+    </div>
+  )
+}
 
 // ─── CSV export helper ──────────────────────────────────────────────────
 function exportToCsv(filename, rows) {
@@ -857,6 +866,7 @@ export default function App() {
           </div>
         )}
 
+        <Suspense fallback={<ModuleFallback />}>
         {(activeTab === 'Executive') ? (
           <div style={{ width: '100%' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 16, marginBottom: 16 }}>
@@ -1288,6 +1298,7 @@ export default function App() {
             <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--payi-text)' }}>โมดูล {activeTab} กำลังจัดเตรียมโครงสร้างคลังข้อมูล</div>
           </div>
         )}
+        </Suspense>
       </div>
 
       {/* PRODUCT INSIGHT SIDE DRAWER */}
@@ -1303,4 +1314,3 @@ export default function App() {
     </div>
   )
 }
-
