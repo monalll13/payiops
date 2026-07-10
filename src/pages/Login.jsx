@@ -40,7 +40,7 @@ export default function Login({ firstTime, onLogin }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
           <img src={payiLogo} alt="PAYI" style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--payi-text-strong)' }}>PAYI Ops</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--payi-text-strong)' }}>Payi Ops</div>
             <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', fontWeight: 700, letterSpacing: '0.06em' }}>RETAIL CONTROL ROOM</div>
           </div>
         </div>

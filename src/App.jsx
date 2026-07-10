@@ -321,7 +321,7 @@ function AIAssistantView() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 22 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--payi-text-strong)' }}>PAYI Brain</div>
-          <div style={{ fontSize: 13, color: 'var(--payi-text-muted)', marginTop: 4 }}>ผู้ช่วยวิเคราะห์ยอดขาย เคลม สต็อก งานหลังบ้าน และแผนการตลาดของ PAYI Ops</div>
+          <div style={{ fontSize: 13, color: 'var(--payi-text-muted)', marginTop: 4 }}>ผู้ช่วยวิเคราะห์ยอดขาย เคลม สต็อก งานหลังบ้าน และแผนการตลาดของ Payi Ops</div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -762,7 +762,7 @@ export default function App() {
   }[activeTab] || {
     title: activeTab,
     eyebrow: menuGroups.find(group => group.items.some(item => item.id === activeTab))?.title || 'Workspace',
-    subtitle: 'PAYI Ops workspace'
+    subtitle: 'Payi Ops workspace'
   }
 
   const rangeLabel = datePreset === 'today'
@@ -780,22 +780,23 @@ export default function App() {
     return `${v >= 0 ? '+' : ''}${v}%`
   }
 
+  const isLinksHubMode = activeTab === 'Links Hub'
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'transparent', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
       {/* SIDEBAR NAVIGATION */}
-      <div style={{ width: 256, height: '100vh', position: 'sticky', top: 0, background: 'var(--payi-surface-dark)', borderRight: '1px solid var(--payi-deep)', display: 'flex', flexDirection: 'column', padding: '18px 0 16px 16px', boxSizing: 'border-box', flexShrink: 0 }}>
+      <div style={{ width: 256, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '18px 16px 16px', boxSizing: 'border-box', flexShrink: 0, boxShadow: '18px 0 48px rgba(15, 23, 42, 0.04)' }}>
         <div style={{ marginBottom: 18, paddingLeft: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src={payiLogo} alt="PAYI" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', boxShadow: '0 0 0 1px rgba(255,255,255,0.12)' }} />
+          <img src={payiLogo} alt="Payi Ops" style={{ width: 42, height: 42, borderRadius: 10, objectFit: 'cover', boxShadow: '0 12px 28px rgba(37, 99, 235, 0.16)' }} />
           <div>
-            <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--payi-surface)' }}>PAYI Ops</div>
-            <div style={{ fontSize: '10px', fontWeight: '700', color: 'var(--payi-text-faint)', letterSpacing: '0.08em', marginTop: '4px' }}>RETAIL CONTROL ROOM</div>
+            <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Payi Ops</div>
+            <div style={{ fontSize: '10px', fontWeight: '700', color: '#334155', letterSpacing: 0, marginTop: '4px' }}>Business Command Center</div>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 11, flex: 1, overflowY: 'auto', paddingRight: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto', paddingRight: 0 }}>
           {menuGroups.map((group) => (
             <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div style={{ fontSize: '10px', fontWeight: '800', color: 'var(--payi-text-muted)', letterSpacing: '0.08em', padding: '4px 8px' }}>{group.title}</div>
               {group.items.map((item) => {
                 const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
                 return (
@@ -803,16 +804,16 @@ export default function App() {
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: item.helper ? '7px 12px 7px 10px' : '6.5px 12px 6.5px 10px', border: 'none', borderRadius: 8,
-                      backgroundColor: isActive ? 'var(--payi-surface)' : 'transparent', color: isActive ? 'var(--payi-surface-dark)' : 'var(--payi-text-on-dark-muted)', cursor: 'pointer', fontSize: '12.5px', fontWeight: isActive ? '800' : '600', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '11px 12px', border: 'none', borderRadius: 8,
+                      backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '14px', fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <span style={{ color: isActive ? 'var(--payi-surface-dark)' : 'var(--payi-text-faint)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{item.renderIcon()}</span>
+                      <span style={{ color: isActive ? '#2563eb' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{item.renderIcon()}</span>
                       <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
                         {item.helper && (
-                          <span style={{ fontSize: 9.5, lineHeight: 1.05, color: isActive ? 'var(--payi-text-muted)' : 'var(--payi-text-muted)', whiteSpace: 'nowrap' }}>{item.helper}</span>
+                          <span style={{ fontSize: 9.5, lineHeight: 1.05, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
                         )}
                       </span>
                     </div>
@@ -826,10 +827,10 @@ export default function App() {
       </div>
 
       {/* MAIN CONTENT AREA */}
-      <div style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
+      <div style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: isLinksHubMode ? '32px 34px 40px' : '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
         
         {/* HEADER TOP ROW */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
+        {!isLinksHubMode && <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--payi-text-muted)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
             <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: 'var(--payi-surface-dark)', marginBottom: 4 }}>{pageMeta.title}</div>
@@ -863,7 +864,7 @@ export default function App() {
               </span>
             </button>
           </div>
-        </div>
+        </div>}
 
         {/* SUB-TABS ของ Dashboard ใหญ่ (สรุปยอดขาย / สินค้า) */}
         {SUB_TABS[activeTab] && (

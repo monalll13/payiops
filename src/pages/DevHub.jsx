@@ -49,7 +49,7 @@ export default function DevHub() {
   return (
     <div style={{ width: '100%' }}>
       <div style={{ fontSize: 13, color: 'var(--payi-text-muted)', marginBottom: 20 }}>
-        คู่มือสำหรับ developer และคนใหม่ที่เข้ามาช่วยพัฒนาระบบ PAYI Ops
+        คู่มือสำหรับ developer และคนใหม่ที่เข้ามาช่วยพัฒนาระบบ Payi Ops
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
         {sections.map((s) => (

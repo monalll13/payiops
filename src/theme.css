@@ -21,20 +21,20 @@
 
 :root {
   /* -- brand palette -- */
-  --payi-mint: #5fbfaf;
-  --payi-mint-strong: #347f75;
-  --payi-mint-soft: #eefaf7;
-  --payi-cyan: #8bcfca;
-  --payi-cyan-hot: #c8f4ee;
-  --payi-deep: #557e7b;
-  --payi-deep-2: #243f3e;
+  --payi-mint: #2563eb;
+  --payi-mint-strong: #0b63d8;
+  --payi-mint-soft: #eaf3ff;
+  --payi-cyan: #93c5fd;
+  --payi-cyan-hot: #dbeafe;
+  --payi-deep: #bfdbfe;
+  --payi-deep-2: #0f172a;
 
-  --payi-ink: #263f3d;
-  --payi-muted: #77908c;
+  --payi-ink: #0f172a;
+  --payi-muted: #64748b;
 
-  --payi-line: rgba(109, 141, 138, 0.18);
+  --payi-line: rgba(148, 163, 184, 0.26);
   --payi-glass: rgba(255, 255, 255, 0.78);
-  --payi-shadow: 0 18px 48px rgba(38, 63, 61, 0.09);
+  --payi-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
 
   /* logo now lives as a real asset (src/assets/payi-logo.png), not a
      450KB base64 blob in CSS. App.jsx sets this var via inline style
@@ -48,10 +48,10 @@
   --payi-text-muted: #64748b;    /* was #64748b / #667085 */
   --payi-text-faint: #94a3b8;    /* was #94a3b8 / #6b7280 */
   --payi-text-on-dark-muted: #c4cdd5; /* was #d0d5dd — inactive nav text etc. on dark surfaces */
-  --payi-border: rgba(126, 149, 146, 0.2); /* was #e2e8f0 / #e5e7eb / #dfe4ea */
+  --payi-border: #dbe3ef; /* was #e2e8f0 / #e5e7eb / #dfe4ea */
   --payi-surface: #ffffff;       /* was #ffffff / #fff */
-  --payi-surface-muted: #f7faf9; /* was #f8fafc / #f1f5f9 */
-  --payi-surface-dark: #243f3e;  /* was #101828 / #111827 dark panels */
+  --payi-surface-muted: #f7fbff; /* was #f8fafc / #f1f5f9 */
+  --payi-surface-dark: #0f172a;  /* was #101828 / #111827 dark panels */
 
   /* -- status colors stay semantic, not re-themed to brand -- */
   --payi-success: #10b981;
@@ -68,9 +68,9 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(circle at 12% 10%, rgba(221, 246, 241, 0.66), transparent 31%),
-    radial-gradient(circle at 86% 0%, rgba(232, 242, 255, 0.78), transparent 34%),
-    linear-gradient(135deg, #fbfefd 0%, #f5faf9 48%, #f8fbff 100%);
+    radial-gradient(circle at 12% 10%, rgba(219, 234, 254, 0.72), transparent 31%),
+    radial-gradient(circle at 86% 0%, rgba(237, 233, 254, 0.72), transparent 34%),
+    linear-gradient(135deg, #ffffff 0%, #f7fbff 50%, #f8fbff 100%);
   color: var(--payi-ink);
 }
 

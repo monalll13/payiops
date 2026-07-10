@@ -115,7 +115,7 @@ export default function ManagerClaimsPrototype() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <DiamondLogo />
             <div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C.text, letterSpacing: '0.02em' }}>PAYI Ops</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.text, letterSpacing: '0.02em' }}>Payi Ops</div>
               <div style={{ fontSize: 11, color: C.blue, fontWeight: 600 }}>งานเคลม · สำหรับหัวหน้า Teume</div>
             </div>
           </div>

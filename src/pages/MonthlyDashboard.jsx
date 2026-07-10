@@ -50,6 +50,43 @@ function TooltipBox({ active, payload, label, moneyKeys = [] }) {
   )
 }
 
+function PlatformPieLabel({ cx, cy, midAngle, outerRadius, percent }) {
+  if (!percent || percent < 0.03) return null
+  const RADIAN = Math.PI / 180
+  const radius = outerRadius + 18
+  const x = cx + radius * Math.cos(-midAngle * RADIAN)
+  const y = cy + radius * Math.sin(-midAngle * RADIAN)
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="var(--payi-text-strong)"
+      textAnchor={x > cx ? 'start' : 'end'}
+      dominantBaseline="central"
+      fontSize={12}
+      fontWeight={800}
+    >
+      {`${Math.round(percent * 100)}%`}
+    </text>
+  )
+}
+
+function PlatformTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const item = payload[0]?.payload
+  if (!item) return null
+  return (
+    <div style={{ background: 'var(--payi-surface-dark)', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#fff' }}>
+      <div style={{ color: '#cbd5e1', marginBottom: 6, fontWeight: 700 }}>{item.name}</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: platColor(item.name) }} />
+        <span style={{ color: '#cbd5e1' }}>ยอดขาย:</span>
+        <span style={{ fontWeight: 800 }}>{fmtBaht(item.value)} ({item.percentLabel})</span>
+      </div>
+    </div>
+  )
+}
+
 export default function MonthlyDashboard() {
   const [year, setYear] = useState('')
   const [data, setData] = useState(null)
@@ -107,7 +144,13 @@ export default function MonthlyDashboard() {
   const platformShare = useMemo(() => {
     const m = {}
     for (const s of stores) m[s.platform] = (m[s.platform] || 0) + s.sales
-    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+    const total = Object.values(m).reduce((sum, value) => sum + value, 0)
+    return Object.entries(m)
+      .map(([name, value]) => {
+        const pct = total > 0 ? (value / total) * 100 : 0
+        return { name, value, pct, percentLabel: `${pct < 1 && pct > 0 ? '<1' : Math.round(pct)}%` }
+      })
+      .sort((a, b) => b.value - a.value)
   }, [stores])
   const trendChart = useMemo(() => trend.map((t) => ({ label: monthLabel(t.month), sales: t.sales, orders: t.orders })), [trend])
 
@@ -158,11 +201,29 @@ export default function MonthlyDashboard() {
         <Card title="สัดส่วนแพลตฟอร์ม" sub={periodLabel(month)}>
           <ResponsiveContainer width="100%" height={230}>
             <PieChart>
-              <Pie data={platformShare} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={82} paddingAngle={2}>
+              <Pie
+                data={platformShare}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={52}
+                outerRadius={82}
+                paddingAngle={2}
+                labelLine={{ stroke: 'var(--payi-border)' }}
+                label={PlatformPieLabel}
+              >
                 {platformShare.map((p, i) => <Cell key={i} fill={platColor(p.name)} />)}
               </Pie>
-              <Tooltip content={<TooltipBox moneyKeys={['value']} />} />
-              <Legend verticalAlign="bottom" height={24} formatter={(v) => <span style={{ fontSize: 12, color: 'var(--payi-text)' }}>{v}</span>} />
+              <Tooltip content={<PlatformTooltip />} />
+              <Legend
+                verticalAlign="bottom"
+                height={24}
+                formatter={(v) => {
+                  const item = platformShare.find((entry) => entry.name === v)
+                  return <span style={{ fontSize: 12, color: 'var(--payi-text)' }}>{v}{item ? ` ${item.percentLabel}` : ''}</span>
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
         </Card>
