@@ -30,6 +30,7 @@ export default async function handler(req, res) {
     const vr = await batchGetValues(ranges)
 
     // ---- PASS 1: หา distinct dates ที่ผ่าน filter เพื่อกำหนด "today / yesterday" ----
+    const availableDateSet = new Set()
     const dateSet = new Set()
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
@@ -37,11 +38,15 @@ export default async function handler(req, res) {
         const row = left[j]
         if (!row) continue
         const date = row[2], plat = row[3], biz = row[4]
-        if (!date || !inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
-        dateSet.add(date)
+        if (!date || !keepBiz(biz) || !keepPlat(plat)) continue
+        availableDateSet.add(date)
+        if (inDate(date)) dateSet.add(date)
       }
     }
+    const sortedAvailableDates = [...availableDateSet].sort()
     const sortedDates = [...dateSet].sort()
+    const latestDataDate = sortedAvailableDates[sortedAvailableDates.length - 1] || null
+    const earliestDataDate = sortedAvailableDates[0] || null
     const todayD = sortedDates[sortedDates.length - 1] || null
     const yestD = sortedDates[sortedDates.length - 2] || null
 
@@ -184,6 +189,7 @@ export default async function handler(req, res) {
       businessBreakdown, platformBreakdown,
       topSkus,
       commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth },
+      dataRange: { earliestDate: earliestDataDate, latestDate: latestDataDate },
     })
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })

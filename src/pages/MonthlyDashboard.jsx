@@ -9,7 +9,16 @@ import KpiCard from '../components/KpiCard.jsx'
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })
 const fmtBaht = (n) => '฿' + fmt(n)
 const fmtShort = (n) => '฿' + (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : Math.round(n))
-const PLATFORM_COLORS = { Shopee: '#F0662C', 'TikTok Shop': '#2AA79B', Lazada: '#2F5FD0' }
+const PLATFORM_COLORS = {
+  Shopee: '#D9784A',
+  'TikTok Shop': '#374151',
+  Lazada: '#4F7FC8',
+}
+const CHART_COLORS = {
+  sales: '#4F9B82',
+  orders: '#B49A6A',
+  grid: 'rgba(100, 116, 139, 0.10)',
+}
 const platColor = (p) => PLATFORM_COLORS[p] || '#94a3b8'
 const THAI_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const monthLabel = (ym) => (ym === 'all' ? 'ทั้งหมด' : THAI_MONTH[parseInt(String(ym).slice(5, 7), 10) - 1] || ym)
@@ -53,7 +62,7 @@ function TooltipBox({ active, payload, label, moneyKeys = [] }) {
 function PlatformPieLabel({ cx, cy, midAngle, outerRadius, percent }) {
   if (!percent || percent < 0.03) return null
   const RADIAN = Math.PI / 180
-  const radius = outerRadius + 18
+  const radius = outerRadius + 20
   const x = cx + radius * Math.cos(-midAngle * RADIAN)
   const y = cy + radius * Math.sin(-midAngle * RADIAN)
   return (
@@ -186,7 +195,7 @@ export default function MonthlyDashboard() {
         <Card title="ยอดขายแยกร้าน" sub={`${periodLabel(month)} · เรียงจากมากไปน้อย${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}` : ''}`}>
           <ResponsiveContainer width="100%" height={Math.max(200, stores.length * 42)}>
             <BarChart data={stores} layout="vertical" margin={{ left: 8, right: 95, top: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" horizontal={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} tickFormatter={(v) => `฿${v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : Math.round(v / 1000) + 'k'}`} />
               <YAxis type="category" dataKey="store" tick={{ fontSize: 12, fill: 'var(--payi-text)' }} axisLine={false} tickLine={false} width={110} />
               <Tooltip content={<TooltipBox moneyKeys={['sales']} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
@@ -199,16 +208,16 @@ export default function MonthlyDashboard() {
         </Card>
 
         <Card title="สัดส่วนแพลตฟอร์ม" sub={periodLabel(month)}>
-          <ResponsiveContainer width="100%" height={230}>
+          <ResponsiveContainer width="100%" height={290}>
             <PieChart>
               <Pie
                 data={platformShare}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
-                cy="50%"
-                innerRadius={52}
-                outerRadius={82}
+                cy="47%"
+                innerRadius={68}
+                outerRadius={108}
                 paddingAngle={2}
                 labelLine={{ stroke: 'var(--payi-border)' }}
                 label={PlatformPieLabel}
@@ -233,13 +242,13 @@ export default function MonthlyDashboard() {
       <Card title="แนวโน้มรายเดือน" sub="แท่ง = ยอดขาย · เส้น = จำนวนออเดอร์" mb>
         <ResponsiveContainer width="100%" height={260}>
           <ComposedChart data={trendChart} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--payi-text-muted)' }} axisLine={false} tickLine={false} />
             <YAxis yAxisId="l" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} tickFormatter={(v) => `฿${v >= 1000000 ? (v / 1000000).toFixed(0) + 'M' : Math.round(v / 1000) + 'k'}`} />
             <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
             <Tooltip content={<TooltipBox moneyKeys={['sales']} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-            <Bar yAxisId="l" dataKey="sales" name="ยอดขาย" fill="var(--payi-mint)" radius={[6, 6, 0, 0]} barSize={38} />
-            <Line yAxisId="r" dataKey="orders" name="ออเดอร์" stroke="#F0662C" strokeWidth={2.5} dot={{ r: 3 }} />
+            <Bar yAxisId="l" dataKey="sales" name="ยอดขาย" fill={CHART_COLORS.sales} radius={[6, 6, 0, 0]} barSize={38} />
+            <Line yAxisId="r" dataKey="orders" name="ออเดอร์" stroke={CHART_COLORS.orders} strokeWidth={2.5} dot={{ r: 3, fill: '#ffffff', strokeWidth: 2 }} />
           </ComposedChart>
         </ResponsiveContainer>
       </Card>
@@ -248,7 +257,7 @@ export default function MonthlyDashboard() {
       <Card title="จำนวนออเดอร์แยกร้าน" sub={`${periodLabel(month)} · ไว้วางแผนแพ็กของ/OT${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}` : ''}`}>
         <ResponsiveContainer width="100%" height={Math.max(180, storesByOrders.length * 42)}>
           <BarChart data={storesByOrders} layout="vertical" margin={{ left: 8, right: 95, top: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" horizontal={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 10, fill: '#888' }} axisLine={false} tickLine={false} />
             <YAxis type="category" dataKey="store" tick={{ fontSize: 12, fill: 'var(--payi-text)' }} axisLine={false} tickLine={false} width={110} />
             <Tooltip content={<TooltipBox />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />

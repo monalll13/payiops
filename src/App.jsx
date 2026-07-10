@@ -1,10 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import payiLogo from './assets/payi-logo.png'
 import { 
-  Bell, Search, UserCircle2, DollarSign, ShoppingBag, TrendingUp, BarChart3,
+  Bell, Search, UserCircle2, DollarSign, ShoppingBag, Package, TrendingUp,
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2
 } from 'lucide-react'
-import KpiCard from './components/KpiCard'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell
@@ -573,18 +572,20 @@ export default function App() {
     setDatePreset(preset)
     setBusiness('all')
     setPlatform('all')
-    const today = new Date()
     const fmtISO = (d) => d.toISOString().slice(0, 10)
+    const anchorDate = dashData?.dataRange?.latestDate
+      ? new Date(`${dashData.dataRange.latestDate}T00:00:00`)
+      : new Date()
     
     if (preset === 'today') {
-      const tStr = fmtISO(today)
+      const tStr = fmtISO(anchorDate)
       setStartDate(tStr); setEndDate(tStr)
     } else if (preset === '7d') {
-      const s = new Date(today); s.setDate(today.getDate() - 6)
-      setStartDate(fmtISO(s)); setEndDate(fmtISO(today))
+      const s = new Date(anchorDate); s.setDate(anchorDate.getDate() - 6)
+      setStartDate(fmtISO(s)); setEndDate(fmtISO(anchorDate))
     } else if (preset === '30d') {
-      const s = new Date(today); s.setDate(today.getDate() - 29)
-      setStartDate(fmtISO(s)); setEndDate(fmtISO(today))
+      const s = new Date(anchorDate); s.setDate(anchorDate.getDate() - 29)
+      setStartDate(fmtISO(s)); setEndDate(fmtISO(anchorDate))
     } else if (preset === 'all') {
       setStartDate(''); setEndDate('')
     }
@@ -885,50 +886,32 @@ export default function App() {
         <Suspense fallback={<ModuleFallback />}>
         {(activeTab === 'Executive') ? (
           <div style={{ width: '100%' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 16, marginBottom: 16 }}>
-              <div style={{ background: 'var(--payi-surface-dark)', color: 'var(--payi-surface)', borderRadius: 8, padding: 22, border: '1px solid var(--payi-deep)', boxShadow: '0 16px 40px rgba(16,24,40,0.12)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', marginBottom: 26 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-text-faint)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Command Snapshot</div>
-                    <div style={{ fontSize: 34, lineHeight: 1.05, fontWeight: 850, letterSpacing: 0 }}>THB {fmt(totalRevenue)}</div>
-                    <div style={{ fontSize: 13, color: 'var(--payi-text-on-dark-muted)', marginTop: 8 }}>Revenue / {rangeLabel}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: revenueTrend === null || revenueTrend >= 0 ? '#053321' : '#55160c', border: revenueTrend === null || revenueTrend >= 0 ? '1px solid #067647' : '1px solid var(--payi-danger)', color: revenueTrend === null || revenueTrend >= 0 ? '#75e0a7' : '#fda29b', borderRadius: 999, padding: '7px 10px', fontSize: 12, fontWeight: 800 }}>
-                    {revenueTrend === null || revenueTrend >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                    {fmtTrend(revenueTrend) || 'Live'}
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
-                  {[
-                    { label: 'Orders', value: fmt(totalOrders) },
-                    { label: 'Units', value: fmt(totalQty) },
-                    { label: 'AOV', value: 'THB ' + fmt(avgOrder) }
-                  ].map(item => (
-                    <div key={item.label} style={{ background: 'var(--payi-deep)', border: '1px solid #344054', borderRadius: 8, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', fontWeight: 700 }}>{item.label}</div>
-                      <div style={{ fontSize: 20, color: 'var(--payi-surface)', fontWeight: 850, marginTop: 5 }}>{item.value}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
+              {[
+                { title: 'Total Revenue', value: `THB ${fmt(totalRevenue)}`, subtitle: rangeLabel, icon: DollarSign, trend: fmtTrend(revenueTrend), isPositive: revenueTrend === null || revenueTrend >= 0 },
+                { title: 'Orders', value: fmt(totalOrders), subtitle: rangeLabel, icon: ShoppingBag, trend: fmtTrend(ordersTrend), isPositive: ordersTrend === null || ordersTrend >= 0 },
+                { title: 'Units', value: fmt(totalQty), subtitle: rangeLabel, icon: Package, trend: fmtTrend(unitsTrend), isPositive: unitsTrend === null || unitsTrend >= 0 },
+                { title: 'AOV', value: `THB ${fmt(avgOrder)}`, subtitle: rangeLabel, icon: TrendingUp, trend: fmtTrend(aovTrend), isPositive: aovTrend === null || aovTrend >= 0 },
+              ].map((item) => {
+                const Icon = item.icon
+                return (
+                  <div key={item.title} style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 12, padding: '14px 16px', minHeight: 92, boxShadow: '0 10px 26px rgba(15,23,42,0.04)', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', fontWeight: 800, marginBottom: 8 }}>{item.title}</div>
+                      <div style={{ fontSize: 22, lineHeight: 1.05, color: 'var(--payi-text-strong)', fontWeight: 850, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
+                      <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 8 }}>{item.subtitle}</div>
                     </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: 18, boxShadow: '0 12px 30px rgba(16,24,40,0.06)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 850, color: 'var(--payi-surface-dark)' }}>Today Focus</div>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: alerts.length ? 'var(--payi-danger)' : '#027a48', background: alerts.length ? '#fef3f2' : '#ecfdf3', borderRadius: 999, padding: '4px 8px' }}>{alerts.length} alerts</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[
-                    { label: 'Revenue today', value: 'THB ' + fmt(todayRevenue) },
-                    { label: 'Top movers', value: trendingUp.length + ' up / ' + trendingDown.length + ' down' },
-                    { label: 'Data scope', value: rangeLabel }
-                  ].map(row => (
-                    <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, borderBottom: '1px solid #eef2f6', paddingBottom: 10 }}>
-                      <span style={{ fontSize: 12, color: 'var(--payi-text-muted)', fontWeight: 650 }}>{row.label}</span>
-                      <span style={{ fontSize: 12.5, color: 'var(--payi-surface-dark)', fontWeight: 850, textAlign: 'right' }}>{row.value}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', flexShrink: 0 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--payi-mint-soft)', color: 'var(--payi-mint-strong)', display: 'grid', placeItems: 'center' }}>
+                        <Icon size={17} />
+                      </div>
+                      {item.trend && (
+                        <span style={{ fontSize: 11, fontWeight: 850, color: item.isPositive ? 'var(--payi-success)' : 'var(--payi-danger)' }}>{item.trend}</span>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                )
+              })}
             </div>
             {error && (
               <div style={{ background: 'var(--payi-danger-bg)', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 16px', marginBottom: 16, color: 'var(--payi-danger)', fontSize: 13 }}>
@@ -1065,47 +1048,6 @@ export default function App() {
 
               {/* Trending Down Card */}
               <TrendingCard title="Trending Down ⚠️" items={trendingDown} isUp={false} />
-            </div>
-
-            {/* 3. ORIGINAL KPI SECTION */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--payi-text)', marginBottom: 12, paddingLeft: 4 }}>
-                สรุปภาพรวมตามช่วงเวลาที่เลือก
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 18 }}>
-                <KpiCard
-                  title="Total Revenue"
-                  value={`฿${fmt(totalRevenue)}`}
-                  subtitle={revenueTrend !== null ? `เทียบช่วงก่อนหน้า` : 'รายได้ในช่วงเวลาที่เลือก'}
-                  icon={DollarSign}
-                  trend={fmtTrend(revenueTrend)}
-                  isPositive={revenueTrend === null ? true : revenueTrend >= 0}
-                />
-                <KpiCard
-                  title="Total Orders"
-                  value={fmt(totalOrders)}
-                  subtitle={ordersTrend !== null ? `เทียบช่วงก่อนหน้า` : 'ออเดอร์ในระบบ'}
-                  icon={ShoppingBag}
-                  trend={fmtTrend(ordersTrend)}
-                  isPositive={ordersTrend === null ? true : ordersTrend >= 0}
-                />
-                <KpiCard
-                  title="Avg. Order Value"
-                  value={`฿${fmt(avgOrder)}`}
-                  subtitle={aovTrend !== null ? `เทียบช่วงก่อนหน้า` : 'ต่อออเดอร์เฉลี่ย'}
-                  icon={TrendingUp}
-                  trend={fmtTrend(aovTrend)}
-                  isPositive={aovTrend === null ? true : aovTrend >= 0}
-                />
-                <KpiCard
-                  title="Units Sold"
-                  value={`${fmt(totalQty)} pcs`}
-                  subtitle={unitsTrend !== null ? `เทียบช่วงก่อนหน้า` : 'ชิ้นรวมที่ถูกระบายคลัง'}
-                  icon={BarChart3}
-                  trend={fmtTrend(unitsTrend)}
-                  isPositive={unitsTrend === null ? true : unitsTrend >= 0}
-                />
-              </div>
             </div>
 
             {/* GRAPH METRIC AREA */}
