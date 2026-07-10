@@ -22,6 +22,7 @@ const ProductTrends = lazy(() => import('./pages/ProductTrends'))
 const MarketingRadar = lazy(() => import('./pages/MarketingRadar'))
 const AdsChannels = lazy(() => import('./pages/AdsChannels'))
 const ContentOSPrototype = lazy(() => import('./pages/ContentOSPrototype'))
+const Settings = lazy(() => import('./pages/Settings'))
 
 const API_BASE = '/api'
 
@@ -1307,6 +1308,8 @@ export default function App() {
           <DevHub />
         ) : activeTab === 'AI Assistant' ? (
             <AIAssistantView />
+        ) : activeTab === 'Settings' ? (
+            <Settings />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--payi-text-faint)' }}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 16, color: 'var(--payi-line)' }}>

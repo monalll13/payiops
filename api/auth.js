@@ -1,11 +1,14 @@
 // ระบบ login รายบัญชี (ผู้ใช้เก็บในแท็บ `users` ของชีต)
 // GET  /api/auth?action=status → { enabled, hasUsers } — frontend ใช้ตัดสินใจว่าต้องโชว์จอ login ไหม
-// POST /api/auth  body { action: 'login' | 'setup' | 'create-user', ... }
-//   - login:  { username, password } → { token, user }
-//   - setup:  ใช้ได้ครั้งเดียวตอนยังไม่มีผู้ใช้ → สร้าง admin คนแรกแล้ว login ให้เลย
-//   - create-user: (ต้องเป็น admin) { username, password, display_name, role }
+// POST /api/auth  body { action, ... }
+//   - login:           { username, password } → { token, user }
+//   - setup:           ใช้ได้ครั้งเดียวตอนยังไม่มีผู้ใช้ → สร้าง admin คนแรกแล้ว login ให้เลย
+//   - create-user:     (ต้องเป็น admin) { username, password, display_name, role }
+//   - list-users:      (ต้องเป็น admin) → { users: [{ username, display_name, role, created_at }] }
+//   - delete-user:     (ต้องเป็น admin) { username } — ลบไม่ได้ถ้าเป็นตัวเอง หรือ admin คนสุดท้าย
+//   - change-password: (ต้อง login แล้ว) { current_password, new_password }
 // หมายเหตุ: ไฟล์นี้จงใจไม่มี requireAuth ครอบทั้ง handler — login ต้องเข้าถึงได้ก่อนมี token
-import { ensureSheet, getSheet, appendRows } from './_lib/sheets.js'
+import { ensureSheet, getSheet, appendRows, overwriteSheet } from './_lib/sheets.js'
 import { authEnabled, hashPassword, verifyPassword, signToken, verifyToken } from './_lib/auth.js'
 
 const SHEET = 'users'
@@ -81,6 +84,51 @@ export default async function handler(req, res) {
       const { salt, hash } = hashPassword(password)
       await appendRows(SHEET, [[username, hash, salt, String(body.display_name || username).trim(), role, new Date().toISOString()]])
       return res.status(200).json({ success: true, user: { u: username, role } })
+    }
+
+    if (action === 'list-users') {
+      const caller = verifyToken(req.headers['x-api-token'])
+      if (!caller || caller.role !== 'admin') return res.status(403).json({ success: false, error: 'ต้องเป็น admin เท่านั้น' })
+      const users = await getUsers()
+      return res.status(200).json({
+        success: true,
+        users: users.map((u) => ({ username: u.username, display_name: u.display_name || u.username, role: u.role || 'staff', created_at: u.created_at })),
+      })
+    }
+
+    if (action === 'delete-user') {
+      const caller = verifyToken(req.headers['x-api-token'])
+      if (!caller || caller.role !== 'admin') return res.status(403).json({ success: false, error: 'ต้องเป็น admin เท่านั้น' })
+      const username = norm(body.username)
+      if (!username) return res.status(400).json({ success: false, error: 'ต้องระบุ username' })
+      if (username === norm(caller.u)) return res.status(400).json({ success: false, error: 'ลบบัญชีตัวเองไม่ได้ — ให้ admin คนอื่นลบแทน' })
+      const users = await getUsers()
+      const target = users.find((x) => norm(x.username) === username)
+      if (!target) return res.status(404).json({ success: false, error: 'ไม่พบผู้ใช้นี้' })
+      const remainingAdmins = users.filter((x) => (x.role || 'staff') === 'admin' && norm(x.username) !== username)
+      if ((target.role || 'staff') === 'admin' && remainingAdmins.length === 0) {
+        return res.status(400).json({ success: false, error: 'ลบไม่ได้ — ต้องมี admin เหลืออย่างน้อย 1 คน' })
+      }
+      const kept = users.filter((x) => norm(x.username) !== username)
+      await overwriteSheet(SHEET, HEADERS, kept.map((u) => HEADERS.map((h) => u[h] || '')))
+      return res.status(200).json({ success: true })
+    }
+
+    if (action === 'change-password') {
+      const caller = verifyToken(req.headers['x-api-token'])
+      if (!caller) return res.status(401).json({ success: false, error: 'unauthorized' })
+      const currentPassword = String(body.current_password || '')
+      const newPassword = String(body.new_password || '')
+      if (newPassword.length < 6) return res.status(400).json({ success: false, error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัว' })
+      const users = await getUsers()
+      const me = users.find((x) => norm(x.username) === norm(caller.u))
+      if (!me || !verifyPassword(currentPassword, me.salt, me.password_hash)) {
+        return res.status(401).json({ success: false, error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' })
+      }
+      const { salt, hash } = hashPassword(newPassword)
+      const next = users.map((u) => (norm(u.username) === norm(caller.u) ? { ...u, password_hash: hash, salt } : u))
+      await overwriteSheet(SHEET, HEADERS, next.map((u) => HEADERS.map((h) => u[h] || '')))
+      return res.status(200).json({ success: true })
     }
 
     return res.status(400).json({ success: false, error: 'unknown action' })
