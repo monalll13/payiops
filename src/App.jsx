@@ -433,8 +433,8 @@ function ProductInsightDrawer({ isOpen, onClose, selectedSku }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
           <div style={{ maxWidth: '85%' }}>
-            <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, padding: '3px 8px', backgroundColor: 'var(--payi-mint-soft)', color: 'var(--payi-mint)', borderRadius: 6 }}>
-              {selectedSku.sku}
+            <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 8px', backgroundColor: 'var(--payi-mint-soft)', color: 'var(--payi-mint)', borderRadius: 6 }}>
+              {selectedSku.skuCount} SKU ในกลุ่ม
             </span>
             <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--payi-text-strong)', marginTop: 8, lineHeight: 1.4 }}>
               {selectedSku.display_name}
@@ -495,6 +495,17 @@ function ProductInsightDrawer({ isOpen, onClose, selectedSku }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {selectedSku.skus?.length > 0 && (
+            <div style={{ background: 'var(--payi-surface-muted)', border: '1px solid var(--payi-border)', borderRadius: 16, padding: '14px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--payi-text)', marginBottom: 8 }}>SKU ในกลุ่มนี้ ({selectedSku.skus.length}) — ไว้ใช้จัดการสต็อก</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {selectedSku.skus.map((sk) => (
+                  <span key={sk} style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', color: 'var(--payi-text)' }}>{sk}</span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -674,11 +685,14 @@ export default function App() {
     return (dashData?.platformBreakdown || []).map(p => ({ name: p.name, revenue: p.amount }))
   }, [dashData])
 
+  // รวมเป็นรายสินค้า (product family) ไม่ใช่รายแยก SKU/ไซส์ — SKU จริงยังอยู่ใน skus (ไว้ใช้จัดการสต็อกทีหลัง)
   const topSkus = useMemo(() => {
     const raw = dashData?.topSkus || []
     return raw.map(s => ({
-      sku: s.sku ?? s.master_sku ?? s.masterSku ?? s.SKU ?? '',
+      key: s.key ?? s.sku ?? s.master_sku ?? '',
       display_name: s.display_name ?? s.product_name ?? s.name ?? '',
+      skuCount: Number(s.skuCount ?? (Array.isArray(s.skus) ? s.skus.length : 1) ?? 1),
+      skus: s.skus ?? [],
       orders: Number(s.orders ?? s.count ?? 0),
       qty: Number(s.qty ?? s.quantity ?? s.units ?? 0),
       revenue: Number(s.amount ?? s.revenue ?? 0),
@@ -691,7 +705,7 @@ export default function App() {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return topSkus
     return topSkus.filter(s =>
-      s.sku.toLowerCase().includes(q) || s.display_name.toLowerCase().includes(q)
+      s.display_name.toLowerCase().includes(q) || s.skus.some(sk => sk.toLowerCase().includes(q))
     )
   }, [topSkus, searchQuery])
 
@@ -1191,7 +1205,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--payi-text-muted)' }}>
-                  สินค้าขายดีติดอันดับ (Top 10 SKUs by Revenue)
+                  สินค้าขายดีติดอันดับ (Top 10 by Revenue · รวมไซส์/รุ่นย่อยเป็นสินค้าเดียว)
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--payi-mint)', background: 'var(--payi-mint-soft)', padding: '2px 8px', borderRadius: 999, fontWeight: 500 }}>✨ กดที่แถวเพื่อดูสัดส่วนยอดขายจริงช่องทางย่อย</span>
                 {searchQuery && (
@@ -1202,8 +1216,9 @@ export default function App() {
                 {filteredSkus.length > 0 && (
                   <button
                     onClick={() => exportToCsv('top-skus.csv', filteredSkus.map(s => ({
-                      master_sku: s.sku,
                       display_name: s.display_name,
+                      sku_count: s.skuCount,
+                      skus: s.skus.join('; '),
                       orders: s.orders,
                       qty: s.qty,
                       revenue: s.revenue,
@@ -1229,7 +1244,7 @@ export default function App() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: 'var(--payi-surface-muted)', borderBottom: '1px solid var(--payi-border)' }}>
-                    <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11 }}>MASTER SKU</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11, textAlign: 'center' }}>SKU</th>
                     <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11 }}>ชื่อสินค้า</th>
                     <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11, textAlign: 'right' }}>จำนวนออเดอร์</th>
                     <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11, textAlign: 'right' }}>จำนวนชิ้น</th>
@@ -1246,12 +1261,14 @@ export default function App() {
                   )}
                   {visibleSkus.map((s) => (
                     <tr
-                      key={s.sku}
+                      key={s.key}
                       onClick={() => { setSelectedSkuData(s); setIsDrawerOpen(true); }}
                       className="payi-interactive-row"
                       style={{ borderBottom: '1px solid var(--payi-border)', cursor: 'pointer', transition: 'background-color 150ms ease' }}
                     >
-                      <td style={{ padding: '14px 16px', fontFamily: 'monospace', color: 'var(--payi-mint)', fontWeight: 700 }}>{s.sku}</td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--payi-mint-soft)', color: 'var(--payi-mint-strong)' }}>{s.skuCount}</span>
+                      </td>
                       <td style={{ padding: '14px 16px', color: 'var(--payi-text-strong)', fontWeight: 500 }}>{s.display_name}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--payi-text)', textAlign: 'right' }}>{fmt(s.orders)}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--payi-text)', textAlign: 'right' }}>{fmt(s.qty)}</td>

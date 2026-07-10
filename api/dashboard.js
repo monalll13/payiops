@@ -1,7 +1,8 @@
 // GET /api/dashboard?business=&platform=&startDate=&endDate=
 // สรุปข้อมูลสำหรับหน้า Executive จากทุก tab raw_orders_* (Google Sheets)
 import { requireAuth, cacheable } from './_lib/auth.js'
-import { getMeta, batchGetValues } from './_lib/sheets.js'
+import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
+import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
@@ -17,6 +18,10 @@ export default async function handler(req, res) {
   const keepPlat = (p) => platform === 'all' || p === platform
 
   try {
+    // override รายชื่อกลุ่มจาก product_aliases (เหมือน products.js/product-trends.js) — ไม่มีก็ข้าม
+    let overrideMap = new Map()
+    try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ไม่มี sheet — ใช้การ strip อัตโนมัติแทน */ }
+
     const meta = await getMeta()
     const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
 
@@ -62,9 +67,12 @@ export default async function handler(req, res) {
     const dailyOrders = new Map()       // date -> Set(order_id)
     const bizRev = new Map()            // business -> amount
     const platRev = new Map()           // platform -> amount
-    const sku = new Map()               // master_sku -> { name, orderIds:Set, qty, revenue, platforms:Map, platformUnits:Map }
-    const skuToday = new Map()          // master_sku -> revenue (today)
-    const skuYest = new Map()           // master_sku -> revenue (yesterday)
+    // "สินค้าขายดี" ตอนนี้รวมเป็นรายกลุ่มสินค้า (product family) ไม่ใช่รายแยก SKU/ไซส์
+    // ใช้ deriveGroup ตัวเดียวกับ products.js/product-trends.js — SKU จริงยังดูได้ผ่าน skuCount/skus
+    const sku = new Map()               // product-group key -> { name, orderIds:Set, qty, revenue, platforms:Map, platformUnits:Map, skus:Set }
+    const skuNames = new Map()          // master_sku (raw) -> ชื่อสินค้า — ใช้แค่กับ "SKU ยอดตกวันนี้" (ไม่รวมกลุ่ม)
+    const skuToday = new Map()          // master_sku (raw) -> revenue (today)
+    const skuYest = new Map()           // master_sku (raw) -> revenue (yesterday)
 
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
@@ -92,18 +100,22 @@ export default async function handler(req, res) {
         bizRev.set(biz, (bizRev.get(biz) || 0) + rev)
         platRev.set(plat, (platRev.get(plat) || 0) + rev)
 
-        const key = masterSku || '(ไม่ระบุ)'
-        let s = sku.get(key)
-        if (!s) sku.set(key, (s = { name: name || key, orderIds: new Set(), qty: 0, revenue: 0, platforms: new Map(), platformUnits: new Map() }))
+        const rawKey = masterSku || '(ไม่ระบุ)'
+        if (!skuNames.has(rawKey)) skuNames.set(rawKey, name || rawKey)
+
+        const { key: groupKey, label: groupLabel } = deriveGroup(name, masterSku, overrideMap)
+        let s = sku.get(groupKey)
+        if (!s) sku.set(groupKey, (s = { name: groupLabel, orderIds: new Set(), qty: 0, revenue: 0, platforms: new Map(), platformUnits: new Map(), skus: new Set() }))
         s.qty += qty; s.revenue += rev
         if (orderId) s.orderIds.add(orderId)
+        if (masterSku) s.skus.add(masterSku)
         if (plat) {
           s.platforms.set(plat, (s.platforms.get(plat) || 0) + rev)
           s.platformUnits.set(plat, (s.platformUnits.get(plat) || 0) + qty)
         }
 
-        if (date === todayD) skuToday.set(key, (skuToday.get(key) || 0) + rev)
-        else if (date === yestD) skuYest.set(key, (skuYest.get(key) || 0) + rev)
+        if (date === todayD) skuToday.set(rawKey, (skuToday.get(rawKey) || 0) + rev)
+        else if (date === yestD) skuYest.set(rawKey, (skuYest.get(rawKey) || 0) + rev)
       }
     }
 
@@ -125,9 +137,11 @@ export default async function handler(req, res) {
     const platformBreakdown = [...platRev.entries()].map(([name, amount]) => ({ name, amount: round2(amount) })).sort((a, b) => b.amount - a.amount)
 
     const topSkus = [...sku.entries()]
-      .map(([sk, v]) => ({
-        sku: sk,
+      .map(([groupKey, v]) => ({
+        key: groupKey,           // product-group key (ไม่ใช่ SKU จริง — ดู skuCount/skus สำหรับ SKU)
         display_name: v.name,
+        skuCount: v.skus.size,
+        skus: [...v.skus],
         orders: v.orderIds.size,
         qty: v.qty,
         amount: round2(v.revenue),
@@ -144,8 +158,7 @@ export default async function handler(req, res) {
 
     const deltas = [...new Set([...skuToday.keys(), ...skuYest.keys()])].map((k) => {
       const t = skuToday.get(k) || 0, y = skuYest.get(k) || 0
-      const s = sku.get(k)
-      return { master_sku: k, display_name: s?.name || k, delta: round2(t - y), todayRevenue: round2(t) }
+      return { master_sku: k, display_name: skuNames.get(k) || k, delta: round2(t - y), todayRevenue: round2(t) }
     })
     const trendingUp = deltas.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5)
     const trendingDown = deltas.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5)

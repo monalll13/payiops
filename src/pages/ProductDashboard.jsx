@@ -14,7 +14,9 @@ const platColor = (p) => PLATFORM_COLORS[p] || '#94a3b8'
 // จานสีสำหรับกราฟเส้นแนวโน้ม (top groups)
 const LINE_COLORS = ['#2AA79B', '#F0662C', '#2F5FD0', '#9333EA', '#DB2777', '#0891B2', '#CA8A04', '#65A30D']
 const THAI_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
-const monthLabel = (ym) => THAI_MONTH[parseInt(String(ym).slice(5, 7), 10) - 1] || ym
+const monthLabel = (ym) => (ym === 'all' ? 'ทั้งหมด' : THAI_MONTH[parseInt(String(ym).slice(5, 7), 10) - 1] || ym)
+// ป้ายช่วงเวลาไว้ต่อท้ายหัวข้อการ์ด — "all" = "ทั้งหมด" เฉยๆ, เดือนอื่นนำหน้าด้วย "เดือน"
+const periodLabel = (ym) => (ym === 'all' ? 'ทั้งหมด' : `เดือน${monthLabel(ym)}`)
 
 const BUSINESSES = ['Payi', 'Payi Outlet', 'กรอบรูป']
 const PLATFORMS = ['Shopee', 'TikTok Shop', 'Lazada']
@@ -38,6 +40,7 @@ function TooltipBox({ active, payload, label, moneyKeys = [] }) {
 export default function ProductDashboard() {
   const [business, setBusiness] = useState('all')
   const [platform, setPlatform] = useState('all')
+  const [month, setMonth] = useState('') // '' = ให้ server เลือกเดือนล่าสุดให้
   const [metric, setMetric] = useState('revenue') // revenue | units
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null) // กลุ่มที่เปิด drawer
@@ -51,20 +54,24 @@ export default function ProductDashboard() {
     const params = new URLSearchParams()
     if (business !== 'all') params.set('business', business)
     if (platform !== 'all') params.set('platform', platform)
+    if (month) params.set('month', month)
     fetch(`/api/products${params.toString() ? '?' + params : ''}`)
       .then((r) => r.json())
       .then((d) => {
         if (!alive) return
         if (!d.success) throw new Error(d.error)
-        setData(d)
+        setData(d) // ไม่ setMonth ทับที่นี่ — กัน fetch ซ้ำรอบสอง ใช้ activeMonth (ด้านล่าง) แทน
       })
       .catch((e) => alive && setError(e.message))
       .finally(() => alive && setLoading(false))
     return () => { alive = false }
-  }, [business, platform])
+  }, [business, platform, month])
 
   const totals = data?.totals || {}
   const groups = useMemo(() => data?.groups || [], [data])
+  const availableMonths = data?.months || []
+  const activeMonth = month || data?.month || '' // เดือนที่กำลังแสดงจริง (ผู้ใช้เลือก หรือ server เลือกเดือนล่าสุดให้)
+  const prevMonthLabel = totals.prevMonth ? monthLabel(totals.prevMonth) : null
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -101,7 +108,7 @@ export default function ProductDashboard() {
   return (
     <div style={{ width: '100%' }}>
       {/* Filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <FilterGroup label="ร้าน" value={business} setValue={setBusiness} options={BUSINESSES} />
         <FilterGroup label="แพลตฟอร์ม" value={platform} setValue={setPlatform} options={PLATFORMS} />
         <div style={{ flex: 1 }} />
@@ -112,18 +119,43 @@ export default function ProductDashboard() {
         </div>
       </div>
 
+      {/* Month selector */}
+      {availableMonths.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--payi-text-muted)' }}>เดือน:</span>
+          <select value={activeMonth} onChange={(e) => setMonth(e.target.value)} className="payi-select" style={{ padding: '7px 12px', fontSize: 13 }}>
+            <option value="all">ทั้งหมด</option>
+            {availableMonths.map((ym) => <option key={ym} value={ym}>{monthLabel(ym)}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
-        <KpiCard title="ยอดขายรวม" value={fmtBaht(totals.revenue)} subtitle="ทุกกลุ่มสินค้า" icon={DollarSign} />
-        <KpiCard title="จำนวนชิ้น" value={fmt(totals.units)} subtitle="รวมทุกสินค้า" icon={Package} />
-        <KpiCard title="กลุ่มสินค้า" value={fmt(totals.groupCount)} subtitle="หลังรวมไซส์/รุ่นย่อย" icon={Layers} />
-        <KpiCard title="SKU ทั้งหมด" value={fmt(totals.skuCount)} subtitle="ก่อนรวมกลุ่ม" icon={Boxes} />
+        <KpiCard
+          title="ยอดขายรวม"
+          value={fmtBaht(totals.revenue)}
+          subtitle={prevMonthLabel ? `${prevMonthLabel}: ${fmtBaht(totals.prevRevenue)}` : `${periodLabel(activeMonth)}`}
+          icon={DollarSign}
+          trend={totals.revenueMoM !== null && totals.revenueMoM !== undefined ? `${totals.revenueMoM >= 0 ? '+' : ''}${totals.revenueMoM}%` : null}
+          isPositive={totals.revenueMoM === null || totals.revenueMoM === undefined || totals.revenueMoM >= 0}
+        />
+        <KpiCard
+          title="จำนวนชิ้น"
+          value={fmt(totals.units)}
+          subtitle={prevMonthLabel ? `${prevMonthLabel}: ${fmt(totals.prevUnits)}` : `${periodLabel(activeMonth)}`}
+          icon={Package}
+          trend={totals.unitsMoM !== null && totals.unitsMoM !== undefined ? `${totals.unitsMoM >= 0 ? '+' : ''}${totals.unitsMoM}%` : null}
+          isPositive={totals.unitsMoM === null || totals.unitsMoM === undefined || totals.unitsMoM >= 0}
+        />
+        <KpiCard title="กลุ่มสินค้า" value={fmt(totals.groupCount)} subtitle={`${periodLabel(activeMonth)} · หลังรวมไซส์/รุ่นย่อย`} icon={Layers} />
+        <KpiCard title="SKU ที่ขายได้" value={fmt(totals.skuCount)} subtitle={`${periodLabel(activeMonth)} · ก่อนรวมกลุ่ม`} icon={Boxes} />
       </div>
 
       {/* Best sellers */}
       <Card
         title="สินค้าขายดี (รวมไซส์เป็นกลุ่มเดียว)"
-        sub={`Top 12 · ${metric === 'units' ? 'ตามจำนวนชิ้น' : 'ตามยอดขาย'}`}
+        sub={`${periodLabel(activeMonth)} · Top 12 · ${metric === 'units' ? 'ตามจำนวนชิ้น' : 'ตามยอดขาย'}`}
         right={
           <div style={{ display: 'flex', gap: 4 }}>
             {[['revenue', 'ยอดขาย'], ['units', 'จำนวนชิ้น']].map(([m, lbl]) => (
@@ -152,7 +184,7 @@ export default function ProductDashboard() {
 
       {/* Trend of top groups */}
       {trendChart.length > 1 && (
-        <Card title="แนวโน้มยอดขายรายเดือน" sub="กลุ่มสินค้าขายดี Top 8 · แยกตามเดือน" mb>
+        <Card title="แนวโน้มยอดขายรายเดือน" sub={`กลุ่มสินค้าขายดี Top 8 ของ${periodLabel(activeMonth)} · แยกตามเดือน`} mb>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={trendChart} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" vertical={false} />
@@ -170,7 +202,7 @@ export default function ProductDashboard() {
       )}
 
       {/* Product table */}
-      <Card title="ตารางสินค้าทั้งหมด" sub={`${filtered.length} กลุ่ม · คลิกเพื่อดูรายละเอียดและ SKU ในกลุ่ม`}>
+      <Card title="ตารางสินค้าทั้งหมด" sub={`${periodLabel(activeMonth)} · ${filtered.length} กลุ่ม · คลิกเพื่อดูรายละเอียดและ SKU ในกลุ่ม`}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -181,6 +213,7 @@ export default function ProductDashboard() {
                 <th style={{ ...thStyle, textAlign: 'right' }}>ออเดอร์</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>ราคาเฉลี่ย</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>ยอดขาย</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>MoM</th>
               </tr>
             </thead>
             <tbody>
@@ -196,6 +229,9 @@ export default function ProductDashboard() {
                   <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(g.orders)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--payi-text-muted)' }}>{fmtBaht(g.avgPrice)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 800, color: 'var(--payi-text-strong)' }}>{fmtBaht(g.revenue)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <MomBadge value={g.revenueMoM} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -229,8 +265,8 @@ function ProductDrawer({ group, onClose }) {
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18, paddingRight: 4 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <MiniStat label="ยอดขายรวมกลุ่มนี้" value={fmtBaht(group.revenue)} />
-            <MiniStat label="ขายได้" value={`${fmt(group.units)} ชิ้น`} />
+            <MiniStat label="ยอดขายเดือนนี้" value={fmtBaht(group.revenue)} trend={<MomBadge value={group.revenueMoM} />} />
+            <MiniStat label="ขายได้" value={`${fmt(group.units)} ชิ้น`} trend={<MomBadge value={group.unitsMoM} />} />
           </div>
 
           {totalPlat > 0 && (
@@ -276,11 +312,29 @@ function ProductDrawer({ group, onClose }) {
   )
 }
 
-function MiniStat({ label, value }) {
+// ป้าย %MoM (เทียบเดือนก่อนหน้า) — เขียว = ขึ้น, ส้ม = ลง, จาง = ไม่มีข้อมูลเดือนก่อนเทียบ
+function MomBadge({ value }) {
+  if (value === null || value === undefined) return <span style={{ fontSize: 11, color: 'var(--payi-text-faint)' }}>—</span>
+  const up = value >= 0
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 800, padding: '2px 7px', borderRadius: 999,
+      background: up ? 'var(--payi-success-bg)' : 'var(--payi-danger-bg)',
+      color: up ? 'var(--payi-success)' : 'var(--payi-danger)',
+    }}>
+      {up ? '+' : ''}{value}%
+    </span>
+  )
+}
+
+function MiniStat({ label, value, trend }) {
   return (
     <div style={{ background: 'var(--payi-surface-muted)', border: '1px solid var(--payi-border)', padding: 16, borderRadius: 16 }}>
       <div style={{ fontSize: 12, color: 'var(--payi-text-muted)' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--payi-text-strong)', marginTop: 6 }}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--payi-text-strong)' }}>{value}</div>
+        {trend}
+      </div>
     </div>
   )
 }

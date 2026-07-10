@@ -1,6 +1,8 @@
-// GET /api/products?business=&platform=&startDate=&endDate=
+// GET /api/products?business=&platform=&month=YYYY-MM|all
 // สรุปผลงานสินค้าแบบ "รายกลุ่มสินค้า" (product family) สำหรับหน้า Dashboard สินค้า
 // รวม SKU คนละไซส์เข้าเป็นสินค้าเดียวด้วย api/_lib/productGroup.js (TODO#2/#4)
+// ข้อมูลหลัก (totals/groups/trendTopGroups) สโคปตาม "เดือนที่เลือก" (default = เดือนล่าสุด)
+// month=all = รวมทุกเดือน (all-time, ไม่มี MoM) พร้อม MoM % เทียบเดือนก่อนหน้า — เหมือน MonthlyDashboard
 import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
@@ -8,6 +10,7 @@ import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
+const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null)
 
 // จำนวนกลุ่มที่ส่ง monthly trend กลับไป (กราฟแนวโน้ม) — คุมขนาด response
 const TREND_TOP_N = 8
@@ -16,8 +19,7 @@ export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
-  const { business = 'all', platform = 'all', startDate = '', endDate = '' } = req.query
-  const inDate = (d) => (!startDate || d >= startDate) && (!endDate || d <= endDate)
+  const { business = 'all', platform = 'all' } = req.query
   const keepBiz = (b) => business === 'all' || b === business
   const keepPlat = (p) => platform === 'all' || p === platform
 
@@ -35,7 +37,8 @@ export default async function handler(req, res) {
     const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`])
     const vr = await batchGetValues(ranges)
 
-    const groups = new Map()  // key -> { key, label, revenue, units, orderIds:Set, skus:Map, platforms:Map, monthly:Map }
+    // key -> { key, label, skus:Map(sku -> {master_sku, display_name, monthly:Map(ym->{revenue,units})}), monthly:Map(ym->{revenue,units,orderIds:Set,platforms:Map}) }
+    const groups = new Map()
     const monthsSet = new Set()
 
     for (let i = 0; i < tabs.length; i++) {
@@ -47,77 +50,138 @@ export default async function handler(req, res) {
         const orderId = l[0], date = l[2], plat = l[3], biz = l[4]
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
         if (!date || isCancelled(status)) continue
-        if (!inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
-
-        const { key, label } = deriveGroup(name, masterSku, overrideMap)
-
-        let g = groups.get(key)
-        if (!g) groups.set(key, (g = {
-          key, label, revenue: 0, units: 0,
-          orderIds: new Set(), skus: new Map(), platforms: new Map(), monthly: new Map(),
-        }))
-        g.revenue += rev; g.units += qty
-        if (orderId) g.orderIds.add(orderId)
-
-        // สมาชิก SKU ในกลุ่ม
-        const sk = masterSku || '(ไม่ระบุ)'
-        let m = g.skus.get(sk)
-        if (!m) g.skus.set(sk, (m = { master_sku: sk, display_name: name || sk, revenue: 0, units: 0 }))
-        m.revenue += rev; m.units += qty
-        if (!m.display_name && name) m.display_name = name
-
-        if (plat) g.platforms.set(plat, (g.platforms.get(plat) || 0) + rev)
+        if (!keepBiz(biz) || !keepPlat(plat)) continue
 
         const ym = String(date).slice(0, 7)
         monthsSet.add(ym)
-        g.monthly.set(ym, (g.monthly.get(ym) || 0) + rev)
+
+        const { key, label } = deriveGroup(name, masterSku, overrideMap)
+        let g = groups.get(key)
+        if (!g) groups.set(key, (g = { key, label, skus: new Map(), monthly: new Map() }))
+
+        let gm = g.monthly.get(ym)
+        if (!gm) g.monthly.set(ym, (gm = { revenue: 0, units: 0, orderIds: new Set(), platforms: new Map() }))
+        gm.revenue += rev; gm.units += qty
+        if (orderId) gm.orderIds.add(orderId)
+        if (plat) gm.platforms.set(plat, (gm.platforms.get(plat) || 0) + rev)
+
+        // สมาชิก SKU ในกลุ่ม — เก็บรายเดือนด้วย เพื่อให้ตาราง/drawer สโคปตามเดือนที่เลือกได้
+        const sk = masterSku || '(ไม่ระบุ)'
+        let m = g.skus.get(sk)
+        if (!m) g.skus.set(sk, (m = { master_sku: sk, display_name: name || sk, monthly: new Map() }))
+        if (!m.display_name && name) m.display_name = name
+        let mm = m.monthly.get(ym)
+        if (!mm) m.monthly.set(ym, (mm = { revenue: 0, units: 0 }))
+        mm.revenue += rev; mm.units += qty
       }
     }
 
     const months = [...monthsSet].sort()
+    const requestedMonth = String(req.query.month || '')
+    const isAll = requestedMonth === 'all'
+    const selectedMonth = isAll ? null : (months.includes(requestedMonth) ? requestedMonth : (months[months.length - 1] || null))
+    const prevMonth = (!isAll && selectedMonth) ? (months[months.indexOf(selectedMonth) - 1] || null) : null
+
+    // ค่าดิบของกลุ่ม g ที่เดือน ym — ym = null หมายถึง "ทั้งหมด" (รวมทุกเดือน)
+    const monthRaw = (g, ym) => {
+      if (ym === null) {
+        const acc = { revenue: 0, units: 0, orderIds: new Set(), platforms: new Map() }
+        for (const gm of g.monthly.values()) {
+          acc.revenue += gm.revenue; acc.units += gm.units
+          for (const id of gm.orderIds) acc.orderIds.add(id)
+          for (const [p, v] of gm.platforms) acc.platforms.set(p, (acc.platforms.get(p) || 0) + v)
+        }
+        return { revenue: acc.revenue, units: acc.units, orders: acc.orderIds.size, platforms: acc.platforms }
+      }
+      const gm = ym ? g.monthly.get(ym) : null
+      return gm ? { revenue: gm.revenue, units: gm.units, orders: gm.orderIds.size, platforms: gm.platforms } : { revenue: 0, units: 0, orders: 0, platforms: new Map() }
+    }
+    // ผลรวมของสมาชิก SKU ในกลุ่ม g ที่ ym — null = รวมทุกเดือน
+    const memberRaw = (m, ym) => {
+      if (ym === null) {
+        let revenue = 0, units = 0
+        for (const mc of m.monthly.values()) { revenue += mc.revenue; units += mc.units }
+        return { revenue, units }
+      }
+      return m.monthly.get(ym) || { revenue: 0, units: 0 }
+    }
 
     const groupArr = [...groups.values()]
-      .map((g) => ({
-        key: g.key,
-        label: g.label,
-        revenue: round2(g.revenue),
-        units: g.units,
-        orders: g.orderIds.size,
-        skuCount: g.skus.size,
-        avgPrice: g.units > 0 ? Math.round(g.revenue / g.units) : 0,
-        members: [...g.skus.values()]
-          .map((m) => ({ ...m, revenue: round2(m.revenue) }))
-          .sort((a, b) => b.revenue - a.revenue),
-        platforms: Object.fromEntries([...g.platforms.entries()].map(([k, v]) => [k, round2(v)])),
-        _monthly: g.monthly,
-      }))
+      .map((g) => {
+        const cur = monthRaw(g, selectedMonth)
+        const prev = monthRaw(g, prevMonth)
+        const members = [...g.skus.values()]
+          .map((m) => {
+            const mc = memberRaw(m, selectedMonth)
+            return { master_sku: m.master_sku, display_name: m.display_name, revenue: round2(mc.revenue), units: mc.units }
+          })
+          .filter((m) => m.revenue > 0 || m.units > 0)
+          .sort((a, b) => b.revenue - a.revenue)
+        return {
+          key: g.key,
+          label: g.label,
+          revenue: round2(cur.revenue),
+          units: cur.units,
+          orders: cur.orders,
+          skuCount: members.length,
+          avgPrice: cur.units > 0 ? Math.round(cur.revenue / cur.units) : 0,
+          revenueMoM: prevMonth ? pct(cur.revenue, prev.revenue) : null,
+          unitsMoM: prevMonth ? pct(cur.units, prev.units) : null,
+          prevRevenue: prevMonth ? round2(prev.revenue) : null,
+          members,
+          platforms: Object.fromEntries([...cur.platforms.entries()].map(([k, v]) => [k, round2(v)])),
+        }
+      })
+      .filter((g) => g.revenue > 0 || g.units > 0) // เฉพาะกลุ่มที่มีขายในเดือนที่เลือก
       .sort((a, b) => b.revenue - a.revenue)
 
-    // แนวโน้มรายเดือนของกลุ่มขายดี top N (สำหรับกราฟเส้น)
-    const trendTopGroups = groupArr.slice(0, TREND_TOP_N).map((g) => ({
-      key: g.key,
-      label: g.label,
-      monthly: months.map((ym) => ({ month: ym, revenue: round2(g._monthly.get(ym) || 0) })),
-    }))
+    // แนวโน้มรายเดือนของกลุ่มขายดี top N (ของเดือนที่เลือก) — โชว์ประวัติเต็มทุกเดือนที่มีข้อมูล
+    const trendTopGroups = groupArr.slice(0, TREND_TOP_N).map((gTop) => {
+      const g = groups.get(gTop.key)
+      return {
+        key: gTop.key,
+        label: gTop.label,
+        monthly: months.map((ym) => ({ month: ym, revenue: round2((g.monthly.get(ym) || { revenue: 0 }).revenue) })),
+      }
+    })
 
-    const totals = groupArr.reduce(
-      (a, g) => ({
-        revenue: round2(a.revenue + g.revenue),
-        units: a.units + g.units,
-        skuCount: a.skuCount + g.skuCount,
-      }),
-      { revenue: 0, units: 0, skuCount: 0 }
-    )
+    // จำนวน SKU ที่มีการขายจริงในช่วงที่เลือก (นับจากทุกกลุ่ม ไม่ใช่แค่ 100 อันดับแรก) — isAll = ทั้งหมด (all-time)
+    const skuCountThisMonth = new Set()
+    for (const g of groups.values()) {
+      for (const [sk, m] of g.skus) {
+        const mc = isAll ? memberRaw(m, null) : m.monthly.get(selectedMonth)
+        if (mc && (mc.revenue > 0 || mc.units > 0)) skuCountThisMonth.add(sk)
+      }
+    }
 
-    // ตัด _monthly ออกจาก payload หลัก (ใหญ่เกินจำเป็น) — ส่งเฉพาะใน trendTopGroups
-    for (const g of groupArr) delete g._monthly
+    let totalRevenue = 0, totalUnits = 0, prevTotalRevenue = 0, prevTotalUnits = 0
+    for (const g of groupArr) { totalRevenue += g.revenue; totalUnits += g.units }
+    if (prevMonth) {
+      for (const g of groups.values()) {
+        const p = monthRaw(g, prevMonth)
+        prevTotalRevenue += p.revenue; prevTotalUnits += p.units
+      }
+    }
+
+    const totals = {
+      revenue: round2(totalRevenue),
+      units: totalUnits,
+      groupCount: groupArr.length,
+      skuCount: skuCountThisMonth.size,
+      revenueMoM: prevMonth ? pct(totalRevenue, prevTotalRevenue) : null,
+      unitsMoM: prevMonth ? pct(totalUnits, prevTotalUnits) : null,
+      prevMonth,
+      prevRevenue: prevMonth ? round2(prevTotalRevenue) : null,
+      prevUnits: prevMonth ? prevTotalUnits : null,
+    }
 
     res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
     res.status(200).json({
       success: true,
-      totals: { ...totals, groupCount: groupArr.length },
-      groups: groupArr.slice(0, 100),
+      month: isAll ? 'all' : selectedMonth,
       months,
+      totals,
+      groups: groupArr.slice(0, 100),
       trendTopGroups,
     })
   } catch (e) {
