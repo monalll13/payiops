@@ -16,6 +16,7 @@ const DevHub = lazy(() => import('./pages/DevHub'))
 const ClaimView = lazy(() => import('./pages/ClaimView'))
 const SalesView = lazy(() => import('./pages/SalesView'))
 const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
+const WorkforceOT = lazy(() => import('./pages/WorkforceOT'))
 const ProductDashboard = lazy(() => import('./pages/ProductDashboard'))
 const ProductTrends = lazy(() => import('./pages/ProductTrends'))
 const MarketingRadar = lazy(() => import('./pages/MarketingRadar'))
@@ -169,6 +170,7 @@ const menuGroups = [
     items: [
       { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
       { id: 'Packing', label: 'Packing', renderIcon: Icons.Tasks },
+      { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.Tasks, dotColor: '#7dd3fc' },
       { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks }
     ]
   },
@@ -1241,6 +1243,8 @@ export default function App() {
             <SalesView />
         ) : activeTab === 'Packing' ? (
             <PackingView />
+        ) : activeTab === 'Workforce OT' ? (
+            <WorkforceOT />
         ) : activeTab === 'Claims' ? (
             <ClaimView />
         ) : activeTab === 'Import Orders' ? (
