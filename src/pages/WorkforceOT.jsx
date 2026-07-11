@@ -1,0 +1,430 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, Plus, RefreshCw, X } from 'lucide-react'
+
+const API = '/api/sheet-tools?op=workforce'
+const DEFAULT_NAMES = ['แตง', 'แป้ง', 'มี่', 'ฟ้า', 'ป้า', 'อื่น ๆ']
+const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+const fmtMinutes = (value) => {
+  const n = Number(value) || 0
+  const h = Math.floor(n / 60); const m = n % 60
+  return h ? `${h} ชม.${m ? ` ${m} นาที` : ''}` : `${m} นาที`
+}
+const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #cfe0f3', borderRadius: 10, padding: '10px 12px', background: '#fff', color: '#0f172a', fontSize: 13, outline: 'none' }
+const card = { background: '#fff', border: '1px solid #dce9f7', borderRadius: 16, boxShadow: '0 10px 28px rgba(30, 64, 175, .05)' }
+
+export default function WorkforceOT({ preview = false }) {
+  const loadStarted = useRef(false)
+  const [authEnabled, setAuthEnabled] = useState(true)
+  useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
+  const isBoss = preview || !authEnabled || (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null')?.role === 'admin' } catch { return false } })()
+  const [rows, setRows] = useState([])
+  const [manpower, setManpower] = useState([])
+  const [events, setEvents] = useState([])
+  const [history, setHistory] = useState([])
+  const [approvals, setApprovals] = useState([])
+  const [sourceStatus, setSourceStatus] = useState({ state: 'loading', count: 0, at: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState('calendar')
+  const [names, setNames] = useState(DEFAULT_NAMES)
+  const [newName, setNewName] = useState('')
+  const [selected, setSelected] = useState(DEFAULT_NAMES)
+  const [form, setForm] = useState({ date: today(), team: 'บ้านล่าง', task: 'แพ็ก', planned_start: '17:30', planned_end: '20:00', reason: 'ออเดอร์เยอะ', note: '' })
+  const [edits, setEdits] = useState({})
+  const [otLimits, setOtLimitsState] = useState(() => { try { return JSON.parse(localStorage.getItem('payi-ot-limits') || '{}') } catch { return {} } })
+  const setOtLimits = (next) => { setOtLimitsState(next); localStorage.setItem('payi-ot-limits', JSON.stringify(next)) }
+
+  const load = async () => {
+    setLoading(true); setError('')
+    try {
+      if (preview) {
+        const loadedRows = JSON.parse(localStorage.getItem('payi-ot-preview') || '[]')
+        const loadedManpower = JSON.parse(localStorage.getItem('payi-manpower-preview') || '[]')
+        const loadedEvents = JSON.parse(localStorage.getItem('payi-events-preview') || '[]')
+        const loadedHistory = JSON.parse(localStorage.getItem('payi-ot-history-preview') || '[]')
+        const loadedApprovals = JSON.parse(localStorage.getItem('payi-ot-approvals-preview') || '[]')
+        let sourceManpower = []
+        try { const r = await fetch(`${API}&sourceOnly=1`); const d = await r.json(); if (r.ok) { sourceManpower = d.sourceManpower || []; setSourceStatus({ state: 'ok', count: sourceManpower.length, at: d.sourceUpdatedAt || new Date().toISOString() }) } else setSourceStatus({ state: 'error', count: 0, at: '' }) } catch { setSourceStatus({ state: 'error', count: 0, at: '' }) }
+        setRows(loadedRows); setManpower([...sourceManpower, ...loadedManpower]); setEvents(loadedEvents); setHistory(loadedHistory); setApprovals(loadedApprovals); setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...loadedManpower.map((row) => row.employee).filter(Boolean)])]); return
+      }
+      const r = await fetch(API); const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
+      const loadedRows = d.rows || []
+      setRows(loadedRows)
+      setManpower([...(d.sourceManpower || []), ...(d.manpower || [])])
+      setEvents(d.events || [])
+      setHistory(d.history || [])
+      setApprovals(d.approvals || [])
+      setSourceStatus({ state: d.sourceManpower?.length ? 'ok' : 'error', count: d.sourceManpower?.length || 0, at: d.sourceUpdatedAt || new Date().toISOString() })
+      setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean)])])
+    } catch (e) { setError(e.message) } finally { setLoading(false) }
+  }
+  useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
+
+  const planned = useMemo(() => rows.filter((r) => r.status === 'planned'), [rows])
+  const completed = useMemo(() => rows.filter((r) => r.status === 'completed'), [rows])
+  const totalPlanned = rows.reduce((s, r) => s + Number(r.planned_minutes || 0), 0)
+  const totalActual = completed.reduce((s, r) => s + Number(r.actual_minutes || 0), 0)
+  const dates = useMemo(() => [...new Set(rows.map((r) => r.date).filter(Boolean))].sort().reverse().slice(0, 14), [rows])
+
+  const createPlan = async (e) => {
+    e.preventDefault(); if (!selected.length) return setError('เลือกอย่างน้อย 1 คน')
+    setSaving(true); setError('')
+    try {
+      if (preview) {
+        const plannedMinutes = (() => { const [a,b] = form.planned_start.split(':').map(Number); const [c,d] = form.planned_end.split(':').map(Number); return Math.max(0, c * 60 + d - a * 60 - b) })()
+        const created = selected.map((employee, i) => ({ id: `demo-${Date.now()}-${i}`, employee, ...form, planned_minutes: plannedMinutes, status: 'planned' }))
+        const next = [...created, ...rows]; localStorage.setItem('payi-ot-preview', JSON.stringify(next)); setRows(next); setTab('close'); return
+      }
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-plan', employees: selected, ...form }) })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
+      await load(); setTab('close')
+    } catch (e2) { setError(e2.message) } finally { setSaving(false) }
+  }
+
+  const closeRows = async (targetRows) => {
+    setSaving(true); setError('')
+    try {
+      const updates = targetRows.map((r) => ({ id: r.id, planned_start: edits[r.id]?.planned_start || r.planned_start, planned_end: edits[r.id]?.planned_end || r.planned_end, actual_minutes: r.actual_minutes || '', note: edits[r.id]?.note ?? r.note ?? '' }))
+      if (updates.some((u) => !validTime24(u.planned_start) || !validTime24(u.planned_end) || timeToMinutes(u.planned_end) <= timeToMinutes(u.planned_start))) throw new Error('เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน')
+      if (preview) {
+        const updateMap = new Map(updates.map((u) => [u.id, u])); const changedAt = new Date().toISOString(); const addedHistory = rows.filter((r) => { const u = updateMap.get(r.id); return u && (u.planned_start !== r.planned_start || u.planned_end !== r.planned_end || String(u.note ?? '') !== String(r.note ?? '')) }).map((r, i) => { const u = updateMap.get(r.id); return { id: `hist-${Date.now()}-${i}`, plan_id: r.id, date: r.date, employee: r.employee, before_start: r.planned_start, before_end: r.planned_end, after_start: u.planned_start, after_end: u.planned_end, before_note: r.note || '', after_note: u.note || '', changed_at: changedAt, changed_by: 'Boss' } }); const nextHistory = [...addedHistory, ...history]; const next = rows.map((r) => { const u = updateMap.get(r.id); return u ? { ...r, ...u, planned_minutes: timeToMinutes(u.planned_end) - timeToMinutes(u.planned_start), status: 'planned' } : r }); localStorage.setItem('payi-ot-preview', JSON.stringify(next)); localStorage.setItem('payi-ot-history-preview', JSON.stringify(nextHistory)); setRows(next); setHistory(nextHistory); setEdits({}); return true
+      }
+      const resp = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update-plan', updates, changed_by: 'Boss' }) })
+      const d = await resp.json(); if (!resp.ok) throw new Error(d.error || 'แก้ไขแผนไม่สำเร็จ')
+      setEdits({}); await load(); return true
+    } catch (e) { setError(e.message); return false } finally { setSaving(false) }
+  }
+
+  const deleteRows = async (targetRows) => {
+    const ids = targetRows.map((r) => r.id); setSaving(true); setError('')
+    try {
+      if (preview) { const next = rows.filter((r) => !ids.includes(r.id)); localStorage.setItem('payi-ot-preview', JSON.stringify(next)); setRows(next); return }
+      const resp = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete-plan', ids }) }); const d = await resp.json(); if (!resp.ok) throw new Error(d.error || 'ลบแผนไม่สำเร็จ'); await load()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
+  const addName = () => {
+    const name = newName.trim(); if (!name || names.includes(name)) return
+    setNames([...names, name]); setSelected([...selected, name]); setNewName('')
+  }
+
+  return (
+    <div className="workforce-page" style={{ display: 'grid', gap: 10 }}>
+      <div style={{ minHeight: 34, display: 'flex', flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: sourceStatus.state === 'ok' ? '#16866f' : '#be123c' }}><span style={{ width: 8, height: 8, borderRadius: 99, background: sourceStatus.state === 'ok' ? '#16866f' : sourceStatus.state === 'loading' ? '#d97706' : '#be123c' }} />{sourceStatus.state === 'ok' ? `Manpower พร้อมใช้ · อัปเดต ${new Date(sourceStatus.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}` : sourceStatus.state === 'loading' ? 'กำลังโหลด Manpower…' : 'Manpower เชื่อมต่อไม่สำเร็จ'}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['calendar','ปฏิทิน'], ...(isBoss ? [['overview','ภาพรวม'], ['summary','สรุป OT']] : [])].map(([id,label]) => <button key={id} onClick={() => { setError(''); setTab(id) }} style={miniTab(tab === id)}>{label}</button>)}
+          <button onClick={load} aria-label="รีเฟรช" style={{ border: '1px solid #d7e3ef', background: '#fff', borderRadius: 9, padding: 7, color: '#2474b8', cursor: 'pointer' }}><RefreshCw size={15} /></button>
+        </div>
+      </div>
+      {error && <div style={{ padding: '10px 14px', background: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3', borderRadius: 10 }}>{error}</div>}
+
+      {tab === 'plan' && <form onSubmit={createPlan} style={{ ...card, padding: 20, display: 'grid', gap: 18 }}>
+        <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>1. วางแผน OT ล่วงหน้า</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>เลือกหลายคนพร้อมกัน รายการหนึ่งครั้งจะสร้างแผนให้ทุกคน</div></div>
+        <div className="workforce-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
+          <Field label="วันที่"><input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={inputStyle} required /></Field>
+          <Field label="ทีม"><select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} style={inputStyle}><option>บ้านล่าง</option><option>บ้านบน</option><option>พาร์ตไทม์</option></select></Field>
+          <Field label="งาน"><select value={form.task} onChange={(e) => setForm({ ...form, task: e.target.value })} style={inputStyle}><option>แพ็ก</option><option>ฟีด</option><option>พาร์ตไทม์</option><option>อื่น ๆ</option></select></Field>
+          <Field label="เหตุผล"><select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} style={inputStyle}><option>ออเดอร์เยอะ</option><option>3 วันก่อนโปร</option><option>งานค้าง</option><option>คนขาด</option><option>อื่น ๆ</option></select></Field>
+          <Field label="เริ่ม OT"><input type="time" value={form.planned_start} onChange={(e) => setForm({ ...form, planned_start: e.target.value })} style={inputStyle} required /></Field>
+          <Field label="จบ OT"><input type="time" value={form.planned_end} onChange={(e) => setForm({ ...form, planned_end: e.target.value })} style={inputStyle} required /></Field>
+          <Field label="หมายเหตุ"><input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle} /></Field>
+        </div>
+        <div><div style={{ fontSize: 12, fontWeight: 800, color: '#334155', marginBottom: 9 }}>เลือกคนทำ OT · {selected.length} คน</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{names.map((name) => { const on = selected.includes(name); return <button type="button" key={name} onClick={() => setSelected(on ? selected.filter((n) => n !== name) : [...selected, name])} style={{ border: `1px solid ${on ? '#5ca8df' : '#cbd5e1'}`, background: on ? '#e9f5ff' : '#fff', color: on ? '#155f98' : '#64748b', borderRadius: 999, padding: '8px 13px', fontWeight: 800, cursor: 'pointer' }}>{on ? '✓ ' : ''}{name}</button>})}</div></div>
+        <div style={{ display: 'flex', gap: 8, maxWidth: 330 }}><input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addName() } }} placeholder="เพิ่มชื่อ" style={inputStyle} /><button type="button" onClick={addName} style={{ border: 0, borderRadius: 10, background: '#e9f5ff', color: '#155f98', width: 44, cursor: 'pointer' }}><Plus size={17} /></button></div>
+        <button disabled={saving || !selected.length} style={{ justifySelf: 'start', border: 0, borderRadius: 10, padding: '11px 20px', background: '#397fb5', color: '#fff', fontWeight: 900, cursor: 'pointer', opacity: saving ? .6 : 1 }}>{saving ? 'กำลังบันทึก…' : `บันทึกแผน ${selected.length} คน`}</button>
+      </form>}
+
+      {tab === 'close' && <section style={{ ...card, overflow: 'hidden' }}><div style={{ padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}><div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>2. ยืนยันเวลาจริงหลังทำเสร็จ</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>เวลาเหมือนแผนไม่ต้องแก้ กดยืนยันทั้งชุดได้ทันที</div></div>{planned.length > 0 && <button disabled={saving} onClick={() => closeRows(planned)} style={{ border: 0, borderRadius: 10, padding: '10px 16px', background: '#16866f', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>ยืนยันตามแผนทั้งหมด</button>}</div>
+        {loading ? <Empty text="กำลังโหลด…" /> : !planned.length ? <Empty text="ไม่มีรายการ OT ที่รอยืนยัน" /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820, fontSize: 13 }}><thead><tr style={{ background: '#f0f7fd', color: '#52677a', textAlign: 'left' }}>{['วันที่','ชื่อ','งาน','เวลาแผน','เริ่มจริง','จบจริง','สถานะ',''].map((h) => <th key={h} style={{ padding: '10px 12px' }}>{h}</th>)}</tr></thead><tbody>{planned.map((r) => { const e = edits[r.id] || {}; return <tr key={r.id} style={{ borderTop: '1px solid #e5eef7' }}><td style={td}>{r.date}</td><td style={{ ...td, fontWeight: 900 }}>{r.employee}</td><td style={td}>{r.task}</td><td style={td}>{r.planned_start}–{r.planned_end}<div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtMinutes(r.planned_minutes)}</div></td><td style={td}><input type="time" value={e.actual_start ?? r.planned_start} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, actual_start: x.target.value } })} style={{ ...inputStyle, width: 105, padding: 7 }} /></td><td style={td}><input type="time" value={e.actual_end ?? r.planned_end} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, actual_end: x.target.value } })} style={{ ...inputStyle, width: 105, padding: 7 }} /></td><td style={td}><select value={e.status || 'completed'} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, status: x.target.value } })} style={{ ...inputStyle, width: 110, padding: 7 }}><option value="completed">ทำแล้ว</option><option value="cancelled">ยกเลิก</option></select></td><td style={td}><button onClick={() => closeRows([r])} aria-label={`ยืนยัน ${r.employee}`} style={{ border: 0, background: '#e7f7f2', color: '#16866f', borderRadius: 8, padding: 8, cursor: 'pointer' }}><CheckCircle2 size={17} /></button></td></tr> })}</tbody></table></div>}
+      </section>}
+
+      {tab === 'calendar' && <CalendarPlanner rows={rows} manpower={manpower} events={events} history={history} names={names} preview={preview} onSaved={load} error={error} setError={setError} otLimits={otLimits} closeRows={closeRows} deleteRows={deleteRows} edits={edits} setEdits={setEdits} saving={saving} />}
+      {tab === 'overview' && isBoss && <OverviewOT rows={rows} approvals={approvals} otLimits={otLimits} />}
+      {tab === 'summary' && isBoss && <PlanControlSummary rows={rows} approvals={approvals} setApprovals={setApprovals} preview={preview} setError={setError} otLimits={otLimits} setOtLimits={setOtLimits} />}
+    </div>
+  )
+}
+
+function Kpi({ icon: Icon, label, value, tone }) { return <div style={{ ...card, padding: 15, display: 'flex', alignItems: 'center', gap: 11 }}><div style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', borderRadius: 11, color: tone, background: `${tone}15` }}><Icon size={19} /></div><div><div style={{ color: '#64748b', fontSize: 11, fontWeight: 800 }}>{label}</div><div style={{ color: '#102a43', fontSize: 18, fontWeight: 900, marginTop: 2 }}>{value}</div></div></div> }
+function Field({ label, children }) { return <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: '#475569' }}>{label}{children}</label> }
+function Empty({ text }) { return <div style={{ padding: 42, textAlign: 'center', color: '#94a3b8' }}>{text}</div> }
+const td = { padding: '11px 12px', color: '#334155', verticalAlign: 'middle' }
+
+function CalendarPlanner({ rows, manpower, events, history = [], names, preview, onSaved, error, setError, otLimits = {}, closeRows, deleteRows, edits = {}, setEdits, saving }) {
+  const [month, setMonth] = useState(today().slice(0, 7))
+  const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState([])
+  const [start, setStart] = useState('17:30')
+  const [end, setEnd] = useState('20:00')
+  const [note, setNote] = useState('')
+  const [promoTitle, setPromoTitle] = useState('วันโปร')
+  const [busy, setBusy] = useState(false)
+  const [warning, setWarning] = useState('')
+  const [year, mo] = month.split('-').map(Number)
+  const first = new Date(year, mo - 1, 1)
+  const cells = [...Array(first.getDay()).fill(null), ...Array.from({ length: new Date(year, mo, 0).getDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)]
+  while (cells.length % 7) cells.push(null)
+  const promoDates = new Set(events.map((e) => e.date))
+  const prePromoDates = new Set()
+  events.forEach((e) => { const d = new Date(`${e.date}T00:00:00`); for (let i = 1; i <= 3; i++) { const x = new Date(d); x.setDate(d.getDate() - i); prePromoDates.add(x.toLocaleDateString('en-CA')) } })
+
+  const openOT = (date) => { setError(''); setModal({ type: 'ot', date }); setSelected([]); setNote('') }
+  const checkLimits = (date, employees, plannedMinutes) => {
+    const targetMonth = date.slice(0, 7)
+    const over = employees.filter((employee) => {
+      const limitHours = Number(otLimits[employee]); if (!limitHours) return false
+      const existing = rows.filter((r) => r.employee === employee && r.status !== 'cancelled' && r.date?.startsWith(targetMonth)).reduce((s, r) => s + Number(r.planned_minutes || 0), 0)
+      return existing + plannedMinutes > limitHours * 60
+    })
+    setWarning(over.length ? `เกินลิมิต OT ที่ตั้งไว้: ${over.join(', ')} (เดือนนี้จะรวมเกินโควต้า) — ยังบันทึกให้แล้ว แต่ควรแจ้งบอส` : '')
+  }
+  const save = async () => {
+    if (modal.type === 'ot' && !selected.length) return setError('กรุณาเลือกคนทำ OT อย่างน้อย 1 คน')
+    if (modal.type === 'ot' && (!validTime24(start) || !validTime24(end))) return setError('กรอกเวลาเป็น HH:MM เช่น 17:30')
+    if (modal.type === 'ot' && timeToMinutes(end) <= timeToMinutes(start)) return setError('เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน')
+    if (modal.type === 'ot') {
+      const dayManpower = manpower.filter((r) => r.date === modal.date)
+      if (dayManpower.length) {
+        const working = dayManpower.map((r) => r.employee)
+        const absent = selected.filter((name) => !working.some((w) => w === name || (name === 'ป้า' && w.startsWith('ป้า'))))
+        if (absent.length) return setError(`ไม่ได้อยู่ใน Manpower วันนี้: ${absent.join(', ')}`)
+      }
+      const conflicts = selected.filter((employee) => rows.some((r) => r.date === modal.date && r.employee === employee && r.status !== 'cancelled' && timeToMinutes(start) < timeToMinutes(r.planned_end) && timeToMinutes(r.planned_start) < timeToMinutes(end)))
+      if (conflicts.length) return setError(`มีแผนซ้ำหรือเวลาชนกัน: ${conflicts.join(', ')}`)
+    }
+    setBusy(true); setError(''); setWarning('')
+    try {
+      const body = modal.type === 'ot'
+        ? { action: 'create-plan', date: modal.date, employees: selected, team: 'บ้านล่าง', task: 'แพ็ก', planned_start: start, planned_end: end, reason: 'วางแผน OT', note }
+        : { action: 'create-event', date: modal.date, title: promoTitle, team: 'ทุกทีม', note }
+      if (preview) {
+        if (modal.type === 'ot') {
+          const [sh, sm] = start.split(':').map(Number); const [eh, em] = end.split(':').map(Number)
+          const added = selected.map((employee, i) => ({ id: `demo-${Date.now()}-${i}`, date: modal.date, employee, task: 'แพ็ก', planned_start: start, planned_end: end, planned_minutes: Math.max(0, eh * 60 + em - sh * 60 - sm), status: 'planned', note }))
+          localStorage.setItem('payi-ot-preview', JSON.stringify([...added, ...rows]))
+        } else {
+          localStorage.setItem('payi-events-preview', JSON.stringify([...events, { id: `ev-${Date.now()}`, date: modal.date, title: promoTitle, note }]))
+        }
+      } else {
+        const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
+      }
+      if (modal.type === 'ot') { const [sh, sm] = start.split(':').map(Number); const [eh, em] = end.split(':').map(Number); checkLimits(modal.date, selected, Math.max(0, eh * 60 + em - sh * 60 - sm)) }
+      setModal(null); await onSaved()
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  return <section style={{ ...card, overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
+    <div style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทินวางแผน OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>กดวันที่เพื่อเลือกคนและกรอกเวลา OT</div></div>
+      <div style={{ display: 'flex', gap: 8 }}><button onClick={() => setModal({ type: 'promo', date: `${month}-01` })} style={miniTab(false)}>+ วันโปร</button><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 155 }} /></div>
+    </div>
+    {warning && <div style={{ margin: '0 18px 12px', padding: '10px 14px', background: '#fef6da', color: '#8a6d1f', border: '1px solid #fbe6a8', borderRadius: 10, fontSize: 12, fontWeight: 800 }}>{warning}</div>}
+    <div style={{ padding: '9px 16px', display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f8fbff', fontSize: 11, color: '#64748b' }}><Legend color="#d3c2f2" text="วันโปร"/><Legend color="#f0eafb" text="3 วันก่อนโปร"/></div>
+    <div style={{ overflowX: 'auto', padding: '4px 12px 14px' }}><div style={{ minWidth: 980 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', background: 'linear-gradient(180deg,#eef6ff,#f7fbff)', borderRadius: 14 }}>{['อา','จ','อ','พ','พฤ','ศ','ส'].map((d) => <div key={d} style={{ padding: 9, textAlign: 'center', fontSize: 11, fontWeight: 900, color: '#7a94b8' }}>{d}</div>)}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 7, marginTop: 7 }}>{cells.map((date, i) => {
+        if (!date) return <div key={`blank-${i}`} style={{ minHeight: 158, borderRadius: 16, background: 'transparent' }} />
+        const dayRows = rows.filter((r) => r.date === date && r.status !== 'cancelled'); const dayManpower = manpower.filter((r) => r.date === date); const isPromo = promoDates.has(date); const isPre = prePromoDates.has(date); const packers = dayRows.filter((r) => r.employee !== 'ป้า'); const partTime = dayRows.filter((r) => r.employee === 'ป้า')
+        const headcount = dayManpower.reduce((s, r) => s + Number(r.fraction || 1), 0)
+        return <button key={date} onClick={() => openOT(date)} style={{ minHeight: 158, padding: 9, textAlign: 'left', cursor: 'pointer', borderRadius: 16, border: `1px solid ${isPromo ? '#c3b1ea' : isPre ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isPre ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 900, color: '#334155' }}><span>{Number(date.slice(-2))}</span><span style={{ color: isPromo ? '#5b4b8a' : isPre ? '#8a76c0' : '#2581bd', fontSize: 9 }}>{isPromo ? 'วันโปร' : isPre ? 'ก่อนโปร' : '+'}</span></div>
+          {events.filter((e) => e.date === date).map((e) => <div key={e.id} style={{ marginTop: 4, color: '#be185d', fontSize: 10, fontWeight: 900 }}>{e.title}</div>)}
+          <div style={{ marginTop: 6, minHeight: 38, padding: '5px 6px', borderRadius: 10, background: 'linear-gradient(135deg,#eaf5ff,#f5faff)', border: '1px solid #d5ebff' }}>
+            {dayManpower.length > 0 && <div style={{ color: '#334155', fontSize: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><b>Manpower {headcount} คน</b></div>
+              <div style={{ marginTop: 2, color: '#64748b' }}>{dayManpower.map((r) => r.employee).join(' · ')}</div>
+            </div>}
+          </div>
+          {packers.length > 0 && <DayGroup label="OT คนแพ็ก" rows={packers} />}{partTime.length > 0 && <DayGroup label="OT พาร์ทไทม์" rows={partTime} />}
+        </button>
+      })}</div>
+    </div></div>
+    {modal && (() => { const modalDayRows = modal.type === 'ot' ? rows.filter((r) => r.date === modal.date && r.status !== 'cancelled') : []; return <div onMouseDown={() => setModal(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(15,23,42,.35)', display: 'grid', placeItems: 'center', padding: 18 }}><div onMouseDown={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: '100%', background: '#fff', borderRadius: 18, padding: 20, boxShadow: '0 24px 70px rgba(15,23,42,.22)', maxHeight: '86vh', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}><div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>{modal.type === 'ot' ? 'เพิ่มแผน OT' : 'เพิ่มวันโปร'}</div>{modalDayRows.length > 0 && <span style={{ background: '#fef3c7', color: '#633806', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 999 }}>แก้ไข</span>}</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{modal.date}</div></div><button onClick={() => setModal(null)} style={{ border: 0, background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}><X size={18}/></button></div>
+
+      {modal.type === 'ot' && modalDayRows.length > 0 && <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, color: '#334155', marginBottom: 8 }}>รายการที่มีอยู่แล้ว · {modalDayRows.length} คน</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {modalDayRows.map((r) => { const e = edits[r.id] || {}; return <div key={r.id} style={{ border: '1px solid #eef2f9', borderRadius: 10, padding: '8px 10px', background: '#f8fbff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}><b style={{ fontSize: 12, color: '#102a43' }}>{r.employee}</b><span style={{ fontSize: 10, color: '#94a3b8' }}>แผน {r.planned_start}-{r.planned_end}</span></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6 }}>
+              <ManualTime24 value={e.planned_start ?? r.planned_start} onChange={(value) => setEdits?.({ ...edits, [r.id]: { ...e, planned_start: value } })} />
+              <ManualTime24 value={e.planned_end ?? r.planned_end} onChange={(value) => setEdits?.({ ...edits, [r.id]: { ...e, planned_end: value } })} />
+              <button onClick={() => deleteRows?.([r])} disabled={saving} style={{ border: '1px solid #fecdd3', background: '#fff1f2', color: '#be123c', borderRadius: 8, padding: '6px 10px', fontWeight: 800, cursor: 'pointer' }}>ลบ</button>
+            </div>
+          </div> })}
+        </div>
+        {error && <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 9, background: '#fff1f2', color: '#be123c', fontSize: 11, fontWeight: 800 }}>{error}</div>}
+        <button onClick={async () => { const ok = await closeRows?.(modalDayRows); if (ok) setModal(null) }} disabled={saving} style={{ marginTop: 10, border: 0, borderRadius: 10, padding: '9px 15px', background: '#16866f', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>{saving ? 'กำลังบันทึก…' : 'บันทึกการแก้ไขแผน'}</button>
+        {history.some((h) => h.date === modal.date) && <div style={{ marginTop: 14, borderTop: '1px solid #e5eef7', paddingTop: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 900, color: '#334155', marginBottom: 7 }}>ประวัติการแก้แผน</div>
+          <div style={{ display: 'grid', gap: 6 }}>{history.filter((h) => h.date === modal.date).sort((a, b) => String(b.changed_at).localeCompare(String(a.changed_at))).slice(0, 8).map((h) => <div key={h.id} style={{ padding: '7px 9px', borderRadius: 9, background: '#fff7ed', color: '#7c4a13', fontSize: 11 }}><b>{h.employee}</b> · {h.before_start}-{h.before_end} → <b>{h.after_start}-{h.after_end}</b><div style={{ marginTop: 2, color: '#9a6b38' }}>{new Date(h.changed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })} · {h.changed_by || 'Boss'}</div></div>)}</div>
+        </div>}
+      </div>}
+
+      {modal.type === 'ot' ? <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
+        <div style={{ fontSize: 12, fontWeight: 900, color: '#334155' }}>{modalDayRows.length > 0 ? 'เพิ่มคน OT ใหม่' : 'เลือกคนทำ OT'}</div>
+        <Field label="เลือกคนทำ OT"><div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>{names.map((name) => { const on = selected.includes(name); return <button key={name} onClick={() => setSelected(on ? selected.filter((n) => n !== name) : [...selected, name])} style={{ border: `1px solid ${on ? '#ec4899' : '#d7e3ef'}`, background: on ? '#fff0f7' : '#fff', color: on ? '#be185d' : '#475569', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}>{on ? '✓ ' : ''}{name}</button> })}</div></Field><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="เริ่ม OT · HH:MM"><ManualTime24 value={start} onChange={setStart}/></Field><Field label="จบ OT · HH:MM"><ManualTime24 value={end} onChange={setEnd}/></Field></div>{validTime24(start) && validTime24(end) && timeToMinutes(end) > timeToMinutes(start) && <div style={{ padding: '8px 10px', borderRadius: 9, background: '#eaf5ff', color: '#155f98', fontSize: 12, fontWeight: 900 }}>รวม {fmtMinutes(timeToMinutes(end) - timeToMinutes(start))} ต่อคน</div>}<Field label="หมายเหตุ"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle}/></Field></div> : <div style={{ display: 'grid', gap: 12, marginTop: 18 }}><Field label="วันที่"><input type="date" value={modal.date} onChange={(e) => setModal({ ...modal, date: e.target.value })} style={inputStyle}/></Field><Field label="ชื่อโปร"><input value={promoTitle} onChange={(e) => setPromoTitle(e.target.value)} style={inputStyle}/></Field></div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}><button onClick={() => setModal(null)} style={{ border: '1px solid #d7e3ef', background: '#fff', borderRadius: 10, padding: '9px 15px', color: '#64748b', fontWeight: 800 }}>ยกเลิก</button><button onClick={save} disabled={busy} style={{ border: 0, background: '#ec4899', color: '#fff', borderRadius: 10, padding: '9px 17px', fontWeight: 900 }}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button></div>
+    </div></div> })()}
+  </section>
+}
+
+function DayGroup({ label, rows }) { return <div style={{ marginTop: 7 }}><div style={{ fontSize: 9, fontWeight: 900, color: '#64748b' }}>{label}</div>{rows.map((r) => <div key={r.id} style={{ marginTop: 3, padding: '4px 6px', borderRadius: 8, background: '#fef6da', color: '#8a6d1f', fontSize: 10 }}><b>{r.employee}</b> {r.planned_start}-{r.planned_end}</div>)}</div> }
+
+const validTime24 = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v)
+const timeToMinutes = (v) => { const [h, m] = String(v || '').split(':').map(Number); return (h * 60) + m }
+function ManualTime24({ value, onChange }) {
+  const format = (raw) => { const digits = String(raw || '').replace(/\D/g, '').slice(0, 4); return digits.length <= 2 ? digits : `${digits.slice(0, 2)}:${digits.slice(2)}` }
+  return <input value={value} onChange={(e) => onChange(format(e.target.value))} inputMode="numeric" maxLength={5} placeholder="HH:MM" aria-label="เวลาแบบ 24 ชั่วโมง HH:MM" style={{ ...inputStyle, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontWeight: 900, fontSize: 17 }} />
+}
+
+const groupOtByEmployee = (rows, month) => Object.values(rows.filter((r) => String(r.date || '').startsWith(month)).reduce((acc, r) => {
+  const name = r.employee || 'ไม่ระบุชื่อ'
+  if (!acc[name]) acc[name] = { name, minutes: 0, actualMinutes: 0, days: new Set(), plans: 0 }
+  acc[name].minutes += Number(r.planned_minutes || 0)
+  acc[name].actualMinutes += Number(r.actual_minutes || 0)
+  acc[name].days.add(r.date)
+  acc[name].plans += 1
+  return acc
+}, {})).sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name, 'th'))
+
+const DAY_LEVEL = { n: { label: 'ปกติ', bg: '#e7f7f2', fg: '#085041', bar: '#16866f' }, a: { label: 'ถามเพิ่ม', bg: '#fef3c7', fg: '#633806', bar: '#d97706' }, r: { label: 'เช็ก', bg: '#fff1f2', fg: '#791f1f', bar: '#be123c' }, x: { label: 'ไม่มี OT', bg: '#f8fafc', fg: '#94a3b8', bar: '#e2e8f0' } }
+
+function OverviewOT({ rows = [], approvals = [], otLimits = {} }) {
+  const [month, setMonth] = useState(today().slice(0, 7))
+  const people = groupOtByEmployee(rows, month)
+  const statused = people.map((p) => {
+    const approved = approvals.find((a) => a.month === month && a.employee === p.name)
+    const actualMinutes = approved ? Number(approved.actual_minutes || 0) : p.actualMinutes
+    const rawLimit = otLimits[p.name]; const hasLimit = rawLimit !== '' && rawLimit != null
+    const overLimit = hasLimit && p.minutes / 60 > Number(rawLimit)
+    const status = overLimit ? 'over' : !approved ? 'pending' : 'ok'
+    return { ...p, approved, actualMinutes, hasLimit, overLimit, status }
+  }).sort((a, b) => { const order = { over: 0, pending: 1, ok: 2 }; return order[a.status] - order[b.status] || b.minutes - a.minutes })
+
+  const totalPlanned = people.reduce((s, p) => s + p.minutes, 0)
+  const totalActual = statused.reduce((s, p) => s + p.actualMinutes, 0)
+  const overCount = statused.filter((p) => p.status === 'over').length
+  const pendingCount = statused.filter((p) => p.status === 'pending').length
+  const STATUS_INFO = { over: { label: 'เกินลิมิต', bg: '#fff1f2', fg: '#791f1f', border: '#fecdd3' }, pending: { label: 'รอ approve', bg: '#fef3c7', fg: '#633806', border: '#fde3b8' }, ok: { label: 'ปกติ', bg: '#e7f7f2', fg: '#085041', border: '#dce9f7' } }
+
+  const [year, mo] = month.split('-').map(Number)
+  const daysInMonth = new Date(year, mo, 0).getDate()
+  const leadBlank = new Date(year, mo - 1, 1).getDay()
+  const dayMinutes = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = `${month}-${String(i + 1).padStart(2, '0')}`
+    return rows.filter((r) => r.date === date && r.status !== 'cancelled').reduce((s, r) => s + Number(r.planned_minutes || 0), 0)
+  })
+  const otDayMinutes = dayMinutes.filter((m) => m > 0)
+  const avgMinutes = otDayMinutes.length ? otDayMinutes.reduce((s, m) => s + m, 0) / otDayMinutes.length : 0
+  const dayLevels = dayMinutes.map((m) => m === 0 ? 'x' : avgMinutes && m > avgMinutes * 1.75 ? 'r' : avgMinutes && m > avgMinutes * 1.25 ? 'a' : 'n')
+  const cells = [...Array(leadBlank).fill(null), ...dayLevels.map((lv, i) => ({ day: i + 1, level: lv, minutes: dayMinutes[i] }))]
+  while (cells.length % 7) cells.push(null)
+  const weeks = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  const weekSummaries = weeks.map((week, i) => {
+    const days = week.filter(Boolean)
+    const totalMin = days.reduce((s, d) => s + d.minutes, 0)
+    const otDays = days.filter((d) => d.minutes > 0).length
+    const worst = days.some((d) => d.level === 'r') ? 'r' : days.some((d) => d.level === 'a') ? 'a' : otDays ? 'n' : 'x'
+    const desc = worst === 'r' ? `OT สูงผิดปกติ ${days.filter((d) => d.level === 'r').length} วัน` : worst === 'a' ? `OT เริ่มสูงกว่าปกติ ${days.filter((d) => d.level === 'a').length} วัน` : otDays ? `OT ปกติ รวม ${fmtMinutes(totalMin)} ใน ${otDays} วัน` : 'ไม่มี OT สัปดาห์นี้'
+    const badge = worst === 'r' ? 'เช็ก' : worst === 'a' ? 'ดูเพิ่ม' : 'ผ่าน'
+    return { label: `สัปดาห์ ${i + 1}`, desc, worst, badge }
+  }).filter((w) => w.desc !== 'ไม่มี OT สัปดาห์นี้' || weeks.length <= 5)
+
+  return <section style={{ display: 'grid', gap: 14 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <div style={{ fontSize: 12, color: '#64748b' }}>ดูสีก่อน ตัวเลขค่อยเปิดทีหลัง</div>
+      <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+    </div>
+    <div className="workforce-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
+      <Kpi icon={CheckCircle2} label="คนมี OT เดือนนี้" value={`${people.length} คน`} tone="#2474b8" />
+      <Kpi icon={CheckCircle2} label="ชม.แผนรวม" value={fmtMinutes(totalPlanned)} tone="#7c5bb6" />
+      <Kpi icon={CheckCircle2} label="ชม.จริงรวม (ที่กรอก/approve แล้ว)" value={fmtMinutes(totalActual)} tone="#16866f" />
+      <Kpi icon={CheckCircle2} label="เกินลิมิต / รอ approve" value={`${overCount} / ${pendingCount} คน`} tone={overCount ? '#be123c' : '#d97706'} />
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 14 }} className="workforce-form-grid">
+      <div style={{ ...card, padding: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: '#102a43' }}>ปฏิทินสีทั้งเดือน</div>
+          <div style={{ display: 'flex', gap: 10 }}><Legend color={DAY_LEVEL.n.bar} text="ปกติ" /><Legend color={DAY_LEVEL.a.bar} text="ถามเพิ่ม" /><Legend color={DAY_LEVEL.r.bar} text="เช็ก" /></div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5, fontSize: 10, color: '#64748b', textAlign: 'center', marginBottom: 4 }}>{['อา','จ','อ','พ','พฤ','ศ','ส'].map((d) => <div key={d}>{d}</div>)}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
+          {cells.map((c, i) => { if (!c) return <div key={`b-${i}`} />; const info = DAY_LEVEL[c.level]; return <div key={c.day} style={{ background: info.bg, borderRadius: 6, padding: '4px 2px', textAlign: 'center' }}><div style={{ fontSize: 10, fontWeight: 900, color: info.fg }}>{c.day}</div><div style={{ fontSize: 8, color: info.fg }}>{info.label}</div></div> })}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 8, alignContent: 'start' }}>
+        {weekSummaries.map((w) => <div key={w.label} style={{ ...card, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div><div style={{ fontSize: 12, fontWeight: 900, color: '#102a43' }}>{w.label}</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{w.desc}</div></div>
+          <span style={{ background: DAY_LEVEL[w.worst].bg, color: DAY_LEVEL[w.worst].fg, fontSize: 10, fontWeight: 900, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{w.badge}</span>
+        </div>)}
+      </div>
+    </div>
+
+    <div style={{ ...card, padding: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 900, color: '#102a43', marginBottom: 8 }}>สิ่งที่บอสต้องดู</div>
+      <div className="workforce-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, fontSize: 11, color: '#475569' }}>
+        <div><b style={{ color: '#102a43' }}>1. ดูสีแดงก่อน</b><br />วันที่สีแดงคือวันที่ OT สูงกว่าค่าเฉลี่ยเดือนนี้มาก ถามเหตุผลเฉพาะวันนั้น</div>
+        <div><b style={{ color: '#102a43' }}>2. ดูแนวโน้มรายสัปดาห์</b><br />ถ้าทั้งสัปดาห์แดงหลายวัน อาจเป็นปัญหาจัดคนไม่ใช่ปัญหาคนเดียว</div>
+        <div><b style={{ color: '#102a43' }}>3. ค่อยเปิดตัวเลขเมื่อจำเป็น</b><br />รายละเอียดรายคนอยู่ด้านล่าง</div>
+      </div>
+    </div>
+
+    <div style={{ display: 'grid', gap: 8 }}>
+      {statused.map((p) => { const info = STATUS_INFO[p.status]; return <div key={p.name} style={{ background: '#fff', border: `1px solid ${info.border}`, borderRadius: 12, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ background: info.bg, color: info.fg, fontSize: 11, fontWeight: 900, padding: '3px 9px', borderRadius: 999 }}>{info.label}</span><span style={{ fontSize: 14, fontWeight: 900, color: '#102a43' }}>{p.name}</span></div>
+        <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#334155' }}>
+          <div><div style={{ color: '#94a3b8', fontSize: 10 }}>แผน</div>{fmtMinutes(p.minutes)}</div>
+          <div><div style={{ color: '#94a3b8', fontSize: 10 }}>จริง</div>{p.approved || p.actualMinutes ? fmtMinutes(p.actualMinutes) : 'ยังไม่กรอก'}</div>
+          <div><div style={{ color: '#94a3b8', fontSize: 10 }}>วันที่ OT</div>{p.days.size} วัน</div>
+          <div><div style={{ color: '#94a3b8', fontSize: 10 }}>ลิมิต</div>{p.hasLimit ? `${otLimits[p.name]} ชม.` : 'ไม่จำกัด'}</div>
+        </div>
+      </div> })}
+      {!statused.length && <Empty text="ยังไม่มีแผน OT ในเดือนนี้" />}
+    </div>
+  </section>
+}
+
+function PlanControlSummary({ rows = [], approvals = [], setApprovals, preview, setError, otLimits = {}, setOtLimits }) {
+  const [month, setMonth] = useState(today().slice(0, 7))
+  const [actualInputs, setActualInputs] = useState({})
+  const [approving, setApproving] = useState('')
+  const people = groupOtByEmployee(rows, month)
+
+  const approveActual = async (person) => {
+    const input = actualInputs[person.name] || {}
+    const hasCustomActual = !((input.hours === '' || input.hours == null) && (input.minutes === '' || input.minutes == null))
+    const hours = input.hours === '' || input.hours == null ? 0 : Number(input.hours)
+    const minutes = input.minutes === '' || input.minutes == null ? 0 : Number(input.minutes)
+    if (hasCustomActual && (!Number.isInteger(hours) || hours < 0 || !Number.isInteger(minutes) || minutes < 0 || minutes > 59)) return setError?.('กรอกชั่วโมงและนาทีที่ทำจริงให้ถูกต้อง')
+    setApproving(person.name); setError?.('')
+    try {
+      const approval = { id: `approve-${month}-${person.name}`, month, employee: person.name, actual_minutes: hasCustomActual ? (hours * 60) + minutes : person.minutes, approved_at: new Date().toISOString(), approved_by: 'Boss' }
+      if (preview) {
+        const next = [...approvals.filter((a) => !(a.month === month && a.employee === person.name)), approval]
+        localStorage.setItem('payi-ot-approvals-preview', JSON.stringify(next)); setApprovals?.(next)
+      } else {
+        const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve-actual-month', month, employee: person.name, actual_minutes: approval.actual_minutes, approved_by: 'Boss' }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Approve ไม่สำเร็จ')
+        setApprovals?.([...approvals.filter((a) => !(a.month === month && a.employee === person.name)), d.approval])
+      }
+    } catch (e) { setError?.(e.message) } finally { setApproving('') }
+  }
+
+  return <section style={{ ...card, overflow: 'hidden' }}>
+    <div style={{ padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+      <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>สรุป OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>ชั่วโมงที่วางแผน : ชั่วโมงที่ทำจริง โดยหัวหน้าเป็นผู้กรอกเวลาจริง</div></div>
+      <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+    </div>
+    <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900, fontSize: 13 }}><thead><tr style={{ background: '#f0f7fd', textAlign: 'left', color: '#52677a' }}>{['ชื่อ', 'จำนวนวันที่มีแผน', 'จำนวนแผน', 'ชม.ที่วางแผน : ชม.ที่ทำจริง', 'กรอกเวลาจริง / Approve', 'ลิมิตต่อเดือน (ชม.)', 'สถานะลิมิต'].map((h) => <th key={h} style={{ padding: '10px 14px' }}>{h}</th>)}</tr></thead><tbody>{people.map((p) => { const approved = approvals.find((a) => a.month === month && a.employee === p.name); const actual = approved ? Number(approved.actual_minutes || 0) : p.actualMinutes; const input = actualInputs[p.name] || {}; const hours = p.minutes / 60; const rawLimit = otLimits[p.name]; const hasLimit = rawLimit !== '' && rawLimit != null; const over = hasLimit && hours > Number(rawLimit); return <tr key={p.name} style={{ borderTop: '1px solid #e5eef7' }}><td style={{ ...td, fontWeight: 900 }}>{p.name}</td><td style={td}>{p.days.size} วัน</td><td style={td}>{p.plans}</td><td style={{ ...td, fontWeight: 900 }}>{fmtMinutes(p.minutes)} <span style={{ color: '#94a3b8' }}>:</span> <span style={{ color: actual !== p.minutes ? '#be123c' : '#16866f' }}>{approved || actual ? fmtMinutes(actual) : 'ยังไม่กรอก'}</span></td><td style={td}><div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="number" min="0" step="1" value={input.hours ?? (approved ? Math.floor(Number(approved.actual_minutes) / 60) : '')} onChange={(e) => setActualInputs({ ...actualInputs, [p.name]: { ...input, hours: e.target.value } })} placeholder="ชม." aria-label={`ชั่วโมงจริง ${p.name}`} style={{ ...inputStyle, width: 68, padding: '7px 8px' }} /><input type="number" min="0" max="59" step="1" value={input.minutes ?? (approved ? Number(approved.actual_minutes) % 60 : '')} onChange={(e) => setActualInputs({ ...actualInputs, [p.name]: { ...input, minutes: e.target.value } })} placeholder="นาที" aria-label={`นาทีจริง ${p.name}`} style={{ ...inputStyle, width: 72, padding: '7px 8px' }} /><button onClick={() => approveActual(p)} disabled={approving === p.name} style={{ border: 0, borderRadius: 8, padding: '8px 10px', background: approved ? '#16866f' : '#397fb5', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>{approving === p.name ? '…' : approved ? 'Approved' : 'Approve'}</button></div>{approved && <div style={{ marginTop: 4, fontSize: 9, color: '#16866f' }}>{new Date(approved.approved_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</div>}</td><td style={td}><input type="number" min="0" step="0.5" value={rawLimit ?? ''} onChange={(e) => setOtLimits?.({ ...otLimits, [p.name]: e.target.value })} placeholder="ไม่จำกัด" style={{ ...inputStyle, width: 105, padding: '7px 9px' }} /></td><td style={td}>{over ? <span style={{ color: '#be123c', background: '#fff1f2', borderRadius: 999, padding: '4px 9px', fontWeight: 900 }}>เกินลิมิต</span> : hasLimit ? <span style={{ color: '#16866f', fontWeight: 800 }}>ยังไม่เกิน</span> : <span style={{ color: '#94a3b8' }}>ไม่จำกัด</span>}</td></tr> })}</tbody></table>{!people.length && <Empty text="ยังไม่มีแผน OT ในเดือนนี้" />}</div>
+  </section>
+}
+
+
+const miniTab = (on) => ({ border: `1px solid ${on ? '#5ca8df' : '#d7e3ef'}`, borderRadius: 9, padding: '7px 12px', background: on ? '#e9f5ff' : '#fff', color: on ? '#155f98' : '#64748b', fontWeight: 800, cursor: 'pointer' })
+function Legend({ color, text }) { return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><i style={{ width: 9, height: 9, background: color, borderRadius: 3 }} />{text}</span> }
