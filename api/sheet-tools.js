@@ -61,6 +61,15 @@ const overlaps = (aStart, aEnd, bStart, bEnd) => clockMinutes(aStart) < clockMin
 const manpowerNameMatches = (planned, scheduled) => planned === scheduled || (planned === 'ป้า' && String(scheduled).startsWith('ป้า'))
 
 async function opWorkforce(req, res) {
+  try {
+    return await opWorkforceInner(req, res)
+  } catch (e) {
+    console.error('opWorkforce:', e)
+    return res.status(500).json({ error: e.message })
+  }
+}
+
+async function opWorkforceInner(req, res) {
   if (req.method === 'GET' && String(req.query.sourceOnly || '') === '1') {
     try {
       const sourceManpower = process.env.MANPOWER_FILE_ID ? parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID)) : []
