@@ -3,10 +3,12 @@
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth, cacheable, authEnabled } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet, ensureSheet, downloadDriveFile } from './_lib/sheets.js'
-import { createRequire } from 'node:module'
-// import * as XLSX from 'xlsx' พังตอน deploy จริงบน Vercel (esbuild bundle แพ็กเกจ CJS นี้แล้ว namespace ไม่ตรง
-// ทำให้ทั้งไฟล์ crash ตั้งแต่โหลดโมดูล ก่อนจะถึง handler ด้วยซ้ำ) — ใช้ createRequire บังคับ require แบบ CJS ตรงๆ แทน
-const XLSX = createRequire(import.meta.url)('xlsx')
+// import ต้องเป็น static (ไม่ใช่ createRequire) ไม่งั้น @vercel/nft ตอน deploy ตรวจไม่เจอว่าไฟล์นี้ใช้ xlsx
+// แล้วไม่ bundle แพ็กเกจไปด้วย → "Cannot find module 'xlsx'" ตอนรันจริงบน Vercel (yืนยันจาก log จริง)
+// แต่ static import ของแพ็กเกจ CJS นี้บาง bundler ก็ห่อ exports ไว้ใต้ .default แทนที่จะแปะตรงๆ บน namespace
+// จึง unwrap เผื่อไว้ทั้งสองแบบ ให้ใช้ได้ทั้งตอน dev (Vite/Node) และตอน deploy จริง (esbuild)
+import * as XLSX_NS from 'xlsx'
+const XLSX = XLSX_NS.default && typeof XLSX_NS.default.read === 'function' ? XLSX_NS.default : XLSX_NS
 
 const OT_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'planned_start', 'planned_end', 'planned_minutes', 'actual_start', 'actual_end', 'actual_minutes', 'status', 'reason', 'note', 'created_at', 'closed_at']
 const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time', 'end_time', 'note', 'created_at']
