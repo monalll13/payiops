@@ -8,6 +8,11 @@ const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCas
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 
+// อ่าน raw_orders ทั้งหมดช้า (~5-12s) — cache แบบ public Cache-Control ใช้ไม่ได้ตอนเปิด auth
+// (cacheable() บังคับ no-store เพราะ response แต่ละคนไม่ควร cache ที่ CDN) จึงต้อง cache ในหน่วยความจำแทน
+const dashboardCache = new Map()
+const DASHBOARD_CACHE_MS = 120000
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
@@ -16,6 +21,13 @@ export default async function handler(req, res) {
   const inDate = (d) => (!startDate || d >= startDate) && (!endDate || d <= endDate)
   const keepBiz = (b) => business === 'all' || b === business
   const keepPlat = (p) => platform === 'all' || p === platform
+
+  const cacheKey = `${business}|${platform}|${startDate}|${endDate}`
+  const cached = dashboardCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < DASHBOARD_CACHE_MS) {
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    return res.status(200).json(cached.data)
+  }
 
   try {
     // override รายชื่อกลุ่มจาก product_aliases (เหมือน products.js/product-trends.js) — ไม่มีก็ข้าม
@@ -177,8 +189,7 @@ export default async function handler(req, res) {
       alerts.push({ type: 'warning', category: 'SKU ยอดตก', message: `${t.display_name} (${t.master_sku}) ยอดตกจากเมื่อวาน ฿${Math.abs(t.delta).toLocaleString()}` })
     }
 
-    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
-    res.status(200).json({
+    const data = {
       success: true,
       revenue: round2(revenue),
       orders,
@@ -190,7 +201,10 @@ export default async function handler(req, res) {
       topSkus,
       commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth },
       dataRange: { earliestDate: earliestDataDate, latestDate: latestDataDate },
-    })
+    }
+    dashboardCache.set(cacheKey, { data, at: Date.now() })
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    res.status(200).json(data)
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

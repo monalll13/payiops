@@ -15,6 +15,10 @@ const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) :
 // จำนวนกลุ่มที่ส่ง monthly trend กลับไป (กราฟแนวโน้ม) — คุมขนาด response
 const TREND_TOP_N = 8
 
+// เหตุผลเดียวกับ dashboard.js — cacheable() บังคับ no-store ตอนเปิด auth เลย cache ในหน่วยความจำแทน CDN
+const productsCache = new Map()
+const PRODUCTS_CACHE_MS = 120000
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
@@ -22,6 +26,13 @@ export default async function handler(req, res) {
   const { business = 'all', platform = 'all' } = req.query
   const keepBiz = (b) => business === 'all' || b === business
   const keepPlat = (p) => platform === 'all' || p === platform
+
+  const cacheKey = `${business}|${platform}|${req.query.month || ''}`
+  const cached = productsCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < PRODUCTS_CACHE_MS) {
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    return res.status(200).json(cached.data)
+  }
 
   try {
     // override รายชื่อกลุ่มจาก product_aliases (คอลัมน์ product_group ถ้ามี) — ไม่มีก็ข้าม
@@ -175,15 +186,17 @@ export default async function handler(req, res) {
       prevUnits: prevMonth ? prevTotalUnits : null,
     }
 
-    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
-    res.status(200).json({
+    const data = {
       success: true,
       month: isAll ? 'all' : selectedMonth,
       months,
       totals,
       groups: groupArr.slice(0, 100),
       trendTopGroups,
-    })
+    }
+    productsCache.set(cacheKey, { data, at: Date.now() })
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    res.status(200).json(data)
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

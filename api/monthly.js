@@ -8,10 +8,20 @@ const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 const platShort = (p) => String(p || '').replace(' Shop', '')
 
+// เหตุผลเดียวกับ dashboard.js — cacheable() บังคับ no-store ตอนเปิด auth เลย cache ในหน่วยความจำแทน CDN
+const monthlyCache = new Map()
+const MONTHLY_CACHE_MS = 300000
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
   const year = String(req.query.year || '').trim()
+
+  const cached = monthlyCache.get(year)
+  if (cached && Date.now() - cached.at < MONTHLY_CACHE_MS) {
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=1800'))
+    return res.status(200).json(cached.data)
+  }
 
   try {
     const meta = await getMeta()
@@ -61,15 +71,17 @@ export default async function handler(req, res) {
         .sort((a, b) => b.sales - a.sales)
     }
 
-    res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=1800'))
-    res.status(200).json({
+    const data = {
       success: true,
       year: year || null,
       years: [...yearsSet].sort(),
       months: trendArr.map((t) => t.month),
       trend: trendArr,
       byStore,
-    })
+    }
+    monthlyCache.set(year, { data, at: Date.now() })
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=1800'))
+    res.status(200).json(data)
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

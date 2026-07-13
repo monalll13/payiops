@@ -31,6 +31,18 @@ const latestByKey = (rows, keyFn, timeField) => { const map = new Map(); for (co
 const requireAdmin = (req, res) => { if (authEnabled() && req.user?.role !== 'admin') { res.status(403).json({ error: 'ต้องเป็น admin เท่านั้น' }); return false } return true }
 const clearWorkforceCache = () => { workforceCache = { at: 0, data: null } }
 
+// ดาวน์โหลด + parse ไฟล์ manpower จาก Drive เป็นส่วนที่ช้าที่สุดของหน้านี้ (ไฟล์ใหญ่ + ต้อง auth ใหม่ทุกครั้ง)
+// ตารางคนทำงานเปลี่ยนไม่บ่อย จึง cache แยกจาก workforceCache ด้วย TTL ยาวกว่ามาก (5 นาที) ลดเวลาโหลดที่ผู้ใช้เจอ
+let manpowerSourceCache = { at: 0, data: null }
+const MANPOWER_SOURCE_CACHE_MS = 300000
+async function getManpowerSource(personMap) {
+  if (!process.env.MANPOWER_FILE_ID) return []
+  if (manpowerSourceCache.data && Date.now() - manpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return manpowerSourceCache.data
+  const data = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap)
+  manpowerSourceCache = { at: Date.now(), data }
+  return data
+}
+
 async function getPersonMap() {
   const people = await getSheet('workforce_people')
   if (!people.length) { await appendRows('workforce_people', DEFAULT_PEOPLE_ROWS); return getPersonMap() }
@@ -96,7 +108,7 @@ async function opWorkforceInner(req, res) {
     try {
       await ensureWorkforceSheets()
       const personMap = await getPersonMap()
-      const sourceManpower = process.env.MANPOWER_FILE_ID ? parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap) : []
+      const sourceManpower = await getManpowerSource(personMap)
       return res.status(200).json({ success: true, sourceManpower, sourceWarnings: sourceManpower.warnings || [], sourceUpdatedAt: new Date().toISOString() })
     } catch (e) { return res.status(500).json({ success: false, error: e.message }) }
   }
@@ -111,7 +123,7 @@ async function opWorkforceInner(req, res) {
     const personMap = {}; for (const p of people) { if (p.code) personMap[String(p.code).toUpperCase()] = [p.name, p.group || 'อื่น ๆ'] }
     const otLimits = Object.fromEntries(limits.filter((l) => l.employee).map((l) => [l.employee, l.limit_hours]))
     let sourceManpower = []; let sourceWarnings = []
-    try { if (process.env.MANPOWER_FILE_ID) { sourceManpower = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap); sourceWarnings = sourceManpower.warnings || [] } } catch (e) { console.error('manpower source:', e.message) }
+    try { sourceManpower = await getManpowerSource(personMap); sourceWarnings = sourceManpower.warnings || [] } catch (e) { console.error('manpower source:', e.message) }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
     const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, sourceWarnings, events, history, approvals, approvalHistory, otLimits, people, sourceUpdatedAt: new Date().toISOString() }
     workforceCache = { at: Date.now(), data }
@@ -127,7 +139,7 @@ async function opWorkforceInner(req, res) {
     if (process.env.MANPOWER_FILE_ID) {
       try {
         const personMap = await getPersonMap()
-        const dayManpower = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap).filter((r) => r.date === body.date)
+        const dayManpower = (await getManpowerSource(personMap)).filter((r) => r.date === body.date)
         if (dayManpower.length) {
           const absent = employees.filter((employee) => !dayManpower.some((r) => manpowerNameMatches(employee, r.employee)))
           if (absent.length) return res.status(400).json({ error: `ไม่มีรายชื่อใน Manpower วันที่เลือก: ${absent.join(', ')}` })
