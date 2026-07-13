@@ -5,6 +5,35 @@ import * as XLSX from 'xlsx'
 const API = '/api'
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH')
 
+// ต้องตรงกับ candidate keys ใน pick() ของ api/import-orders.js —
+// ใช้กรองเหลือเฉพาะคอลัมน์ที่ backend อ่านจริง ก่อนส่งขึ้น API เพื่อลดขนาด payload
+// (ไฟล์ export ดิบมีคอลัมน์เยอะมาก เช่น Shopee 75 คอลัมน์/แถว แต่ backend ใช้แค่ ~10)
+const RELEVANT_HEADER_HINTS = [
+  'order_id', 'order id', 'orderid', 'เลขที่คำสั่งซื้อ', 'หมายเลขคำสั่งซื้อ',
+  'order_item_id', 'order item id', 'item id',
+  'date', 'วันที่', 'order creation', 'created time', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ',
+  'business', 'ธุรกิจ', 'แบรนด์', 'brand',
+  'sku_platform', 'seller sku', 'sku reference', 'เลขอ้างอิง sku', 'sku',
+  'product_name', 'ชื่อสินค้า', 'product name', 'สินค้า',
+  'variation_name', 'variation', 'ชื่อตัวเลือก', 'ตัวเลือกสินค้า', 'ประเภทสินค้า',
+  'qty', 'quantity', 'จำนวน', 'amount',
+  'revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม',
+  'order_status', 'status', 'สถานะ', 'order status',
+]
+const normalizeHeader = (s) => String(s || '').trim().toLowerCase()
+
+function slimRow(row) {
+  const out = {}
+  for (const [k, v] of Object.entries(row)) {
+    const nk = normalizeHeader(k)
+    if (RELEVANT_HEADER_HINTS.some((h) => nk === h || nk.includes(h))) out[k] = v
+  }
+  return out
+}
+
+// ส่งเป็น batch เพื่อไม่ให้ payload เกิน limit ของ serverless function (~4.5MB)
+const BATCH_SIZE = 3000
+
 export default function Upload() {
   const [file, setFile] = useState(null)
   const [rows, setRows] = useState([])
@@ -46,14 +75,29 @@ export default function Upload() {
     if (!rows.length) return
     setImporting(true); setResult(null)
     try {
-      const r = await fetch(`${API}/import-orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows }),
-      })
-      const d = await r.json()
-      setResult(d)
-      if (d.success) { setFile(null); setRows([]); setHeaders([]); loadLog() }
+      const slim = rows.map(slimRow)
+      const batches = []
+      for (let i = 0; i < slim.length; i += BATCH_SIZE) batches.push(slim.slice(i, i + BATCH_SIZE))
+
+      let imported = 0, mapped = 0, skipped = 0
+      const tabs = new Set()
+      for (let i = 0; i < batches.length; i++) {
+        setResult({ success: true, inProgress: true, note: `กำลังนำเข้า batch ${i + 1}/${batches.length}...` })
+        const r = await fetch(`${API}/import-orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i] }),
+        })
+        const d = await r.json()
+        if (!d.success) { setResult(d); setImporting(false); return }
+        imported += d.imported || 0
+        mapped += d.mapped || 0
+        skipped += d.skipped || 0
+        for (const t of d.tabs || []) tabs.add(t)
+      }
+
+      setResult({ success: true, imported, mapped, skipped, tabs: [...tabs] })
+      setFile(null); setRows([]); setHeaders([]); loadLog()
     } catch (e) {
       setResult({ success: false, error: e.message })
     } finally {
@@ -136,9 +180,11 @@ export default function Upload() {
         <div style={{ background: result.success ? 'var(--payi-success-bg)' : 'var(--payi-danger-bg)', border: `1px solid ${result.success ? '#bbf7d0' : '#fecaca'}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           {result.success ? <CheckCircle2 size={18} style={{ color: 'var(--payi-success)', flexShrink: 0, marginTop: 1 }} /> : <AlertTriangle size={18} style={{ color: 'var(--payi-danger)', flexShrink: 0, marginTop: 1 }} />}
           <div style={{ fontSize: 13, color: result.success ? '#15803d' : 'var(--payi-danger)' }}>
-            {result.success
-              ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped)}`
-              : `ผิดพลาด: ${result.error}`}
+            {result.inProgress
+              ? result.note
+              : result.success
+                ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped)}`
+                : `ผิดพลาด: ${result.error}`}
           </div>
         </div>
       )}

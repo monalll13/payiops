@@ -10,9 +10,18 @@ const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const RAW_HEADERS = ['order_key', 'order_id', 'order_item_id', 'date', 'platform', 'business', 'sku_platform', 'product_name', 'variation_name', 'master_sku', 'display_name', 'qty', 'revenue', 'order_status', 'imported_at', 'source_file', 'import_id', 'alias_key']
 
 function pick(row, keys) {
-  for (const k of Object.keys(row)) {
+  const entries = Object.entries(row)
+  // pass 1: exact header match (avoids grabbing an unrelated column that merely
+  // contains a candidate word as a substring, e.g. "สถานะการคืนเงินหรือคืนสินค้า"
+  // matching the "สินค้า" candidate before the real "ชื่อสินค้า" column is checked)
+  for (const [k, v] of entries) {
     const nk = normalize(k)
-    if (keys.some((c) => nk === normalize(c) || nk.includes(normalize(c)))) return row[k]
+    if (keys.some((c) => nk === normalize(c))) return v
+  }
+  // pass 2: substring fallback for loosely-named columns
+  for (const [k, v] of entries) {
+    const nk = normalize(k)
+    if (keys.some((c) => nk.includes(normalize(c)))) return v
   }
   return ''
 }
@@ -81,19 +90,29 @@ export default async function handler(req, res) {
     const seenInFile = new Set()
     let mapped = 0, skippedInvalid = 0
 
+    const itemCounter = new Map() // orderId -> next line number, for orders with no explicit item id
+
     for (const row of rows) {
       const platform = detectPlatform(row, platformSel)
-      const orderId = String(pick(row, ['order_id', 'order id', 'เลขที่คำสั่งซื้อ', 'order sn', 'orderid']) || '')
-      const orderItemId = String(pick(row, ['order_item_id', 'order item id', 'item id']) || '')
+      const orderId = String(pick(row, ['order_id', 'order id', 'เลขที่คำสั่งซื้อ', 'order sn', 'orderid', 'หมายเลขคำสั่งซื้อ']) || '')
+      let orderItemId = String(pick(row, ['order_item_id', 'order item id', 'item id']) || '')
       const date = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
       if (!orderId || !date) { skippedInvalid++; continue }
       const business = pick(row, ['business', 'ธุรกิจ', 'แบรนด์', 'brand']) || bizSel
-      const skuPlatform = pick(row, ['sku_platform', 'seller sku', 'sku reference', 'sku'])
+      const skuPlatform = pick(row, ['sku_platform', 'seller sku', 'sku reference', 'เลขอ้างอิง sku (sku reference no.)', 'sku'])
       const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'product name', 'สินค้า'])
-      const variation = pick(row, ['variation_name', 'variation', 'ตัวเลือกสินค้า', 'ประเภทสินค้า'])
+      const variation = pick(row, ['variation_name', 'variation', 'ชื่อตัวเลือก', 'ตัวเลือกสินค้า', 'ประเภทสินค้า'])
       const qty = parseInt(pick(row, ['qty', 'quantity', 'จำนวน', 'amount']), 10) || 0
       const revenue = num(pick(row, ['revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม']))
       const status = pick(row, ['order_status', 'status', 'สถานะ', 'order status']) || ''
+
+      // ไฟล์ export บางแพลตฟอร์ม (เช่น Shopee) ไม่มีคอลัมน์ item id แยกต่างหาก —
+      // ถ้าไม่มี ให้ไล่เลขบรรทัดต่อออเดอร์ กันไม่ให้ order ที่มีหลายสินค้าถูกมองว่าเป็นแถวซ้ำ
+      if (!orderItemId) {
+        const n = (itemCounter.get(orderId) || 0) + 1
+        itemCounter.set(orderId, n)
+        orderItemId = `L${n}`
+      }
 
       const orderKey = `${platform}:${orderId}:${orderItemId}`
       if (seenInFile.has(orderKey)) continue
