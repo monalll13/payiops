@@ -207,11 +207,6 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
   const promoDates = new Set(events.map((e) => e.date))
   const feedRangeDates = new Set()
   events.forEach((e) => { const end = e.end_date || e.date; if (end === e.date) return; const d = new Date(`${e.date}T00:00:00`); const endD = new Date(`${end}T00:00:00`); for (let x = new Date(d); x <= endD; x.setDate(x.getDate() + 1)) feedRangeDates.add(x.toLocaleDateString('en-CA')) })
-  const monthHeadcountByDate = {}
-  manpower.forEach((m) => { if (m.date?.startsWith(month)) monthHeadcountByDate[m.date] = (monthHeadcountByDate[m.date] || 0) + Number(m.fraction || 1) })
-  const headcountValues = Object.values(monthHeadcountByDate)
-  const avgHeadcount = headcountValues.length ? headcountValues.reduce((s, v) => s + v, 0) / headcountValues.length : 0
-
   const openOT = (date) => { setError(''); setModal({ type: 'ot', date }); setSelected([]); setNote('') }
   const checkLimits = (date, employees, plannedMinutes) => {
     const targetMonth = date.slice(0, 7)
@@ -290,7 +285,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
           {events.filter((e) => e.date === date).map((e) => <div key={e.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, color: '#be185d', fontSize: 10, fontWeight: 900 }}><span>{e.title}</span><span role="button" aria-label={`ลบ ${e.title}`} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e) }} style={{ cursor: 'pointer', color: '#be185d', opacity: .6, padding: '0 3px' }}>×</span></div>)}
           <div style={{ marginTop: 6, minHeight: 38, padding: '5px 6px', borderRadius: 10, background: 'linear-gradient(135deg,#eaf5ff,#f5faff)', border: '1px solid #d5ebff' }}>
             {dayManpower.length > 0 && <div style={{ color: '#334155', fontSize: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><b>Manpower {headcount} คน</b>{dayRows.length > 0 && avgHeadcount > 0 && headcount < avgHeadcount * 0.85 && <span style={{ color: '#b45309' }}>(คนน้อยกว่าเฉลี่ยเดือนนี้)</span>}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><b>Manpower {headcount} คน</b></div>
               <div style={{ marginTop: 2, color: '#64748b' }}>{dayManpower.map((r) => r.employee).join(' · ')}</div>
             </div>}
           </div>
