@@ -13,11 +13,24 @@ function getClient() {
         // + กัน paste ผิด: ตัดเครื่องหมายคำพูดที่เผลอก๊อปติดมาจาก .env
         private_key: (process.env.GOOGLE_PRIVATE_KEY || '').trim().replace(/^["']|["']$/g, '').replace(/\\n/g, '\n'),
       },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'],
     })
     client = google.sheets({ version: 'v4', auth })
   }
   return client
+}
+
+export async function downloadDriveFile(fileId) {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim().replace(/^["']|["']$/g, ''),
+      private_key: (process.env.GOOGLE_PRIVATE_KEY || '').trim().replace(/^["']|["']$/g, '').replace(/\\n/g, '\n'),
+    },
+    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+  })
+  const drive = google.drive({ version: 'v3', auth })
+  const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' })
+  return Buffer.from(res.data)
 }
 
 const sheetId = () => process.env.SHEET_ID
@@ -48,6 +61,11 @@ export async function getSheet(sheetName) {
   return rows.map(row =>
     Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))
   )
+}
+
+export async function getExternalSheet(spreadsheetId, range = 'A:Z') {
+  const res = await getClient().spreadsheets.values.get({ spreadsheetId, range })
+  return res.data.values || []
 }
 
 // เขียนต่อท้าย (append)

@@ -5,6 +5,7 @@ import App from './App.jsx'
 import Login from './pages/Login.jsx'
 
 const ManagerClaimsPrototype = lazy(() => import('./pages/ManagerClaimsPrototype.jsx'))
+const WorkforceOTPreview = lazy(() => import('./pages/WorkforceOT.jsx'))
 
 // ── API auth: แนบ token กับทุก fetch ที่ยิง /api (จุดเดียว ครอบทุกหน้า) ──
 // token มาจากการ login (/api/auth) เก็บใน localStorage — ถ้า server ตอบ 401 (token หมดอายุ/ผิด)
@@ -39,9 +40,11 @@ window.fetch = async (input, init = {}) => {
 
 // PROTOTYPE switch: เปิด /?manager เพื่อดูโหมดผู้จัดการ (มือถือ) โดยไม่กระทบแอปหลัก
 const showManagerPrototype = new URLSearchParams(window.location.search).has('manager')
+const showOTPreview = new URLSearchParams(window.location.search).has('ot-preview')
 
 // ── ประตู login: เช็คสถานะระบบก่อน — ปิด auth อยู่ (local dev) ก็เข้าแอปตรงๆ ──
 function Root() {
+  if (showOTPreview) return <Suspense fallback={<div style={{ padding: 40 }}>กำลังโหลด…</div>}><div style={{ minHeight: '100vh', background: '#f7fbff', padding: 28 }}><WorkforceOTPreview preview /></div></Suspense>
   const [status, setStatus] = useState(null) // { enabled, hasUsers }
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null') } catch { return null }
