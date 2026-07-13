@@ -249,8 +249,7 @@ function TrendingCard({ title, items, isUp }) {
         {items.map((item, idx) => (
           <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: idx < items.length - 1 ? 12 : 0, borderBottom: idx < items.length - 1 ? '1px solid var(--payi-border)' : 'none' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--payi-text-strong)' }}>{item.display_name || item.master_sku}</div>
-              <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', fontFamily: 'monospace' }}>{item.master_sku}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--payi-text-strong)' }}>{item.display_name}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: isUp ? 'var(--payi-success)' : 'var(--payi-danger)' }}>
