@@ -102,7 +102,9 @@ export default function PlannerControl({ onNavigate }) {
   }, [])
   useEffect(() => {
     const fetchedAt = new Date(salesSnapshot?.fetchedAt || 0).getTime()
-    if (fetchedAt && Date.now() - fetchedAt < SALES_REFRESH_MS && Array.isArray(salesSnapshot?.productMapping)) return undefined
+    const mappedSkus = new Set((salesSnapshot?.productMapping || []).map((item) => String(item.masterSku || '').toUpperCase()))
+    const hasMappedSales = (salesSnapshot?.items || []).some((item) => mappedSkus.has(String(item.masterSku || '').toUpperCase()))
+    if (fetchedAt && Date.now() - fetchedAt < SALES_REFRESH_MS && mappedSkus.size && hasMappedSales) return undefined
     let active = true
     fetch('/api/planner-sales')
       .then((response) => response.json())
@@ -135,7 +137,11 @@ export default function PlannerControl({ onNavigate }) {
     return () => { active = false }
   }, [salesSnapshot?.productMapping?.length])
   useEffect(() => {
-    if (!Array.isArray(salesSnapshot?.items) || salesSnapshot.items.length) return
+    // รายชื่ออาจโหลดจาก Product Mapping ได้ แม้ planner-sales ล้มเหลว/ติด quota
+    // ถ้ายังไม่มียอด ให้ใช้ข้อมูลที่ Dashboard Import มีอยู่แล้วและรวมตาม Master SKU (PY...)
+    const mappedSkus = new Set((salesSnapshot?.productMapping || []).map((item) => String(item.masterSku || '').toUpperCase()))
+    const hasMappedSales = (salesSnapshot?.items || []).some((item) => mappedSkus.has(String(item.masterSku || '').toUpperCase()))
+    if (mappedSkus.size && hasMappedSales) return
     let active = true
     fetch('/api/sheet-tools?op=summary')
       .then((response) => response.json())
@@ -163,7 +169,7 @@ export default function PlannerControl({ onNavigate }) {
       })
       .catch(() => {})
     return () => { active = false }
-  }, [salesSnapshot?.items?.length])
+  }, [salesSnapshot?.items?.length, salesSnapshot?.productMapping?.length])
   useEffect(() => {
     const mapping = salesSnapshot?.productMapping || []
     if (!mapping.length) return
