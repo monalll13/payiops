@@ -1,10 +1,11 @@
 // /api/claims?view=summary|monthly|sku|by-product|imports-list|import
 // อ่าน/จัดการข้อมูลเคลมจาก sheet "claims" (Google Sheets)
 import { requireAuth } from './_lib/auth.js'
-import { getSheet, getMeta, batchGetValues, appendRows, overwriteSheet } from './_lib/sheets.js'
+import { getSheet, getMeta, batchGetValues, appendRows, overwriteSheet, ensureSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
 import { calculateClaimRate, sourceFileName } from './_lib/claimImport.js'
+import { CLAIMS_HEADERS } from './_lib/claimsSchema.js'
 
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
@@ -15,8 +16,19 @@ const noneFlagged = (r) => !truthy(r.is_damaged) && !truthy(r.is_incomplete) && 
 // เคลมบางแถวมีแต่ product_name (display_name/master_sku ว่าง) — ไม่ fallback จะรวมเป็น "(ไม่ระบุ)" กลุ่มเดียวทั้งที่เป็นคนละสินค้า
 const claimGroup = (r, overrideMap) => deriveGroup(r.display_name || r.product_name, r.master_sku, overrideMap)
 
+// แถวเก่าที่ import ไว้ก่อนมีคอลัมน์ id จะไม่มี id — backfill ให้ครั้งแรกที่เจอ (ครั้งเดียวต่อแถว แล้วเขียนกลับ)
+// จำเป็นเพื่อให้ปุ่มแก้ไขรายแถวใช้อ้างอิงแถวที่ถูกต้องได้เสมอ ไม่ใช่ใช้ตำแหน่งแถว (ตำแหน่งเปลี่ยนได้ถ้ามีคนลบ/แก้พร้อมกัน)
 async function loadClaims() {
-  return await getSheet('claims') // [{ date, business, product_name, free_item, claim_value, is_damaged, is_incomplete, is_wrong_item, note, master_sku, display_name, imported_at, import_id }]
+  await ensureSheet('claims', CLAIMS_HEADERS)
+  const rows = await getSheet('claims')
+  let needsBackfill = false
+  const withIds = rows.map((r, i) => {
+    if (r.id) return r
+    needsBackfill = true
+    return { ...r, id: `claim-legacy-${i}-${Date.now().toString(36)}` }
+  })
+  if (needsBackfill) await overwriteSheet('claims', CLAIMS_HEADERS, withIds.map((r) => CLAIMS_HEADERS.map((h) => r[h] ?? '')))
+  return withIds // [{ id, date, business, product_name, free_item, claim_value, is_damaged, is_incomplete, is_wrong_item, note, master_sku, display_name, imported_at, import_id, source_file }]
 }
 
 export default async function handler(req, res) {
@@ -90,6 +102,26 @@ export default async function handler(req, res) {
       })
       if (updated) await overwriteSheet('claims', headers, kept)
       return res.status(200).json({ success: true, updated, fuzzyUpdated })
+    }
+
+    // ---- แก้ไขเคลมรายแถว (เผื่อกรอกสาเหตุผิด/ไม่ได้ระบุไว้ตอน import) ----
+    if (view === 'update-claim' && req.method === 'POST') {
+      const id = String(req.body?.id || '').trim()
+      if (!id) return res.status(400).json({ success: false, error: 'ต้องระบุ id' })
+      const current = await loadClaims()
+      const idx = current.findIndex((r) => r.id === id)
+      if (idx < 0) return res.status(404).json({ success: false, error: 'ไม่พบเคลมนี้ (อาจถูกลบไปแล้ว)' })
+      const b = req.body || {}
+      const updated = {
+        ...current[idx],
+        is_damaged: b.is_damaged ? '1' : '',
+        is_incomplete: b.is_incomplete ? '1' : '',
+        is_wrong_item: b.is_wrong_item ? '1' : '',
+        note: b.note ?? current[idx].note,
+      }
+      const next = current.map((r, i) => (i === idx ? updated : r))
+      await overwriteSheet('claims', CLAIMS_HEADERS, next.map((r) => CLAIMS_HEADERS.map((h) => r[h] ?? '')))
+      return res.status(200).json({ success: true, claim: updated })
     }
 
     const rows = await loadClaims()
@@ -209,7 +241,7 @@ export default async function handler(req, res) {
         reasonSummary: reason,
         monthlyTrend: [...monthlyMap.values()].map(m => ({ ...m, value: round2(m.value) })).sort((a, b) => a.month.localeCompare(b.month)),
         records: recs.map((r) => ({
-          date: r.date, business: r.business, master_sku: r.master_sku, display_name: r.display_name, product_name: r.product_name,
+          id: r.id, date: r.date, business: r.business, master_sku: r.master_sku, display_name: r.display_name, product_name: r.product_name,
           claim_value: num(r.claim_value),
           is_damaged: truthy(r.is_damaged), is_incomplete: truthy(r.is_incomplete), is_wrong_item: truthy(r.is_wrong_item),
           note: r.note, free_item: r.free_item,

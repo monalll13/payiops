@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { RefreshCw, Upload, ChevronDown, X, ExternalLink } from 'lucide-react'
+import { RefreshCw, Upload, ChevronDown, X, ExternalLink, Pencil, Check } from 'lucide-react'
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const API_BASE_C = '/api'
@@ -264,21 +264,36 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
+  const [editingId, setEditingId] = useState('')
+  const [editDraft, setEditDraft] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  const buildParams = () => {
+    const params = new URLSearchParams()
+    if (startDate) params.set('startDate', startDate)
+    if (endDate) params.set('endDate', endDate)
+    if (business) params.set('business', business)
+    params.set('view', 'sku')
+    if (productKey) params.set('productKey', productKey)
+    else params.set('sku', masterSku)
+    return params
+  }
+
+  const reload = async () => {
+    try {
+      const response = await fetch(`${API_BASE_C}/claims?${buildParams()}`)
+      const result = await response.json()
+      if (result.success) setDetail(result); else setErr(result.error)
+    } catch (error) { setErr(error.message) }
+  }
 
   useEffect(() => {
     if (!masterSku && !productKey) return
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       setLoading(true); setErr(null)
-      const params = new URLSearchParams()
-      if (startDate) params.set('startDate', startDate)
-      if (endDate) params.set('endDate', endDate)
-      if (business) params.set('business', business)
-      params.set('view', 'sku')
-      if (productKey) params.set('productKey', productKey)
-      else params.set('sku', masterSku)
       try {
-        const response = await fetch(`${API_BASE_C}/claims?${params}`, { signal: controller.signal })
+        const response = await fetch(`${API_BASE_C}/claims?${buildParams()}`, { signal: controller.signal })
         const result = await response.json()
         if (result.success) setDetail(result); else setErr(result.error)
       } catch (error) {
@@ -289,6 +304,18 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
     }, 0)
     return () => { clearTimeout(timer); controller.abort() }
   }, [masterSku, productKey, startDate, endDate, business])
+
+  const startEdit = (rec) => { setEditingId(rec.id); setEditDraft({ is_damaged: rec.is_damaged, is_incomplete: rec.is_incomplete, is_wrong_item: rec.is_wrong_item, note: rec.note || '' }) }
+  const cancelEdit = () => { setEditingId(''); setEditDraft({}) }
+  const saveEdit = async (id) => {
+    setSaving(true)
+    try {
+      const r = await fetch(`${API_BASE_C}/claims?view=update-claim`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...editDraft }) })
+      const d = await r.json()
+      if (!d.success) { alert(d.error || 'บันทึกไม่สำเร็จ'); return }
+      setEditingId(''); setEditDraft({}); await reload()
+    } catch (e) { alert(e.message) } finally { setSaving(false) }
+  }
 
   // Close on backdrop click
   const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose() }
@@ -397,13 +424,16 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                           <th style={{ padding: '8px 10px', textAlign: 'center', width: 54 }}>ไม่ครบ</th>
                           <th style={{ padding: '8px 10px', textAlign: 'center', width: 42 }}>ผิด</th>
                           <th style={{ padding: '8px 10px', textAlign: 'left' }}>ได้รับผิด/หมายเหตุ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center', width: 56 }}></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.records.map((rec, i) => (
-                          <tr key={i} style={{ borderBottom: '1px solid #f8fafc' }}
-                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        {detail.records.map((rec, i) => {
+                          const isEditing = rec.id && editingId === rec.id
+                          return (
+                          <tr key={rec.id || i} style={{ borderBottom: '1px solid #f8fafc', background: isEditing ? '#eff6ff' : 'transparent' }}
+                            onMouseEnter={e => { if (!isEditing) e.currentTarget.style.background = '#f8fafc' }}
+                            onMouseLeave={e => { if (!isEditing) e.currentTarget.style.background = 'transparent' }}
                           >
                             <td style={{ padding: '8px 10px', color: '#64748b' }}>{rec.date}</td>
                             <td style={{ padding: '8px 10px', color: '#1e293b' }}>{rec.business}</td>
@@ -413,14 +443,31 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: rec.claim_value > 0 ? '#dc2626' : '#cbd5e1' }}>
                               {rec.claim_value > 0 ? `฿${fmtC(rec.claim_value)}` : '—'}
                             </td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_damaged ? <span style={{ color: FLAG_COLORS.damaged, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_incomplete ? <span style={{ color: FLAG_COLORS.incomplete, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_wrong_item ? <span style={{ color: FLAG_COLORS.wrong, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
-                            <td style={{ padding: '8px 10px', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[rec.free_item, rec.note].filter(Boolean).join(' · ')}>
-                              {[rec.free_item, rec.note].filter(Boolean).join(' · ') || '—'}
-                            </td>
+                            {isEditing ? <>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}><input type="checkbox" checked={!!editDraft.is_damaged} onChange={e => setEditDraft({ ...editDraft, is_damaged: e.target.checked })} /></td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}><input type="checkbox" checked={!!editDraft.is_incomplete} onChange={e => setEditDraft({ ...editDraft, is_incomplete: e.target.checked })} /></td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}><input type="checkbox" checked={!!editDraft.is_wrong_item} onChange={e => setEditDraft({ ...editDraft, is_wrong_item: e.target.checked })} /></td>
+                              <td style={{ padding: '8px 10px' }}>
+                                <input value={editDraft.note} onChange={e => setEditDraft({ ...editDraft, note: e.target.value })} style={{ width: '100%', fontSize: 11, border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px' }} placeholder="หมายเหตุ" />
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                <button onClick={() => saveEdit(rec.id)} disabled={saving} title="บันทึก" style={{ border: 0, background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', marginRight: 4 }}><Check size={12} /></button>
+                                <button onClick={cancelEdit} disabled={saving} title="ยกเลิก" style={{ border: 0, background: '#e2e8f0', color: '#475569', borderRadius: 6, padding: '4px 6px', cursor: 'pointer' }}><X size={12} /></button>
+                              </td>
+                            </> : <>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_damaged ? <span style={{ color: FLAG_COLORS.damaged, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_incomplete ? <span style={{ color: FLAG_COLORS.incomplete, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>{rec.is_wrong_item ? <span style={{ color: FLAG_COLORS.wrong, fontWeight: 700 }}>●</span> : <span style={{ color: '#e2e8f0' }}>○</span>}</td>
+                              <td style={{ padding: '8px 10px', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[rec.free_item, rec.note].filter(Boolean).join(' · ')}>
+                                {[rec.free_item, rec.note].filter(Boolean).join(' · ') || '—'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                {rec.id && <button onClick={() => startEdit(rec)} title="แก้ไข" style={{ border: 0, background: '#f1f5f9', color: '#2563eb', borderRadius: 6, padding: '4px 6px', cursor: 'pointer' }}><Pencil size={12} /></button>}
+                              </td>
+                            </>}
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

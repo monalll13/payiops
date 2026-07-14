@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Plus, RefreshCw, X } from 'lucide-react'
 
 const API = '/api/sheet-tools?op=workforce'
+const MANPOWER_CACHE_KEY = 'payi-manpower-today-cache'
 const DEFAULT_NAMES = ['แตง', 'แป้ง', 'มี่', 'ฟ้า', 'ป้า', 'อื่น ๆ']
 const PROMO_TITLE_OPTIONS = ['วันโปร', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12', 'เงินเดือนออก', 'เทศกาล/วันหยุดยาว', 'เติมสต็อกล่วงหน้า']
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
@@ -58,14 +59,15 @@ export default function WorkforceOT({ preview = false }) {
         const loadedHistory = JSON.parse(localStorage.getItem('payi-ot-history-preview') || '[]')
         const loadedApprovals = JSON.parse(localStorage.getItem('payi-ot-approvals-preview') || '[]')
         let sourceManpower = []
-        try { const r = await fetch(`${API}&sourceOnly=1`); const d = await r.json(); if (r.ok) { sourceManpower = d.sourceManpower || []; setSourceStatus({ state: 'ok', count: sourceManpower.length, at: d.sourceUpdatedAt || new Date().toISOString() }) } else setSourceStatus({ state: 'error', count: 0, at: '' }) } catch { setSourceStatus({ state: 'error', count: 0, at: '' }) }
-        setRows(loadedRows); setManpower([...sourceManpower, ...loadedManpower]); setEvents(loadedEvents); setHistory(loadedHistory); setApprovals(loadedApprovals); setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...loadedManpower.map((row) => row.employee).filter(Boolean)])]); return
+        try { const r = await fetch(`${API}&sourceOnly=1`); const d = await r.json(); if (r.ok) { sourceManpower = d.sourceManpower || []; localStorage.setItem(MANPOWER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), rows: sourceManpower })); setSourceStatus({ state: 'ok', count: sourceManpower.length, at: d.sourceUpdatedAt || new Date().toISOString() }) } else setSourceStatus({ state: 'error', count: 0, at: '' }) } catch { setSourceStatus({ state: 'error', count: 0, at: '' }) }
+        setRows(loadedRows); setManpower([...sourceManpower, ...loadedManpower]); setEvents(loadedEvents); setHistory(loadedHistory); setApprovals(loadedApprovals); setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...sourceManpower.map((row) => row.employee).filter(Boolean), ...loadedManpower.map((row) => row.employee).filter(Boolean)])]); return
       }
       const r = await fetch(API); const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
       const loadedRows = d.rows || []
       setRows(loadedRows)
       setManpower([...(d.sourceManpower || []), ...(d.manpower || [])])
+      localStorage.setItem(MANPOWER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), rows: d.sourceManpower || [] }))
       setEvents(d.events || [])
       setHistory(d.history || [])
       setApprovals(d.approvals || [])
@@ -73,7 +75,7 @@ export default function WorkforceOT({ preview = false }) {
       setPeople(d.people || [])
       setOtLimitsState(d.otLimits || {})
       setSourceStatus({ state: d.sourceManpower?.length ? 'ok' : 'error', count: d.sourceManpower?.length || 0, at: d.sourceUpdatedAt || new Date().toISOString(), warnings: d.sourceWarnings || [] })
-      setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean)])])
+      setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...(d.sourceManpower || []).map((row) => row.employee).filter(Boolean), ...(d.manpower || []).map((row) => row.employee).filter(Boolean)])])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
@@ -267,27 +269,35 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     } catch (e) { setError(e.message) }
   }
 
-  return <section style={{ ...card, overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
+  return <section style={{ ...card, width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
     <div style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
       <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทินวางแผน OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>กดวันที่เพื่อเลือกคนและกรอกเวลา OT</div></div>
       <div style={{ display: 'flex', gap: 8 }}><button onClick={() => { setPromoEnd(`${month}-01`); setModal({ type: 'promo', date: `${month}-01` }) }} style={miniTab(false)}>+ วันโปร</button><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 155 }} /></div>
     </div>
     {warning && <div style={{ margin: '0 18px 12px', padding: '10px 14px', background: '#fef6da', color: '#8a6d1f', border: '1px solid #fbe6a8', borderRadius: 10, fontSize: 12, fontWeight: 800 }}>{warning}</div>}
     <div style={{ padding: '9px 16px', display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f8fbff', fontSize: 11, color: '#64748b' }}><Legend color="#d3c2f2" text="วันโปร"/><Legend color="#f0eafb" text="ช่วงเตรียมฟีด (กำหนดเองได้)"/></div>
-    <div style={{ overflowX: 'auto', padding: '4px 12px 14px' }}><div style={{ minWidth: 980 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', background: 'linear-gradient(180deg,#eef6ff,#f7fbff)', borderRadius: 14 }}>{['อา','จ','อ','พ','พฤ','ศ','ส'].map((d) => <div key={d} style={{ padding: 9, textAlign: 'center', fontSize: 11, fontWeight: 900, color: '#7a94b8' }}>{d}</div>)}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 7, marginTop: 7 }}>{cells.map((date, i) => {
-        if (!date) return <div key={`blank-${i}`} style={{ minHeight: 158, borderRadius: 16, background: 'transparent' }} />
+    <div style={{ width: '100%', minWidth: 0, overflow: 'hidden', boxSizing: 'border-box', padding: '4px 8px 12px' }}><div style={{ width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', background: 'linear-gradient(180deg,#eef6ff,#f7fbff)', borderRadius: 12 }}>{['อา','จ','อ','พ','พฤ','ศ','ส'].map((d) => <div key={d} style={{ padding: 7, textAlign: 'center', fontSize: 11, fontWeight: 900, color: '#7a94b8' }}>{d}</div>)}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 5, marginTop: 5 }}>{cells.map((date, i) => {
+        if (!date) return <div key={`blank-${i}`} style={{ minWidth: 0, minHeight: 132, borderRadius: 12, background: 'transparent' }} />
         const dayRows = rows.filter((r) => r.date === date && r.status !== 'cancelled'); const dayManpower = manpower.filter((r) => r.date === date); const isPromo = promoDates.has(date); const isFeed = feedRangeDates.has(date); const partTime = dayRows.filter((r) => groupByName[r.employee] === 'พาร์ทไทม์'); const packers = dayRows.filter((r) => groupByName[r.employee] !== 'พาร์ทไทม์')
-        const headcount = dayManpower.reduce((s, r) => s + Number(r.fraction || 1), 0)
-        return <button key={date} onClick={() => openOT(date)} style={{ minHeight: 158, padding: 9, textAlign: 'left', cursor: 'pointer', borderRadius: 16, border: `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start' }}>
+        const distinctDayManpower = [...new Map(dayManpower.map((r) => [String(r.code || r.employee).toUpperCase(), r])).values()]
+        const feedManpower = distinctDayManpower.filter((r) => {
+          const code = String(r.code || '').toUpperCase()
+          const employee = String(r.employee || '').trim().toUpperCase()
+          return r.group === 'คนฟีด' || ['PANID', 'MOM'].includes(code) || ['PANID', 'MOM', 'ป้านิด', 'แม่'].includes(employee)
+        })
+        const regularManpower = distinctDayManpower.filter((r) => !feedManpower.includes(r))
+        const feedNames = feedManpower.map((r) => { const identity = String(r.code || r.employee || '').trim().toUpperCase(); return identity === 'PANID' ? 'ป้านิด' : identity === 'MOM' ? 'แม่' : r.employee })
+        const regularNames = regularManpower.map((r) => r.employee === 'มะปราง' ? 'ปราง' : r.employee)
+        const regularHeadcount = regularManpower.reduce((s, r) => s + Number(r.fraction || 1), 0)
+        const lowPackingManpower = regularHeadcount <= 2
+        return <button key={date} onClick={() => openOT(date)} style={{ minWidth: 0, minHeight: 132, padding: 7, textAlign: 'left', cursor: 'pointer', borderRadius: 12, border: `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 900, color: '#334155' }}><span>{Number(date.slice(-2))}</span><span style={{ color: isPromo ? '#5b4b8a' : isFeed ? '#8a76c0' : '#2581bd', fontSize: 9 }}>{isPromo ? 'วันโปร' : isFeed ? 'เตรียมฟีด' : '+'}</span></div>
           {events.filter((e) => e.date === date).map((e) => <div key={e.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, color: '#be185d', fontSize: 10, fontWeight: 900 }}><span>{e.title}</span><span role="button" aria-label={`ลบ ${e.title}`} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e) }} style={{ cursor: 'pointer', color: '#be185d', opacity: .6, padding: '0 3px' }}>×</span></div>)}
-          <div style={{ marginTop: 6, minHeight: 38, padding: '5px 6px', borderRadius: 10, background: 'linear-gradient(135deg,#eaf5ff,#f5faff)', border: '1px solid #d5ebff' }}>
-            {dayManpower.length > 0 && <div style={{ color: '#334155', fontSize: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><b>Manpower {headcount} คน</b></div>
-              <div style={{ marginTop: 2, color: '#64748b' }}>{dayManpower.map((r) => r.employee).join(' · ')}</div>
-            </div>}
+          <div style={{ marginTop: 6, minHeight: 25, display: 'flex', gap: 2, minWidth: 0, overflow: 'hidden' }}>
+            <div className="calendar-manpower-text" title={`${regularHeadcount} คน · ${regularManpower.map((r) => r.employee).join(' · ')}`} style={{ minWidth: 0, flex: '1 1 auto', padding: '3px', borderRadius: 7, background: 'linear-gradient(135deg,#eaf5ff,#f5faff)', border: '1px solid #d5ebff', color: lowPackingManpower ? '#dc2626' : '#334155', whiteSpace: 'nowrap', overflow: 'hidden' }}><b>{regularHeadcount}คน</b>{regularNames.length > 0 && <span style={{ color: lowPackingManpower ? '#dc2626' : '#64748b', fontWeight: 850 }}>·{regularNames.join('·')}</span>}</div>
+            {feedManpower.length > 0 && <div className="calendar-manpower-text" title={feedNames.join(' · ')} style={{ minWidth: 0, flex: '0 0 auto', padding: '3px', borderRadius: 7, background: '#ffedd5', border: '1px solid #fb923c', color: '#c2410c', fontWeight: 900, whiteSpace: 'nowrap' }}>{feedNames.join('·')}</div>}
           </div>
           {packers.length > 0 && <DayGroup label="OT คนแพ็ก" rows={packers} />}{partTime.length > 0 && <DayGroup label="OT พาร์ทไทม์" rows={partTime} />}
         </button>

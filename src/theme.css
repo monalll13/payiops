@@ -250,12 +250,23 @@ body {
 .workforce-page [style*="font-size: 14px"] { font-size: 16px !important; }
 .workforce-page [style*="font-size: 17px"] { font-size: 20px !important; }
 .workforce-page [style*="font-size: 18px"] { font-size: 21px !important; }
+.workforce-page .calendar-manpower-text {
+  font-size: 11px !important;
+  line-height: 1.15;
+  letter-spacing: -0.35px;
+}
 
 @media (max-width: 980px) {
   .workforce-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .workforce-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .planner-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .planner-workflow { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .planner-layout { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 640px) {
   .workforce-kpis, .workforce-form-grid { grid-template-columns: 1fr !important; }
+  .planner-kpis { grid-template-columns: 1fr !important; }
+  .planner-workflow { grid-template-columns: 1fr !important; }
+  .planner-form-grid, .planner-detail-grid { grid-template-columns: 1fr !important; }
 }

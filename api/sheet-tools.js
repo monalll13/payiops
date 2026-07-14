@@ -24,7 +24,7 @@ let workforceCache = { at: 0, data: null }
 const ensureWorkforceSheets = () => workforceEnsurePromise ||= Promise.all(WORKFORCE_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
 // กลุ่มพื้นเหลืองในไฟล์ต้นฉบับ (TOON/KED/MO) เป็นอีกหน่วยงาน (ออฟฟิศ) ไม่ใช่บ้านล่าง — ไม่ต้องเพิ่มแถวใน workforce_people ให้กลุ่มนั้น จึงไม่ถูกดึงเข้าปฏิทินนี้
 // รายชื่อบ้านล่างตอนเริ่มระบบ ใช้ seed แท็บ workforce_people ครั้งแรกเท่านั้น — หลังจากนี้แก้/เพิ่มคนได้ตรงในชีตเลย ไม่ต้องแก้โค้ด
-const DEFAULT_PEOPLE_ROWS = [['TANG', 'แตง', 'คนแพ็ก'], ['PANG', 'แป้ง', 'คนแพ็ก'], ['FAH', 'ฟ้า', 'คนแพ็ก'], ['MII', 'มี่', 'คนแพ็ก'], ['PANID', 'ป้านิด', 'พาร์ทไทม์'], ['MAPRANG', 'มะปราง', 'พาร์ทไทม์'], ['ATOM', 'อะตอม', 'อื่น ๆ'], ['BAS', 'บาส', 'อื่น ๆ'], ['NEOY', 'เนย', 'อื่น ๆ']]
+const DEFAULT_PEOPLE_ROWS = [['TANG', 'แตง', 'คนแพ็ก'], ['PANG', 'แป้ง', 'คนแพ็ก'], ['FAH', 'ฟ้า', 'คนแพ็ก'], ['MII', 'มี่', 'คนแพ็ก'], ['PANID', 'ป้านิด', 'คนฟีด'], ['MOM', 'แม่', 'คนฟีด'], ['MAPRANG', 'มะปราง', 'พาร์ทไทม์'], ['ATOM', 'อะตอม', 'อื่น ๆ'], ['BAS', 'บาส', 'อื่น ๆ'], ['NEOY', 'เนย', 'อื่น ๆ']]
 const MONTH_BY_TAB = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
 const rowsToObjects = (values = []) => { const [headers, ...rows] = values; return headers ? rows.map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))) : [] }
 // workforce_ot_approvals/workforce_ot_limits เป็น append-only log (ไม่ overwrite แถวเดิม) — กัน race condition ตอนแก้พร้อมกันหลายเครื่อง
@@ -48,8 +48,13 @@ async function getManpowerSource(personMap) {
 async function getPersonMap() {
   const people = await getSheet('workforce_people')
   if (!people.length) { await appendRows('workforce_people', DEFAULT_PEOPLE_ROWS); return getPersonMap() }
-  const map = {}
-  for (const p of people) { if (p.code) map[String(p.code).toUpperCase()] = [p.name, p.group || 'อื่น ๆ'] }
+  const map = Object.fromEntries(DEFAULT_PEOPLE_ROWS.map(([code, name, group]) => [code, [name, group]]))
+  for (const p of people) {
+    if (!p.code) continue
+    const code = String(p.code).toUpperCase()
+    const forcedName = code === 'PANID' ? 'ป้านิด' : code === 'MOM' ? 'แม่' : ''
+    map[code] = [forcedName || p.name || map[code]?.[0] || code, ['PANID', 'MOM'].includes(code) ? 'คนฟีด' : (p.group || 'อื่น ๆ')]
+  }
   return map
 }
 
@@ -74,7 +79,7 @@ export function parseManpowerWorkbook(buffer, personMap = {}) {
           const raw = String(rows[rr]?.[c] || '').trim(); if (!raw || raw === '**') continue
           const code = raw.toUpperCase().match(/^[A-Z]+/)?.[0]; const person = personMap[code]; if (!person) continue
           const upper = raw.toUpperCase(); const absent = /\b(OFF|VAC|SICK|ABSENT|LWP)\b/.test(upper); if (absent) continue
-          result.push({ id: `source-${date}-${code}-${rr}`, date, employee: person[0], group: person[1], fraction: /0[.,]5|O[.,]5/.test(upper) ? 0.5 : 1, raw, source: 'SKJ2026' })
+          result.push({ id: `source-${date}-${code}-${rr}`, date, employee: person[0], code, group: person[1], fraction: /0[.,]5|O[.,]5/.test(upper) ? 0.5 : 1, raw, source: 'SKJ2026' })
         }
       }
     }

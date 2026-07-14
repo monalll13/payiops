@@ -16,6 +16,7 @@ const DevHub = lazy(() => import('./pages/DevHub'))
 const ClaimView = lazy(() => import('./pages/ClaimView'))
 const SalesView = lazy(() => import('./pages/SalesView'))
 const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
+const PlannerControl = lazy(() => import('./pages/PlannerControl'))
 const WorkforceOT = lazy(() => import('./pages/WorkforceOT'))
 const ProductDashboard = lazy(() => import('./pages/ProductDashboard'))
 const ProductTrends = lazy(() => import('./pages/ProductTrends'))
@@ -137,45 +138,36 @@ const Icons = {
 
 const menuGroups = [
   {
-    title: 'OVERVIEW',
+    title: 'ภาพรวมธุรกิจ',
     items: [
       { id: 'Executive', label: 'Dashboard สรุปยอดขาย', renderIcon: Icons.Executive, group: ['Executive', 'Monthly'] },
       { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory, group: ['Products', 'ProductTrends'] }
     ]
   },
   {
-    title: 'SALES',
+    title: 'ยอดขายและการตลาด',
     items: [
       { id: 'Import Orders', label: 'Import Orders', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
-      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Executive }
-    ]
-  },
-  {
-    title: 'MARKETING',
-    items: [
+      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Executive },
       { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' },
       { id: 'AdsChannels', label: 'Ads & Channels', renderIcon: Icons.StockMovement },
       { id: 'ContentOS', label: 'Content OS Prototype', renderIcon: Icons.AIAssistant, dotColor: 'var(--payi-mint)' }
     ]
   },
   {
-    title: 'INVENTORY',
+    title: 'วางแผนและปฏิบัติการ',
     items: [
+      { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.StockMovement, dotColor: '#8b5cf6' },
       { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
-      { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement }
-    ]
-  },
-  {
-    title: 'OPS',
-    items: [
-      { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' },
+      { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
       { id: 'Packing', label: 'Packing', renderIcon: Icons.Tasks },
       { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.Tasks, dotColor: '#7dd3fc' },
-      { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks }
+      { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks },
+      { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' }
     ]
   },
   {
-    title: 'TOOLS',
+    title: 'คู่มือและเครื่องมือ',
     items: [
       { id: 'SOPs', label: 'SOPs', renderIcon: Icons.SOPs },
       { id: 'Links Hub', label: 'Links Hub', helper: 'Boss / Manager', renderIcon: Icons.LinksHub },
@@ -183,7 +175,7 @@ const menuGroups = [
     ]
   },
   {
-    title: 'AI',
+    title: 'ระบบ',
     items: [
       { id: 'AI Assistant', label: 'PAYI Brain', renderIcon: Icons.AIAssistant },
       { id: 'Settings', label: 'Settings', renderIcon: Icons.Settings }
@@ -760,6 +752,11 @@ export default function App() {
       title: 'เรดาร์การตลาด',
       eyebrow: 'Marketing',
       subtitle: 'ติดตามงานแก้รูป ลงสินค้าใหม่ ลงคลิป และดูผลยอดขายหลังเปลี่ยนแบบสั้น ๆ'
+    },
+    'Planner Control': {
+      title: 'Planner Control',
+      eyebrow: 'Operations Planning',
+      subtitle: 'วางแผนผลิตจาก Stock, ยอดออก, Manpower & OT และความเสี่ยงจาก Claims'
     }
   }[activeTab] || {
     title: activeTab,
@@ -788,17 +785,18 @@ export default function App() {
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
       {/* SIDEBAR NAVIGATION */}
-      <div style={{ width: 256, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '18px 16px 16px', boxSizing: 'border-box', flexShrink: 0, boxShadow: '18px 0 48px rgba(15, 23, 42, 0.04)' }}>
-        <div style={{ marginBottom: 18, paddingLeft: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src={payiLogo} alt="Payi Ops" style={{ width: 42, height: 42, borderRadius: 10, objectFit: 'cover', boxShadow: '0 12px 28px rgba(37, 99, 235, 0.16)' }} />
+      <div style={{ width: 240, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0, boxShadow: '18px 0 48px rgba(15, 23, 42, 0.04)' }}>
+        <div style={{ marginBottom: 10, paddingLeft: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
+          <img src={payiLogo} alt="Payi Ops" style={{ width: 39, height: 39, borderRadius: 9, objectFit: 'cover', boxShadow: '0 9px 22px rgba(37, 99, 235, 0.14)' }} />
           <div>
             <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Payi Ops</div>
-            <div style={{ fontSize: '10px', fontWeight: '700', color: '#334155', letterSpacing: 0, marginTop: '4px' }}>Business Command Center</div>
+            <div style={{ fontSize: '9.5px', fontWeight: '700', color: '#334155', letterSpacing: 0, marginTop: '2px' }}>Business Command Center</div>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflowY: 'auto', paddingRight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 0 }}>
           {menuGroups.map((group) => (
-            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: `${group.items.length} 1 0`, minHeight: group.items.length * 32 + 14 }}>
+              <div style={{ padding: '2px 9px 3px', color: '#94a3b8', fontSize: 9, lineHeight: 1, fontWeight: 900, letterSpacing: '.08em' }}>{group.title}</div>
               {group.items.map((item) => {
                 const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
                 return (
@@ -806,16 +804,16 @@ export default function App() {
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '11px 12px', border: 'none', borderRadius: 8,
-                      backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '14px', fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: '1 1 0', width: '100%', padding: '7px 9px', minHeight: 32, border: 'none', borderRadius: 7,
+                      backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                       <span style={{ color: isActive ? '#2563eb' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{item.renderIcon()}</span>
                       <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
                         {item.helper && (
-                          <span style={{ fontSize: 9.5, lineHeight: 1.05, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
+                          <span style={{ fontSize: 8.5, lineHeight: 1, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
                         )}
                       </span>
                     </div>
@@ -1242,6 +1240,8 @@ export default function App() {
             <SalesView />
         ) : activeTab === 'Packing' ? (
             <PackingView />
+        ) : activeTab === 'Planner Control' ? (
+            <PlannerControl onNavigate={setActiveTab} />
         ) : activeTab === 'Workforce OT' ? (
             <WorkforceOT />
         ) : activeTab === 'Claims' ? (

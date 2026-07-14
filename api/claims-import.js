@@ -1,10 +1,11 @@
 // POST /api/claims-import  body: { fileName, rows: [ {..excel row..} ] }
 // map แถวจาก Excel เข้า sheet "claims" + จับคู่ master_sku ผ่าน product_aliases
 import { requireAuth } from './_lib/auth.js'
-import { getSheet, appendRows } from './_lib/sheets.js'
+import { getSheet, appendRows, ensureSheet } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
 import { findDuplicateImport, hasMeaningfulClaimRow, sourceFileRef } from './_lib/claimImport.js'
+import { CLAIMS_HEADERS } from './_lib/claimsSchema.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const truthy = (v) => {
@@ -46,6 +47,7 @@ export default async function handler(req, res) {
     } catch { /* ไม่มี tab product_aliases ก็ข้าม */ }
 
     const importId = String(req.body.importId || '') || genImportId()
+    await ensureSheet('claims', CLAIMS_HEADERS)
     const existing = await getSheet('claims')
     const duplicate = findDuplicateImport(existing, { fileName, fileHash, importId })
     if (duplicate && !req.body.allowDuplicate) return res.status(409).json({ success: false, duplicate: true, error: 'ไฟล์นี้เคยนำเข้าแล้ว', existingImportId: duplicate.import_id })
@@ -54,7 +56,7 @@ export default async function handler(req, res) {
     let mapped = 0, fuzzyMapped = 0, skippedInvalid = 0
     const unmappedSamples = []
     const skippedSamples = []
-    const out = rows.filter(hasMeaningfulClaimRow).map((row) => {
+    const out = rows.filter(hasMeaningfulClaimRow).map((row, index) => {
       const dateRaw = pick(row, ['date', 'วันที่'])
       const date = isoDate(dateRaw)
       if (!date) {
@@ -83,6 +85,7 @@ export default async function handler(req, res) {
         importedAt,
         importId,
         sourceRef,
+        `claim-${importId}-${index}`,
       ]
     }).filter(Boolean)
 
