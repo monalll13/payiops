@@ -31,8 +31,24 @@ function slimRow(row) {
   return out
 }
 
-// ส่งเป็น batch เพื่อไม่ให้ payload เกิน limit ของ serverless function (~4.5MB)
-const BATCH_SIZE = 3000
+// ส่งเป็น batch โดยเผื่อพื้นที่จาก payload limit ของ serverless function (~4.5MB)
+// ไฟล์ Shopee บางชุดยังมีขนาดราว 4.7MB ที่ 3,000 แถว แม้กรองคอลัมน์แล้ว
+const BATCH_SIZE = 2000
+
+async function readApiResponse(response) {
+  const text = await response.text()
+  if (!text) return {}
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {
+      success: false,
+      error: response.status === 413
+        ? 'ข้อมูลใน batch มีขนาดใหญ่เกินกว่าที่เซิร์ฟเวอร์รองรับ'
+        : `เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (${response.status}): ${text.slice(0, 200)}`,
+    }
+  }
+}
 
 export default function Upload() {
   const [file, setFile] = useState(null)
@@ -88,8 +104,12 @@ export default function Upload() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i] }),
         })
-        const d = await r.json()
-        if (!d.success) { setResult(d); setImporting(false); return }
+        const d = await readApiResponse(r)
+        if (!r.ok || !d.success) {
+          setResult({ success: false, error: d.error || `นำเข้าข้อมูลไม่สำเร็จ (${r.status})` })
+          setImporting(false)
+          return
+        }
         imported += d.imported || 0
         mapped += d.mapped || 0
         skipped += d.skipped || 0
