@@ -86,7 +86,7 @@ export default function PlannerControl({ onNavigate }) {
   useEffect(() => { localStorage.setItem(DEMAND_MODE_KEY, demandMode) }, [demandMode])
   useEffect(() => {
     let active = true
-    fetch(`/api/planner?date=${todayBangkok()}`)
+    fetch(`/api/sheet-tools?op=planner&date=${todayBangkok()}`)
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
       .then(({ ok, data }) => {
         if (!active || !ok || !data?.success) throw new Error(data?.error || 'โหลด Planner ไม่สำเร็จ')
@@ -275,7 +275,7 @@ export default function PlannerControl({ onNavigate }) {
   const savePlanner = async () => {
     setPlannerSaving(true); setMessage('')
     try {
-      const response = await fetch('/api/planner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      const response = await fetch('/api/sheet-tools?op=planner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         action: 'save-all',
         date: todayBangkok(),
         updated_by: currentUser?.display_name || currentUser?.name || currentUser?.username || 'Planner',
