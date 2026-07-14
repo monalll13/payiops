@@ -4,6 +4,19 @@ import { google } from 'googleapis'
 
 let client
 
+// ลด round-trip ไป Google Sheets เมื่อหลาย widget ขอ tab เดียวกันพร้อมกัน
+// อายุสั้นพอให้ข้อมูลสด และ mutation ด้านล่างจะล้าง cache ทันที
+const SHEET_CACHE_MS = 30_000
+const sheetCache = new Map()
+const sheetInflight = new Map()
+const sheetVersion = new Map()
+
+function invalidateSheet(sheetName) {
+  sheetCache.delete(sheetName)
+  sheetInflight.delete(sheetName)
+  sheetVersion.set(sheetName, (sheetVersion.get(sheetName) || 0) + 1)
+}
+
 function getClient() {
   if (!client) {
     const auth = new google.auth.GoogleAuth({
@@ -52,15 +65,29 @@ export async function batchGetValues(ranges) {
 
 // อ่านข้อมูลทั้ง sheet → array ของ object (header เป็น key)
 export async function getSheet(sheetName) {
-  const res = await getClient().spreadsheets.values.get({
+  const cached = sheetCache.get(sheetName)
+  if (cached && Date.now() - cached.at < SHEET_CACHE_MS) return cached.rows
+  if (sheetInflight.has(sheetName)) return sheetInflight.get(sheetName)
+
+  const version = sheetVersion.get(sheetName) || 0
+  const pending = getClient().spreadsheets.values.get({
     spreadsheetId: sheetId(),
     range: `${sheetName}!A:Z`,
+  }).then((res) => {
+    const [headers, ...rows] = res.data.values || []
+    const parsed = headers
+      ? rows.map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ''])))
+      : []
+    if ((sheetVersion.get(sheetName) || 0) === version) {
+      sheetCache.set(sheetName, { at: Date.now(), rows: parsed })
+    }
+    return parsed
+  }).finally(() => {
+    if (sheetInflight.get(sheetName) === pending) sheetInflight.delete(sheetName)
   })
-  const [headers, ...rows] = res.data.values || []
-  if (!headers) return []
-  return rows.map(row =>
-    Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))
-  )
+
+  sheetInflight.set(sheetName, pending)
+  return pending
 }
 
 export async function getExternalSheet(spreadsheetId, range = 'A:Z') {
@@ -76,6 +103,7 @@ export async function appendRows(sheetName, rows) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: rows },
   })
+  invalidateSheet(sheetName)
 }
 
 // เขียนทับทั้ง sheet (สำหรับ product_master)
@@ -104,6 +132,7 @@ export async function ensureSheet(sheetName, headers) {
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [headers] },
     })
+    invalidateSheet(sheetName)
   }
 }
 
@@ -118,4 +147,5 @@ export async function overwriteSheet(sheetName, headers, rows) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [headers, ...rows] },
   })
+  invalidateSheet(sheetName)
 }

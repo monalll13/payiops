@@ -34,6 +34,10 @@ const collapseThaiMarks = (s) => String(s).normalize('NFC').replace(THAI_MARK_DU
 // วงเล็บ/ก้อน variation ท้ายชื่อ เช่น "... (M)", "...(คละสี)", "…[L]"
 const TRAILING_PAREN = /[([（【][^)\]）】]*[)\]）】]\s*$/
 
+// ไซส์ติดท้ายคำแบบไม่มีช่องว่างคั่น เช่น "2in1M", "ส้นเท้าM", "ฝ่าเท้าL" — split ตามช่องว่างจับไม่ได้เพราะไม่มีตัวคั่น
+// จำกัดเฉพาะกรณีตัวอักษรก่อนหน้าเป็นไทย/ตัวเลข กันไม่ให้ไปตัดคำอังกฤษล้วนที่บังเอิญลงท้ายด้วยตัวเดียวกัน (เช่น "Cream", "Small")
+const GLUED_SIZE_SUFFIX = /([฀-๿0-9])(xxxl|xxl|2xl|3xl|4xl|xl|xs|s|m|l)$/i
+
 // แปลง display_name → ชื่อกลุ่มสินค้า (ตัดไซส์/รุ่นย่อยออก)
 export function normalizeGroupLabel(name = '') {
   const raw = collapseThaiMarks(String(name).trim())
@@ -52,7 +56,9 @@ export function normalizeGroupLabel(name = '') {
       return !SIZE_TOKENS.has(lc) && !COLOR_TOKENS.has(lc)
     })
 
-  const out = kept.join(' ').replace(/\s{2,}/g, ' ').trim()
+  let out = kept.join(' ').replace(/\s{2,}/g, ' ').trim()
+  // 4) ตัดไซส์ที่ติดท้ายคำแบบไม่มีช่องว่างคั่น (ทำหลัง join แล้ว เผื่อไซส์ติดคำสุดท้ายพอดี)
+  out = out.replace(GLUED_SIZE_SUFFIX, '$1').trim()
   // ถ้าตัดจนเหลือว่าง (ชื่อเป็นไซส์ล้วน) ให้คงชื่อเดิมไว้ ไม่งั้นข้อมูลหาย
   return out || raw
 }

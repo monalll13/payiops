@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.claude/settings.local.json
 
 # Secrets — ห้าม commit เด็ดขาด (มี Google private key)
 .env

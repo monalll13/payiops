@@ -3,9 +3,9 @@
 import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
+import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
-const aliasKey = (name, variation) => `${normalize(name)}|${normalize(variation)}`
 const truthy = (v) => {
   const s = String(v ?? '').trim().toLowerCase()
   return s === '1' || s === 'true' || s === 'yes' || s === 'x' || s === '✓' || s === 'y'
@@ -38,42 +38,34 @@ export default async function handler(req, res) {
     // สร้าง lookup จาก product_aliases:
     // - ชื่อสินค้า + variation -> SKU ใช้เป็นหลัก เพราะชื่อยาวซ้ำข้ามไซซ์/สีได้
     // - ชื่อสินค้าอย่างเดียว -> ใช้เฉพาะกรณีไม่กำกวม
-    let aliasByKey = new Map()
-    let aliasByName = new Map()
+    let aliasLookup = buildClaimAliasLookup()
     try {
       const aliases = await getSheet('product_aliases')
-      const candidates = new Map()
-      const addCandidate = (name, alias) => {
-        const key = normalize(name)
-        if (!key) return
-        if (!candidates.has(key)) candidates.set(key, [])
-        candidates.get(key).push(alias)
-      }
-      for (const a of aliases) {
-        const master = a.master_sku, disp = a.display_name
-        const alias = { master_sku: master, display_name: disp }
-        if (a.alias_product_name && a.alias_variation) aliasByKey.set(aliasKey(a.alias_product_name, a.alias_variation), alias)
-        addCandidate(a.alias_product_name, alias)
-        addCandidate(a.display_name, alias)
-      }
-      for (const [key, list] of candidates) {
-        const skus = [...new Set(list.map((x) => String(x.master_sku || '').trim()).filter(Boolean))]
-        if (skus.length === 1) aliasByName.set(key, list[0])
-      }
+      aliasLookup = buildClaimAliasLookup(aliases)
     } catch { /* ไม่มี tab product_aliases ก็ข้าม */ }
 
-    const importId = genImportId()
+    const importId = String(req.body.importId || '') || genImportId()
+    const existing = await getSheet('claims')
+    const duplicate = existing.find((r) => r.source_file === fileName && r.import_id !== importId)
+    if (duplicate && !req.body.allowDuplicate) return res.status(409).json({ success: false, duplicate: true, error: 'ไฟล์นี้เคยนำเข้าแล้ว', existingImportId: duplicate.import_id })
     const importedAt = new Date().toISOString()
-    const headers = ['date', 'business', 'product_name', 'free_item', 'claim_value', 'is_damaged', 'is_incomplete', 'is_wrong_item', 'note', 'master_sku', 'display_name', 'imported_at', 'import_id', 'source_file']
-
-    let mapped = 0, skippedInvalid = 0
+    let mapped = 0, fuzzyMapped = 0, skippedInvalid = 0
+    const unmappedSamples = []
+    const skippedSamples = []
     const out = rows.map((row) => {
-      const date = isoDate(pick(row, ['date', 'วันที่']))
-      if (!date) { skippedInvalid++; return null }
+      const dateRaw = pick(row, ['date', 'วันที่'])
+      const date = isoDate(dateRaw)
+      if (!date) {
+        skippedInvalid++
+        if (skippedSamples.length < 5) skippedSamples.push({ dateRaw, dateRawType: typeof dateRaw })
+        return null
+      }
       const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'สินค้า', 'product'])
       const variation = pick(row, ['alias_variation', 'variation_name', 'variation', 'ตัวเลือกสินค้า', 'ประเภทสินค้า', 'แบบ', 'ไซซ์', 'ขนาด', 'สี'])
-      const alias = aliasByKey.get(aliasKey(productName, variation)) || aliasByName.get(normalize(productName))
-      if (alias) mapped++
+      const sourceSku = pick(row, ['master_sku', 'sku_platform', 'seller_sku', 'sku', 'รหัสสินค้า', 'รหัส sku'])
+      const alias = resolveClaimAlias(aliasLookup, productName, variation, sourceSku)
+      if (alias) { mapped++; if (alias.match_method === 'fuzzy') fuzzyMapped++ }
+      else if (productName && unmappedSamples.length < 20 && !unmappedSamples.includes(productName)) unmappedSamples.push(productName)
       return [
         date,
         pick(row, ['business', 'ธุรกิจ', 'แบรนด์', 'brand']),
@@ -93,7 +85,7 @@ export default async function handler(req, res) {
     }).filter(Boolean)
 
     await appendRows('claims', out)
-    res.status(200).json({ success: true, importId, rowsImported: out.length, mappedCount: mapped, unmappedCount: out.length - mapped, skippedInvalid })
+    res.status(200).json({ success: true, importId, rowsImported: out.length, mappedCount: mapped, fuzzyMappedCount: fuzzyMapped, unmappedCount: out.length - mapped, unmappedSamples, skippedInvalid, skippedSamples })
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }
