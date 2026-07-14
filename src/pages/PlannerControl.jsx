@@ -36,7 +36,6 @@ const plannerProduct = (mapped, saved = {}) => ({
   dayFeed: Number(saved.dayFeed) || 0,
   otFeed: Number(saved.otFeed) || 0,
   claimRate: Number(saved.claimRate) || 0,
-  capacity: Number(saved.capacity) || 0,
   note: saved.note || '',
 })
 const loadProducts = () => {
@@ -57,12 +56,17 @@ const panel = { background: '#fff', border: '1px solid #dce8f5', borderRadius: 1
 const input = { width: 76, border: '1px solid #cfe0f3', borderRadius: 8, padding: '8px 9px', fontSize: 14, textAlign: 'right', outline: 'none', boxSizing: 'border-box' }
 
 export default function PlannerControl({ onNavigate }) {
+  const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
   const [products, setProducts] = useState(loadProducts)
   const [filter, setFilter] = useState('ทั้งหมด')
   const [message, setMessage] = useState('')
   const [modal, setModal] = useState(null)
   const [manageOpen, setManageOpen] = useState(false)
   const [feedPeopleFor, setFeedPeopleFor] = useState(null)
+  const [plannerData, setPlannerData] = useState(null)
+  const [plannerStatus, setPlannerStatus] = useState('loading')
+  const [plannerSaving, setPlannerSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
   const [excludedSkus, setExcludedSkus] = useState(() => {
     try { return JSON.parse(localStorage.getItem(EXCLUDED_PRODUCTS_KEY) || '[]') }
     catch { return [] }
@@ -80,6 +84,22 @@ export default function PlannerControl({ onNavigate }) {
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(products)) }, [products])
   useEffect(() => { localStorage.setItem(EXCLUDED_PRODUCTS_KEY, JSON.stringify(excludedSkus)) }, [excludedSkus])
   useEffect(() => { localStorage.setItem(DEMAND_MODE_KEY, demandMode) }, [demandMode])
+  useEffect(() => {
+    let active = true
+    fetch(`/api/planner?date=${todayBangkok()}`)
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (!active || !ok || !data?.success) throw new Error(data?.error || 'โหลด Planner ไม่สำเร็จ')
+        setPlannerData(data)
+        const disabled = (data.config || []).filter((row) => String(row.enabled) === '0').map((row) => String(row.master_sku).toUpperCase())
+        if (data.config?.length) setExcludedSkus(disabled)
+        if (data.daily?.[0]?.demand_mode) setDemandMode(data.daily[0].demand_mode)
+        if (!data.config?.length && !data.daily?.length) setDirty(true)
+        setPlannerStatus('ready')
+      })
+      .catch(() => { if (active) setPlannerStatus('offline') })
+    return () => { active = false }
+  }, [])
   useEffect(() => {
     const fetchedAt = new Date(salesSnapshot?.fetchedAt || 0).getTime()
     if (fetchedAt && Date.now() - fetchedAt < SALES_REFRESH_MS && Array.isArray(salesSnapshot?.productMapping)) return undefined
@@ -115,14 +135,58 @@ export default function PlannerControl({ onNavigate }) {
     return () => { active = false }
   }, [salesSnapshot?.productMapping?.length])
   useEffect(() => {
+    if (!Array.isArray(salesSnapshot?.items) || salesSnapshot.items.length) return
+    let active = true
+    fetch('/api/sheet-tools?op=summary')
+      .then((response) => response.json())
+      .then((data) => {
+        if (!active || !Array.isArray(data?.skus)) return
+        const dates = (data.daily || []).map((row) => String(row.date || '').slice(0, 10)).filter(Boolean).sort()
+        const start = dates[0] || ''
+        const anchor = dates[dates.length - 1] || ''
+        const days = start && anchor ? Math.max(1, Math.round((new Date(`${anchor}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1) : 90
+        const bySku = new Map()
+        for (const row of data.skus) {
+          const masterSku = String(row.sku || '').trim().toUpperCase()
+          if (!/^PY/.test(masterSku)) continue
+          let item = bySku.get(masterSku)
+          if (!item) bySku.set(masterSku, (item = { key: masterSku, masterSku, name: row.name || masterSku, units90: 0, lastDate: anchor }))
+          item.units90 += Number(row.qty || 0)
+        }
+        const items = [...bySku.values()].map((item) => ({ ...item, dailyAverage: item.units90 / days }))
+        if (!items.length) return
+        setSalesSnapshot((current) => {
+          const next = { ...(current || {}), success: true, items, start, anchor, days, source: 'dashboard-import', fetchedAt: new Date().toISOString() }
+          localStorage.setItem(SALES_CACHE_KEY, JSON.stringify(next))
+          return next
+        })
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [salesSnapshot?.items?.length])
+  useEffect(() => {
     const mapping = salesSnapshot?.productMapping || []
     if (!mapping.length) return
     setProducts((current) => {
       const bySku = new Map(current.filter((item) => item.masterSku).map((item) => [item.masterSku, item]))
       const byName = new Map(current.map((item) => [normalizeProductName(item.name), item]))
-      return mapping.map((mapped) => plannerProduct(mapped, bySku.get(mapped.masterSku) || byName.get(normalizeProductName(mapped.displayName))))
+      const configBySku = new Map((plannerData?.config || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
+      const dailyBySku = new Map((plannerData?.daily || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
+      return mapping.map((mapped) => {
+        const saved = bySku.get(mapped.masterSku) || byName.get(normalizeProductName(mapped.displayName)) || {}
+        const config = configBySku.get(mapped.masterSku) || {}
+        const daily = dailyBySku.get(mapped.masterSku) || {}
+        return plannerProduct(mapped, {
+          ...saved,
+          reserveDays: config.reserve_days ?? saved.reserveDays,
+          safetyPercent: config.safety_percent ?? saved.safetyPercent,
+          stock: daily.fg ?? saved.stock,
+          dayFeed: daily.planned_feed ?? saved.dayFeed,
+          feeders: daily.feeders ? String(daily.feeders).split('·').map((name) => name.trim()).filter(Boolean) : saved.feeders,
+        })
+      })
     })
-  }, [salesSnapshot?.productMapping])
+  }, [salesSnapshot?.productMapping, plannerData])
   useEffect(() => {
     const fetchedAt = Number(manpowerSnapshot?.fetchedAt || 0)
     if (fetchedAt && Date.now() - fetchedAt < MANPOWER_REFRESH_MS) return undefined
@@ -144,7 +208,8 @@ export default function PlannerControl({ onNavigate }) {
       const rows = (salesSnapshot?.items || []).filter((item) => product.masterSku ? String(item.masterSku).toUpperCase() === product.masterSku : productNamesMatch(product.name, item.name))
       const units90 = rows.reduce((sum, item) => sum + Number(item.units90 || 0), 0)
       const lastDate = rows.reduce((latest, item) => item.lastDate > latest ? item.lastDate : latest, '')
-      return { key: normalizeProductName(product.name), units90, lastDate }
+      const dailyAverage = rows.reduce((sum, item) => sum + Number(item.dailyAverage || 0), 0)
+      return { key: normalizeProductName(product.name), units90, dailyAverage, lastDate }
     }).filter((item) => item.units90 > 0).sort((a, b) => b.units90 - a.units90)
     const totalUnits = matched.reduce((sum, item) => sum + item.units90, 0)
     let cumulative = 0
@@ -152,7 +217,8 @@ export default function PlannerControl({ onNavigate }) {
       const before = totalUnits ? cumulative / totalUnits : 1
       const abc = before < 0.8 ? 'A' : before < 0.95 ? 'B' : 'C'
       cumulative += item.units90
-      return [item.key, { ...item, abc, dailyAverage: Math.round((item.units90 / 90) * 10) / 10 }]
+      const dailyAverage = item.dailyAverage || (item.units90 / Number(salesSnapshot?.days || 90))
+      return [item.key, { ...item, abc, dailyAverage: Math.round(dailyAverage * 10) / 10 }]
     }))
   }, [products, salesSnapshot])
   const peopleAtWork = useMemo(() => {
@@ -177,8 +243,7 @@ export default function PlannerControl({ onNavigate }) {
     const need = roundUp10(Math.max(0, targetStock - item.stock))
     const remaining = roundUp10(Math.max(0, need - item.dayFeed))
     const cover = daily ? item.stock / daily : 0
-    const suggestedOtMinutes = item.capacity ? Math.ceil((remaining / item.capacity) * 60) : 0
-    return { ...item, daily, abc, reserveDays, salesUnits90: sales?.units90 || 0, salesLastDate: sales?.lastDate || '', need, remaining, cover, targetStock, averageTarget, surgeTarget, safetyStock, demandMode, demandLabel: mode.label, suggestedOtMinutes }
+    return { ...item, daily, abc, reserveDays, salesUnits90: sales?.units90 || 0, salesDays: Number(salesSnapshot?.days || 90), salesLastDate: sales?.lastDate || '', need, remaining, cover, targetStock, averageTarget, surgeTarget, safetyStock, demandMode, demandLabel: mode.label }
   }), [products, demandMode, salesByName])
 
   const activeRows = rows.filter((item) => !excludedSkus.includes(item.masterSku))
@@ -186,33 +251,51 @@ export default function PlannerControl({ onNavigate }) {
   const totalRemaining = activeRows.reduce((sum, item) => sum + item.remaining, 0)
   const urgent = activeRows.filter((item) => item.remaining > 0).length
 
-  const update = (id, key, value) => setProducts((current) => current.map((item) => item.id === id ? { ...item, [key]: Math.max(0, Number(value) || 0) } : item))
-  const updateFeeders = (id, feeders) => setProducts((current) => current.map((item) => item.id === id ? { ...item, feeders } : item))
+  const update = (id, key, value) => { setProducts((current) => current.map((item) => item.id === id ? { ...item, [key]: Math.max(0, Number(value) || 0) } : item)); setDirty(true) }
+  const updateFeeders = (id, feeders) => { setProducts((current) => current.map((item) => item.id === id ? { ...item, feeders } : item)); setDirty(true) }
+  const toggleExcluded = (masterSku) => { setExcludedSkus((current) => current.includes(masterSku) ? current.filter((sku) => sku !== masterSku) : [...current, masterSku]); setDirty(true) }
   const changeDemandMode = (key) => {
     if (key === demandMode) return
     if (key !== 'normal' && !window.confirm(`ยืนยันใช้โหมด “${DEMAND_MODES[key].label}” กับสินค้าทั้งตาราง?`)) return
-    setDemandMode(key)
+    setDemandMode(key); setDirty(true)
   }
   const saveProduct = (product) => {
     const name = product.name.trim()
     if (!name) return setMessage('กรุณาระบุชื่อสินค้า')
     if (products.some((item) => item.id !== product.id && item.name.trim().toLowerCase() === name.toLowerCase())) return setMessage('มีสินค้านี้ในรายการแล้ว')
-    const normalized = { ...product, id: product.id || `planner-${Date.now()}`, name, group: product.group || 'C', feeders: Array.isArray(product.feeders) ? product.feeders : [], reserveDays: RESERVE_DAY_OPTIONS.includes(Number(product.reserveDays)) ? Number(product.reserveDays) : 1, stock: Number(product.stock) || 0, daily: Number(product.daily) || 0, targetDays: Math.max(1, Number(product.targetDays) || 1), safetyPercent: Math.max(0, Number(product.safetyPercent) || 0), dayFeed: Number(product.dayFeed) || 0, otFeed: Number(product.otFeed) || 0, claimRate: Number(product.claimRate) || 0, capacity: Number(product.capacity) || 0, note: product.note?.trim() || '' }
+    const normalized = { ...product, id: product.id || `planner-${Date.now()}`, name, group: product.group || 'C', feeders: Array.isArray(product.feeders) ? product.feeders : [], reserveDays: RESERVE_DAY_OPTIONS.includes(Number(product.reserveDays)) ? Number(product.reserveDays) : 1, stock: Number(product.stock) || 0, daily: Number(product.daily) || 0, targetDays: Math.max(1, Number(product.targetDays) || 1), safetyPercent: Math.max(0, Number(product.safetyPercent) || 0), dayFeed: Number(product.dayFeed) || 0, otFeed: Number(product.otFeed) || 0, claimRate: Number(product.claimRate) || 0, note: product.note?.trim() || '' }
     setProducts((current) => product.id ? current.map((item) => item.id === product.id ? normalized : item) : [...current, normalized])
-    setModal(null); setMessage(product.id ? `แก้ไข ${name} แล้ว` : `เพิ่ม ${name} ในแผนแล้ว`)
+    setDirty(true); setModal(null); setMessage(product.id ? `แก้ไข ${name} แล้ว` : `เพิ่ม ${name} ในแผนแล้ว`)
   }
   const createOt = (item) => {
-    localStorage.setItem('payi-planner-ot-draft', JSON.stringify({ productId: item.id, product: item.name, remaining: item.remaining, suggestedOtMinutes: item.suggestedOtMinutes, createdAt: new Date().toISOString() }))
+    localStorage.setItem('payi-planner-ot-draft', JSON.stringify({ productId: item.id, product: item.name, remaining: item.remaining, createdAt: new Date().toISOString() }))
     if (onNavigate) onNavigate('Workforce OT')
     else setMessage(`เตรียมแผน OT: ${item.name} · ${fmt(item.remaining)} ชิ้น`)
   }
+  const savePlanner = async () => {
+    setPlannerSaving(true); setMessage('')
+    try {
+      const response = await fetch('/api/planner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        action: 'save-all',
+        date: todayBangkok(),
+        updated_by: currentUser?.display_name || currentUser?.name || currentUser?.username || 'Planner',
+        config: products.map((item) => ({ master_sku: item.masterSku, enabled: !excludedSkus.includes(item.masterSku), reserve_days: item.reserveDays, safety_percent: item.safetyPercent })),
+        daily: activeRows.map((item) => ({ date: todayBangkok(), master_sku: item.masterSku, fg: item.stock, sales_average: item.daily, demand_mode: demandMode, recommended_feed: item.need, planned_feed: item.dayFeed, feeders: item.feeders || [] })),
+      }) })
+      const data = await response.json()
+      if (!response.ok || !data.success) throw new Error(data.error || 'บันทึก Planner ไม่สำเร็จ')
+      setDirty(false); setPlannerStatus('saved'); setMessage(`บันทึกส่วนกลางแล้ว ${data.dailySaved} รายการ · ${new Date(data.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`)
+    } catch (error) { setPlannerStatus('offline'); setMessage(error.message) }
+    finally { setPlannerSaving(false) }
+  }
 
   return <div className="planner-control-page" style={{ display: 'grid', gap: 14 }}>
-    <div style={{ ...panel, padding: 18, background: 'linear-gradient(135deg,#eef8ff,#ffffff 70%)' }}>
+    <div style={{ ...panel, padding: 18, background: 'linear-gradient(135deg,#eef8ff,#ffffff 70%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>แผนผลิตวันนี้</b><span style={{ borderRadius: 999, padding: '4px 9px', background: '#ede9fe', color: '#6d28d9', fontSize: 11, fontWeight: 900 }}>MOCKUP</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>แผนผลิตวันนี้</b><span style={{ borderRadius: 999, padding: '4px 9px', background: plannerStatus === 'offline' ? '#fff1f2' : '#e7f7f2', color: plannerStatus === 'offline' ? '#be123c' : '#087765', fontSize: 11, fontWeight: 900 }}>{plannerStatus === 'loading' ? 'กำลังเชื่อมต่อ' : plannerStatus === 'offline' ? 'ยังไม่บันทึกส่วนกลาง' : dirty ? 'มีการแก้ไข' : 'บันทึกส่วนกลางแล้ว'}</span></div>
         <div style={{ color: '#64748b', fontSize: 13, marginTop: 5 }}>ยอดเฉลี่ยย้อนหลัง + ของกันพุ่ง − FG → ระบบแนะนำจำนวนฟีดให้</div>
       </div>
+      <button type="button" onClick={savePlanner} disabled={plannerSaving || !products.length} style={{ ...primaryButton, padding: '10px 16px', opacity: plannerSaving || !products.length ? .55 : 1 }}>{plannerSaving ? 'กำลังบันทึก…' : dirty ? 'บันทึก Planner' : 'บันทึกอีกครั้ง'}</button>
     </div>
 
     {message && <div style={{ padding: '11px 14px', borderRadius: 10, background: '#e7f7f2', color: '#087765', fontWeight: 800 }}>{message}</div>}
@@ -243,7 +326,7 @@ export default function PlannerControl({ onNavigate }) {
         <colgroup><col style={{ width: '22%' }}/><col style={{ width: '8%' }}/><col style={{ width: '8%' }}/><col style={{ width: '8%' }}/><col style={{ width: '9%' }}/><col style={{ width: '11%' }}/><col style={{ width: '16%' }}/><col style={{ width: '9%' }}/><col style={{ width: '9%' }}/></colgroup>
         <thead><tr style={{ background: '#f1f7fd', color: '#52677a' }}>{['สินค้า','FG','เฉลี่ย/วัน','เผื่อวัน','กันพุ่ง','แนะนำฟีด','ฟีดวันนี้','ยังขาด',''].map((head, index) => <th key={`${head}-${index}`} style={{ padding: '11px 8px', whiteSpace: 'nowrap', textAlign: index === 0 ? 'left' : 'center' }}>{head}</th>)}</tr></thead>
         <tbody>{visible.map((item) => <tr key={item.id} style={{ borderTop: '1px solid #e7eef6', background: item.remaining > 0 ? '#fff' : '#fbfefc' }}>
-          <td style={{ ...td, minWidth: 210 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span title={item.abc === 'NEW' ? 'ยังไม่พบยอดขายย้อนหลัง' : `ขาย ${fmt(item.salesUnits90)} ชิ้นใน 90 วัน`} style={{ display: 'inline-grid', placeItems: 'center', minWidth: item.abc === 'NEW' ? 38 : 25, height: 25, padding: '0 5px', borderRadius: 7, background: `${groupColor[item.abc]}16`, color: groupColor[item.abc], fontWeight: 900, fontSize: item.abc === 'NEW' ? 10 : 13 }}>{item.abc}</span><div style={{ minWidth: 0 }}><b style={{ display: 'block', color: '#102a43', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</b><span style={{ color: '#94a3b8', fontSize: 10, fontFamily: 'monospace' }}>{item.masterSku}</span></div></div></td>
+          <td style={{ ...td, minWidth: 210 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span title={item.abc === 'NEW' ? 'ยังไม่พบยอดขายย้อนหลัง' : `ขาย ${fmt(item.salesUnits90)} ชิ้นใน ${item.salesDays} วัน`} style={{ display: 'inline-grid', placeItems: 'center', minWidth: item.abc === 'NEW' ? 38 : 25, height: 25, padding: '0 5px', borderRadius: 7, background: `${groupColor[item.abc]}16`, color: groupColor[item.abc], fontWeight: 900, fontSize: item.abc === 'NEW' ? 10 : 13 }}>{item.abc}</span><div style={{ minWidth: 0 }}><b style={{ display: 'block', color: '#102a43', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</b><span style={{ color: '#94a3b8', fontSize: 10, fontFamily: 'monospace' }}>{item.masterSku}</span></div></div></td>
           <td style={{ ...td, textAlign: 'center' }}><LockedNumberInput value={item.stock} onChange={(value) => update(item.id, 'stock', value)} label={`FG ${item.name}`}/></td>
           <td style={{ ...td, textAlign: 'center' }}>{fmt(item.daily)}</td>
           <td style={{ ...td, textAlign: 'center' }}><LockedDaysSelect value={item.reserveDays} onChange={(value) => update(item.id, 'reserveDays', value)}/></td>
@@ -256,7 +339,7 @@ export default function PlannerControl({ onNavigate }) {
       </table>{!visible.length && <div style={{ padding: 36, textAlign: 'center', color: '#16866f', fontWeight: 850 }}>วันนี้ไม่มีสินค้าที่ต้องจัดการเพิ่ม</div>}</div>
     </section>
     {modal && <ProductModal key={`${modal.mode}-${modal.item?.id || 'new'}`} modal={modal} onClose={() => setModal(null)} onSave={saveProduct} onEdit={() => setModal({ mode: 'edit', item: modal.item })} onCreateOt={() => { createOt(modal.item); setModal(null) }} />}
-    {manageOpen && <ManageMappedProducts products={rows} excludedSkus={excludedSkus} onToggle={(masterSku) => setExcludedSkus((current) => current.includes(masterSku) ? current.filter((sku) => sku !== masterSku) : [...current, masterSku])} onClose={() => setManageOpen(false)} />}
+    {manageOpen && <ManageMappedProducts products={rows} excludedSkus={excludedSkus} onToggle={toggleExcluded} onClose={() => setManageOpen(false)} />}
     {feedPeopleFor && <FeedPeopleModal item={products.find((item) => item.id === feedPeopleFor)} people={peopleAtWork} date={todayBangkok()} onChange={(feeders) => updateFeeders(feedPeopleFor, feeders)} onClose={() => setFeedPeopleFor(null)} />}
   </div>
 }
@@ -310,7 +393,7 @@ function FeedPeopleModal({ item, people, date, onChange, onClose }) {
 }
 
 function ProductModal({ modal, onClose, onSave, onEdit, onCreateOt }) {
-  const blank = { id: '', group: 'A', name: '', stock: 0, daily: 0, targetDays: 2, reserveDays: 1, safetyPercent: 30, dayFeed: 0, otFeed: 0, claimRate: 0, capacity: 0, note: '' }
+  const blank = { id: '', group: 'A', name: '', stock: 0, daily: 0, targetDays: 2, reserveDays: 1, safetyPercent: 30, dayFeed: 0, otFeed: 0, claimRate: 0, note: '' }
   const [form, setForm] = useState(modal.item ? { ...modal.item } : blank)
   const isDetail = modal.mode === 'detail'
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
@@ -337,7 +420,6 @@ function ProductModal({ modal, onClose, onSave, onEdit, onCreateOt }) {
           <div style={{ textAlign: 'right' }}><div style={detailLabel}>ยังขาด</div><b style={{ color: form.remaining > 0 ? '#dc2626' : '#16866f', fontSize: 17 }}>{form.remaining > 0 ? `${fmt(form.remaining)} ชิ้น` : 'ครบแล้ว'}</b></div>
         </div>
 
-        {form.remaining > 0 && form.capacity > 0 && <div style={{ color: '#7c4a13', background: '#fff7ed', borderRadius: 10, padding: '10px 12px', fontWeight: 850 }}>ถ้าทำ OT: ประมาณ {Math.floor(form.suggestedOtMinutes / 60)} ชม. {form.suggestedOtMinutes % 60} นาที</div>}
         {form.claimRate >= 1 && <div style={{ color: '#be185d', background: '#fdf2f8', borderRadius: 10, padding: '10px 12px', fontWeight: 850 }}>Claims {Number(form.claimRate).toFixed(2)}% · ตรวจสาเหตุก่อนเร่งผลิต</div>}
         {form.note && <div style={{ color: '#475569', fontSize: 12 }}>หมายเหตุ: {form.note}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}><button onClick={onEdit} style={secondaryButton}><Pencil size={15}/> แก้ไข</button>{form.remaining > 0 && <button onClick={onCreateOt} style={primaryButton}><CalendarClock size={15}/> วาง OT</button>}</div>
@@ -350,7 +432,6 @@ function ProductModal({ modal, onClose, onSave, onEdit, onCreateOt }) {
           <FormField label="FG ตอนนี้ (ชิ้น)"><input type="number" min="0" value={form.stock} onChange={(e) => set('stock', e.target.value)} style={formInput}/></FormField>
           <FormField label="ยอดขายเฉลี่ยย้อนหลัง/วัน"><input type="number" min="0" value={form.daily} onChange={(e) => set('daily', e.target.value)} style={formInput}/></FormField>
           <FormField label="กันยอดพุ่ง (%)"><input type="number" min="0" step="5" value={form.safetyPercent} onChange={(e) => set('safetyPercent', e.target.value)} style={formInput}/></FormField>
-          <FormField label="กำลังผลิต/คน/ชม."><input type="number" min="0" value={form.capacity} onChange={(e) => set('capacity', e.target.value)} style={formInput}/></FormField>
           <FormField label="ผลิตวันนี้"><input type="number" min="0" value={form.dayFeed} onChange={(e) => set('dayFeed', e.target.value)} style={formInput}/></FormField>
           <FormField label="Claim rate (%)"><input type="number" min="0" step="0.01" value={form.claimRate} onChange={(e) => set('claimRate', e.target.value)} style={formInput}/></FormField>
         </div>
