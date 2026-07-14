@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 
 const API_BASE_C = '/api'
 const fmtC = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })
-const FLAG_COLORS = { damaged: '#ef4444', incomplete: '#f59e0b', wrong: '#8b5cf6' }
+const FLAG_COLORS = { damaged: '#ef4444', incomplete: '#f59e0b', wrong: '#8b5cf6', unspecified: '#94a3b8' }
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
 const pctColor = pct => {
   if (pct === null || pct === undefined) return '#94a3b8'
@@ -18,6 +18,33 @@ const fmtPct = pct => {
   const sign = pct > 0 ? '+' : ''
   return `${sign}${pct}%`
 }
+
+// ต้องตรงกับ candidate keys ใน pick() ของ api/claims-import.js —
+// ชีตต้นทางเคลมมักมีคอลัมน์เยอะ (dropdown validation, สูตรช่วยกรอก ฯลฯ) เกินกว่าที่ backend ใช้จริง
+// ไม่กรองก่อนส่ง payload ใหญ่เกิน limit ของ serverless function แล้วได้ "Request Entity Too Large"
+// กลับมาเป็น HTML แทน JSON (เหมือนที่ Upload.jsx เจอกับไฟล์ order มาก่อน)
+const CLAIM_HEADER_HINTS = [
+  'date', 'วันที่',
+  'business', 'ธุรกิจ', 'แบรนด์', 'brand',
+  'product_name', 'ชื่อสินค้า', 'สินค้า', 'product',
+  'alias_variation', 'variation_name', 'variation', 'ตัวเลือกสินค้า', 'ประเภทสินค้า', 'แบบ', 'ไซซ์', 'ขนาด', 'สี',
+  'free_item', 'ของแถม', 'สินค้าที่แถม',
+  'claim_value', 'มูลค่า', 'มูลค่าเคลม', 'value',
+  'is_damaged', 'เสียหาย', 'พัง', 'damaged',
+  'is_incomplete', 'ส่งไม่ครบ', 'ไม่ครบ', 'incomplete',
+  'is_wrong_item', 'ส่งผิด', 'ผิด', 'wrong',
+  'note', 'หมายเหตุ', 'remark',
+]
+const normalizeClaimHeader = (s) => String(s || '').trim().toLowerCase()
+function slimClaimRow(row) {
+  const out = {}
+  for (const [k, v] of Object.entries(row)) {
+    const nk = normalizeClaimHeader(k)
+    if (CLAIM_HEADER_HINTS.some((h) => nk === h || nk.includes(h))) out[k] = v
+  }
+  return out
+}
+const CLAIM_BATCH_SIZE = 3000
 
 // ============================================================
 // COMPONENT: เครื่องมือลบประวัติล็อตไฟล์แบบซ่อนจิ๋ว
@@ -112,6 +139,7 @@ function MonthlyClaimSummary({ data }) {
             <th style={{ padding: '10px 14px', textAlign: 'right', color: FLAG_COLORS.damaged }}>เสียหาย</th>
             <th style={{ padding: '10px 14px', textAlign: 'right', color: FLAG_COLORS.incomplete }}>ส่งไม่ครบ</th>
             <th style={{ padding: '10px 14px', textAlign: 'right', color: FLAG_COLORS.wrong }}>ส่งผิด</th>
+            <th style={{ padding: '10px 14px', textAlign: 'right', color: FLAG_COLORS.unspecified }}>ไม่ระบุ</th>
             <th style={{ padding: '10px 14px', textAlign: 'right' }}>%เปลี่ยนแปลง</th>
           </tr>
         </thead>
@@ -126,6 +154,7 @@ function MonthlyClaimSummary({ data }) {
               <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>{fmtC(m.damaged)}</td>
               <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>{fmtC(m.incomplete)}</td>
               <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>{fmtC(m.wrong)}</td>
+              <td style={{ padding: '11px 14px', textAlign: 'right', color: '#94a3b8' }}>{fmtC(m.unspecified)}</td>
               <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 600, color: pctColor(m.pctChange) }}>{fmtPct(m.pctChange)}</td>
             </tr>
           ))}
@@ -136,6 +165,7 @@ function MonthlyClaimSummary({ data }) {
             <td style={{ padding: '12px 14px', textAlign: 'right' }}>{fmtC(monthlyTotal.damaged)}</td>
             <td style={{ padding: '12px 14px', textAlign: 'right' }}>{fmtC(monthlyTotal.incomplete)}</td>
             <td style={{ padding: '12px 14px', textAlign: 'right' }}>{fmtC(monthlyTotal.wrong)}</td>
+            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#94a3b8' }}>{fmtC(monthlyTotal.unspecified)}</td>
             <td style={{ padding: '12px 14px', textAlign: 'right', color: pctColor(monthlyTotal.pctChange) }}>{fmtPct(monthlyTotal.pctChange)}</td>
           </tr>
         </tbody>
@@ -293,11 +323,12 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
               {/* สรุปตามเหตุผล */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>สาเหตุของการเคลม</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                   {[
-                    { key: 'damaged',    label: '🔴 เสียหาย',     color: FLAG_COLORS.damaged },
-                    { key: 'incomplete', label: '🟡 ส่งไม่ครบ',   color: FLAG_COLORS.incomplete },
-                    { key: 'wrong',      label: '🟣 ส่งผิด',      color: FLAG_COLORS.wrong },
+                    { key: 'damaged',     label: '🔴 เสียหาย',     color: FLAG_COLORS.damaged },
+                    { key: 'incomplete',  label: '🟡 ส่งไม่ครบ',   color: FLAG_COLORS.incomplete },
+                    { key: 'wrong',       label: '🟣 ส่งผิด',      color: FLAG_COLORS.wrong },
+                    { key: 'unspecified', label: '⚪ ไม่ระบุ',     color: FLAG_COLORS.unspecified },
                   ].map(r => {
                     const d = detail.reasonSummary?.[r.key] || { count: 0, value: 0 }
                     return (
@@ -439,12 +470,12 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
                 <tr
                   key={i}
                   onClick={() => { onSelectSku({ product_key: s.product_key, master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ', skuCount: s.skuCount || 0 }); onClose() }}
-                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent' }}
-                  onMouseEnter={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#ffe4e4' : '#f8fafc'}
-                  onMouseLeave={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent'}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: s.skuCount === 0 ? '#fff1f1' : 'transparent' }}
+                  onMouseEnter={e => e.currentTarget.style.background = s.skuCount === 0 ? '#ffe4e4' : '#f8fafc'}
+                  onMouseLeave={e => e.currentTarget.style.background = s.skuCount === 0 ? '#fff1f1' : 'transparent'}
                 >
                   <td style={{ padding: '11px 16px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>{i + 1}</td>
-                  <td style={{ padding: '11px 16px', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 16px', color: s.skuCount === 0 ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
                   <td style={{ padding: '11px 16px', color: '#64748b' }}>{fmtC(s.skuCount || 0)}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
@@ -478,7 +509,7 @@ export default function ClaimView() {
   const loadMonthly = useCallback(async () => {
     setMonthlyLoading(true)
     try {
-      const r = await fetch(`${API_BASE_C}/claims?view=monthly&year=2026`)
+      const r = await fetch(`${API_BASE_C}/claims?view=monthly&year=${new Date().getFullYear()}`)
       const d = await r.json()
       if (d.success) setMonthlyData(d)
     } catch (e) { console.error(e) } finally { setMonthlyLoading(false) }
@@ -516,14 +547,31 @@ export default function ClaimView() {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
-      const r = await fetch(`${API_BASE_C}/claims-import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, rows }),
-      })
-      const d = await r.json()
-      setImportResult(d)
+      // raw: false — เซลล์วันที่ในชีตต้นทางเป็น date type จริง (ไม่ใช่ข้อความ) ถ้าไม่บังคับ raw:false
+      // จะได้ Excel serial number (เช่น 46000 กว่าๆ) แทนข้อความ "28/6/2026" แล้ว parse วันที่ฝั่ง backend ไม่ออก
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false })
+      const slim = rows.map(slimClaimRow)
+      const batches = []
+      for (let i = 0; i < slim.length; i += CLAIM_BATCH_SIZE) batches.push(slim.slice(i, i + CLAIM_BATCH_SIZE))
+
+      let rowsImported = 0, mappedCount = 0, unmappedCount = 0, skippedInvalid = 0
+      let importId = null
+      for (let i = 0; i < batches.length; i++) {
+        setImportResult({ success: true, inProgress: true, note: `กำลังนำเข้า batch ${i + 1}/${batches.length}...` })
+        const r = await fetch(`${API_BASE_C}/claims-import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, rows: batches[i] }),
+        })
+        const d = await r.json()
+        if (!d.success) { setImportResult(d); setImporting(false); return }
+        rowsImported += d.rowsImported || 0
+        mappedCount += d.mappedCount || 0
+        unmappedCount += d.unmappedCount || 0
+        skippedInvalid += d.skippedInvalid || 0
+        importId = d.importId || importId
+      }
+      setImportResult({ success: true, importId, rowsImported, mappedCount, unmappedCount, skippedInvalid })
       load()
       loadMonthly()
     } catch (e) {
@@ -539,6 +587,7 @@ export default function ClaimView() {
   const damaged    = data?.damageCount    || 0
   const incomplete = data?.incompleteCount || 0
   const wrong      = data?.wrongItemCount  || 0
+  const unspecified = data?.unspecifiedCount || 0
   const topSkus = data?.topClaimSkus    || []
   const trend   = data?.claimByDate || []
 
@@ -572,7 +621,9 @@ export default function ClaimView() {
       {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 18px', color: '#dc2626', fontSize: 12, marginBottom: 16 }}>⚠️ เกิดข้อผิดพลาด: {err}</div>}
       {importResult && (
         <div style={{ background: importResult.success ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.success ? '#bbf7d0' : '#fecaca'}`, borderRadius: 10, padding: '12px 18px', fontSize: 13, color: importResult.success ? '#15803d' : '#dc2626', marginBottom: 16 }}>
-          {importResult.success ? `✅ นำเข้าข้อมูลเคลมเรียบร้อยและเพิ่มเข้าตารางสำเร็จแล้วครับ` : `❌ ผิดพลาด: ${importResult.error}`}
+          {!importResult.success ? `❌ ผิดพลาด: ${importResult.error}`
+            : importResult.inProgress ? `⏳ ${importResult.note}`
+            : `✅ นำเข้าข้อมูลเคลมเรียบร้อยและเพิ่มเข้าตารางสำเร็จแล้วครับ (${importResult.rowsImported} แถว${importResult.skippedInvalid ? ` · ข้าม ${importResult.skippedInvalid} แถวที่วันที่อ่านไม่ออก` : ''})`}
         </div>
       )}
 
@@ -580,7 +631,7 @@ export default function ClaimView() {
       <ClearClaimsPanel onResetSuccess={() => { load(); loadMonthly() }} />
 
       {/* Accordion: สรุปเคลมรายเดือน + สรุปเคลมแยกตามแบรนด์ */}
-      <AccordionSection title="สรุปเคลมรายเดือน (ทั้งปี 2026)" icon="📊">
+      <AccordionSection title={`สรุปเคลมรายเดือน (ทั้งปี ${new Date().getFullYear()})`} icon="📊">
         {monthlyLoading && !monthlyData ? <div style={{ fontSize: 12, color: '#94a3b8' }}>กำลังโหลด...</div> : <MonthlyClaimSummary data={monthlyData} />}
       </AccordionSection>
 
@@ -596,6 +647,7 @@ export default function ClaimView() {
           { title: 'สินค้าเสีย/พัง', value: fmtC(damaged), accent: FLAG_COLORS.damaged, pct: total > 0 ? Math.round(damaged/total*100) : 0 },
           { title: 'ส่งของไม่ครบชิ้น', value: fmtC(incomplete), accent: FLAG_COLORS.incomplete, pct: total > 0 ? Math.round(incomplete/total*100) : 0 },
           { title: 'คลังส่งของผิด', value: fmtC(wrong), accent: FLAG_COLORS.wrong, pct: total > 0 ? Math.round(wrong/total*100) : 0 },
+          { title: 'ไม่ระบุสาเหตุ', value: fmtC(unspecified), accent: FLAG_COLORS.unspecified, pct: total > 0 ? Math.round(unspecified/total*100) : 0 },
         ].map((t, i) => (
           <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 18px' }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>{t.title}</span>
@@ -659,12 +711,12 @@ export default function ClaimView() {
                 <tr
                   key={i}
                   onClick={() => setSelectedSku({ product_key: s.product_key, master_sku: s.master_sku || 'UNMAPPED', display_name: s.display_name || 'ชื่อสินค้าหลุดแมพ', skuCount: s.skuCount || 0 })}
-                  style={{ borderBottom: '1px solid #f1f5f9', background: s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent', cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#ffe4e4' : '#f8fafc'}
-                  onMouseLeave={e => e.currentTarget.style.background = s.master_sku === 'UNMAPPED' ? '#fff1f1' : 'transparent'}
+                  style={{ borderBottom: '1px solid #f1f5f9', background: s.skuCount === 0 ? '#fff1f1' : 'transparent', cursor: 'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.background = s.skuCount === 0 ? '#ffe4e4' : '#f8fafc'}
+                  onMouseLeave={e => e.currentTarget.style.background = s.skuCount === 0 ? '#fff1f1' : 'transparent'}
                 >
                   <td style={{ padding: '11px 14px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: i < 3 ? 800 : 400 }}>{i + 1}</td>
-                  <td style={{ padding: '11px 14px', color: s.master_sku === 'UNMAPPED' ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
+                  <td style={{ padding: '11px 14px', color: s.skuCount === 0 ? '#dc2626' : '#1e293b', fontWeight: 700 }}>{s.display_name || 'ชื่อสินค้าหลุดแมพ'}</td>
                   <td style={{ padding: '11px 14px', color: '#64748b' }}>{fmtC(s.skuCount || 0)}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>

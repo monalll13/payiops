@@ -2,6 +2,7 @@
 // map แถวจาก Excel เข้า sheet "claims" + จับคู่ master_sku ผ่าน product_aliases
 import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows } from './_lib/sheets.js'
+import { isoDate } from './_lib/dates.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const aliasKey = (name, variation) => `${normalize(name)}|${normalize(variation)}`
@@ -65,15 +66,14 @@ export default async function handler(req, res) {
     const importedAt = new Date().toISOString()
     const headers = ['date', 'business', 'product_name', 'free_item', 'claim_value', 'is_damaged', 'is_incomplete', 'is_wrong_item', 'note', 'master_sku', 'display_name', 'imported_at', 'import_id', 'source_file']
 
-    let mapped = 0
+    let mapped = 0, skippedInvalid = 0
     const out = rows.map((row) => {
+      const date = isoDate(pick(row, ['date', 'วันที่']))
+      if (!date) { skippedInvalid++; return null }
       const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'สินค้า', 'product'])
       const variation = pick(row, ['alias_variation', 'variation_name', 'variation', 'ตัวเลือกสินค้า', 'ประเภทสินค้า', 'แบบ', 'ไซซ์', 'ขนาด', 'สี'])
       const alias = aliasByKey.get(aliasKey(productName, variation)) || aliasByName.get(normalize(productName))
       if (alias) mapped++
-      const dateRaw = pick(row, ['date', 'วันที่'])
-      let date = String(dateRaw)
-      if (date.includes('T')) date = date.slice(0, 10)
       return [
         date,
         pick(row, ['business', 'ธุรกิจ', 'แบรนด์', 'brand']),
@@ -90,10 +90,10 @@ export default async function handler(req, res) {
         importId,
         fileName,
       ]
-    })
+    }).filter(Boolean)
 
     await appendRows('claims', out)
-    res.status(200).json({ success: true, importId, rowsImported: out.length, mappedCount: mapped, unmappedCount: out.length - mapped })
+    res.status(200).json({ success: true, importId, rowsImported: out.length, mappedCount: mapped, unmappedCount: out.length - mapped, skippedInvalid })
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

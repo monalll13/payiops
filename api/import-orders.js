@@ -3,6 +3,7 @@
 //   POST { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
 import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows, batchGetValues } from './_lib/sheets.js'
+import { isoDate } from './_lib/dates.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
@@ -33,19 +34,6 @@ function detectPlatform(row, fallback) {
   if (blob.includes('lazada')) return 'Lazada'
   if (blob.includes('shopee')) return 'Shopee'
   return 'Shopee'
-}
-
-function isoDate(v) {
-  let s = String(v ?? '').trim()
-  if (!s) return ''
-  if (s.includes('T')) return s.slice(0, 10)
-  // dd/mm/yyyy หรือ yyyy-mm-dd
-  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
-  if (slash) return `${slash[3]}-${slash[2].padStart(2, '0')}-${slash[1].padStart(2, '0')}`
-  const dash = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (dash) return `${dash[1]}-${dash[2].padStart(2, '0')}-${dash[3].padStart(2, '0')}`
-  const d = new Date(s)
-  return isNaN(d) ? '' : d.toISOString().slice(0, 10)
 }
 
 function genImportId() {

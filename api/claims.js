@@ -7,6 +7,10 @@ import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
 const round2 = (n) => Math.round(n * 100) / 100
+// เคลมบางแถวไม่ได้ติ๊กประเภทไหนเลย (เสีย/ส่งไม่ครบ/ส่งผิด) — ถ้าไม่นับแยกไว้ ยอดรวม 3 ประเภทจะน้อยกว่ายอดเคลมทั้งหมดโดยไม่มีอะไรเตือน
+const noneFlagged = (r) => !truthy(r.is_damaged) && !truthy(r.is_incomplete) && !truthy(r.is_wrong_item)
+// เคลมบางแถวมีแต่ product_name (display_name/master_sku ว่าง) — ไม่ fallback จะรวมเป็น "(ไม่ระบุ)" กลุ่มเดียวทั้งที่เป็นคนละสินค้า
+const claimGroup = (r, overrideMap) => deriveGroup(r.display_name || r.product_name, r.master_sku, overrideMap)
 
 async function loadClaims() {
   return await getSheet('claims') // [{ date, business, product_name, free_item, claim_value, is_damaged, is_incomplete, is_wrong_item, note, master_sku, display_name, imported_at, import_id }]
@@ -48,8 +52,8 @@ export default async function handler(req, res) {
     const keepBiz = (b) => !business || business === 'all' || b === business
 
     if (view === 'monthly') {
-      const year = req.query.year || '2026'
-      const monthly = Array.from({ length: 12 }, () => ({ count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0 }))
+      const year = req.query.year || String(new Date().getFullYear())
+      const monthly = Array.from({ length: 12 }, () => ({ count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, unspecified: 0 }))
       const businessesSet = new Set()
       const byBiz = Array.from({ length: 12 }, () => ({})) // [{ [biz]: {value,count} }]
       const byBizTotal = {}
@@ -65,6 +69,7 @@ export default async function handler(req, res) {
         if (truthy(r.is_damaged)) monthly[m].damaged++
         if (truthy(r.is_incomplete)) monthly[m].incomplete++
         if (truthy(r.is_wrong_item)) monthly[m].wrong++
+        if (noneFlagged(r)) monthly[m].unspecified++
         const biz = r.business || '(ไม่ระบุ)'
         businessesSet.add(biz)
         if (!byBiz[m][biz]) byBiz[m][biz] = { value: 0, count: 0 }
@@ -83,8 +88,8 @@ export default async function handler(req, res) {
         prev = mo.value
       }
       const monthlyTotal = monthly.reduce(
-        (a, m) => ({ count: a.count + m.count, value: round2(a.value + m.value), damaged: a.damaged + m.damaged, incomplete: a.incomplete + m.incomplete, wrong: a.wrong + m.wrong, pctChange: null }),
-        { count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0 }
+        (a, m) => ({ count: a.count + m.count, value: round2(a.value + m.value), damaged: a.damaged + m.damaged, incomplete: a.incomplete + m.incomplete, wrong: a.wrong + m.wrong, unspecified: a.unspecified + m.unspecified, pctChange: null }),
+        { count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, unspecified: 0 }
       )
       for (const b of businesses) byBizTotal[b].value = round2(byBizTotal[b].value)
 
@@ -100,11 +105,11 @@ export default async function handler(req, res) {
       }
       const recs = rows.filter((r) => {
         if (!inDate(r.date) || !keepBiz(r.business)) return false
-        if (productKey) return deriveGroup(r.display_name, r.master_sku, overrideMap).key === productKey
+        if (productKey) return claimGroup(r, overrideMap).key === productKey
         return (r.master_sku || 'UNMAPPED') === sku
       })
       const bizMap = new Map()
-      const reason = { damaged: { count: 0, value: 0 }, incomplete: { count: 0, value: 0 }, wrong: { count: 0, value: 0 } }
+      const reason = { damaged: { count: 0, value: 0 }, incomplete: { count: 0, value: 0 }, wrong: { count: 0, value: 0 }, unspecified: { count: 0, value: 0 } }
       let totalValue = 0
       for (const r of recs) {
         const val = num(r.claim_value); totalValue += val
@@ -114,6 +119,7 @@ export default async function handler(req, res) {
         if (truthy(r.is_damaged)) { reason.damaged.count++; reason.damaged.value += val }
         if (truthy(r.is_incomplete)) { reason.incomplete.count++; reason.incomplete.value += val }
         if (truthy(r.is_wrong_item)) { reason.wrong.count++; reason.wrong.value += val }
+        if (noneFlagged(r)) { reason.unspecified.count++; reason.unspecified.value += val }
       }
       return res.status(200).json({
         success: true,
@@ -136,16 +142,17 @@ export default async function handler(req, res) {
       try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
 
       const recs = rows.filter((r) => inDate(r.date) && keepBiz(r.business))
-      const groupMap = new Map() // key -> { key, label, count, value, damaged, incomplete, wrong, skus:Set }
+      const groupMap = new Map() // key -> { key, label, count, value, damaged, incomplete, wrong, unspecified, skus:Set }
       for (const r of recs) {
-        const { key, label } = deriveGroup(r.display_name, r.master_sku, overrideMap)
+        const { key, label } = claimGroup(r, overrideMap)
         let g = groupMap.get(key)
-        if (!g) groupMap.set(key, (g = { key, label, count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, skus: new Set() }))
+        if (!g) groupMap.set(key, (g = { key, label, count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, unspecified: 0, skus: new Set() }))
         g.count++
         g.value += num(r.claim_value)
         if (truthy(r.is_damaged)) g.damaged++
         if (truthy(r.is_incomplete)) g.incomplete++
         if (truthy(r.is_wrong_item)) g.wrong++
+        if (noneFlagged(r)) g.unspecified++
         if (r.master_sku) g.skus.add(r.master_sku)
       }
       const products = [...groupMap.values()]
@@ -156,7 +163,7 @@ export default async function handler(req, res) {
 
     // ---- view === 'summary' ----
     const filtered = rows.filter((r) => inDate(r.date) && keepBiz(r.business))
-    let claimValue = 0, damageCount = 0, incompleteCount = 0, wrongItemCount = 0
+    let claimValue = 0, damageCount = 0, incompleteCount = 0, wrongItemCount = 0, unspecifiedCount = 0
     let overrideMap = new Map()
     try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
     const productMap = new Map()
@@ -166,7 +173,8 @@ export default async function handler(req, res) {
       if (truthy(r.is_damaged)) damageCount++
       if (truthy(r.is_incomplete)) incompleteCount++
       if (truthy(r.is_wrong_item)) wrongItemCount++
-      const { key, label } = deriveGroup(r.display_name, r.master_sku, overrideMap)
+      if (noneFlagged(r)) unspecifiedCount++
+      const { key, label } = claimGroup(r, overrideMap)
       if (!productMap.has(key)) productMap.set(key, { product_key: key, master_sku: '', display_name: label, count: 0, value: 0, skus: new Set() })
       const s = productMap.get(key); s.count++; s.value += val
       if (r.master_sku) s.skus.add(r.master_sku)
@@ -177,7 +185,7 @@ export default async function handler(req, res) {
       totalClaims: filtered.length,
       claimValue: round2(claimValue),
       totalValue: round2(claimValue),
-      damageCount, incompleteCount, wrongItemCount,
+      damageCount, incompleteCount, wrongItemCount, unspecifiedCount,
       topClaimSkus: [...productMap.values()]
         .map((s) => ({ ...s, value: round2(s.value), skuCount: s.skus.size, skus: [...s.skus] }))
         .sort((a, b) => b.count - a.count),
