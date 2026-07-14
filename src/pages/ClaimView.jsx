@@ -450,6 +450,7 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
                 <th style={{ padding: '10px 16px', textAlign: 'left', width: 36 }}>#</th>
                 <th style={{ padding: '10px 16px', textAlign: 'left' }}>สินค้า</th>
                 <th style={{ padding: '10px 16px', textAlign: 'right' }}>จำนวนเคส</th>
+                <th style={{ padding: '10px 16px', textAlign: 'right' }}>% เคลม/สินค้าออก</th>
                 <th style={{ padding: '10px 16px', textAlign: 'right' }}>มูลค่าทุนเสียหาย</th>
               </tr>
             </thead>
@@ -465,6 +466,7 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
                   <td style={{ padding: '11px 16px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>{i + 1}</td>
                   <td style={{ padding: '11px 16px', color: '#1e293b', fontWeight: 700 }}>{s.display_name || 'ไม่ระบุชื่อสินค้า'}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
+                  <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: s.claimRate == null ? '#94a3b8' : '#dc2626' }} title={s.claimRate == null ? `Mapping ${s.mappingCoverage || 0}% · สินค้าออก ${fmtC(s.outgoingUnits)}` : `${fmtC(s.count)} เคลม ÷ ${fmtC(s.outgoingUnits)} สินค้าออก`}>{s.claimRate == null ? '—' : `${s.claimRate.toFixed(2)}%`}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
                 </tr>
               ))}
