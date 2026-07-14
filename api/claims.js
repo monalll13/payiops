@@ -4,6 +4,7 @@ import { requireAuth } from './_lib/auth.js'
 import { getSheet, getMeta, batchGetValues, appendRows, overwriteSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
+import { calculateClaimRate, sourceFileName } from './_lib/claimImport.js'
 
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
       for (const r of rows) {
         const id = r.import_id
         if (!id) continue
-        if (!map.has(id)) map.set(id, { import_id: id, file_name: r.source_file || id, row_count: 0 })
+        if (!map.has(id)) map.set(id, { import_id: id, file_name: sourceFileName(r.source_file) || id, row_count: 0 })
         map.get(id).row_count++
       }
       return res.status(200).json({ success: true, files: [...map.values()] })
@@ -294,7 +295,7 @@ export default async function handler(req, res) {
       .map((s) => {
         const outgoingUnits = unitsByProduct.get(s.product_key) || 0
         const mappingCoverage = s.count > 0 ? round2((s.mappedCount / s.count) * 100) : 0
-        const claimRate = mappingCoverage === 100 && outgoingUnits > 0 ? round2((s.count / outgoingUnits) * 100) : null
+        const claimRate = calculateClaimRate(s.count, outgoingUnits, mappingCoverage)
         return { ...s, value: round2(s.value), skuCount: s.skus.size, skus: [...s.skus], outgoingUnits, mappingCoverage, claimRate }
       })
       .sort((a, b) => b.count - a.count)

@@ -4,6 +4,7 @@ import { requireAuth } from './_lib/auth.js'
 import { getSheet, appendRows } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
+import { findDuplicateImport, hasMeaningfulClaimRow, sourceFileRef } from './_lib/claimImport.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const truthy = (v) => {
@@ -31,7 +32,7 @@ function genImportId() {
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
-  const { fileName = '', rows } = req.body || {}
+  const { fileName = '', fileHash = '', rows } = req.body || {}
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
 
   try {
@@ -46,13 +47,14 @@ export default async function handler(req, res) {
 
     const importId = String(req.body.importId || '') || genImportId()
     const existing = await getSheet('claims')
-    const duplicate = existing.find((r) => r.source_file === fileName && r.import_id !== importId)
+    const duplicate = findDuplicateImport(existing, { fileName, fileHash, importId })
     if (duplicate && !req.body.allowDuplicate) return res.status(409).json({ success: false, duplicate: true, error: 'ไฟล์นี้เคยนำเข้าแล้ว', existingImportId: duplicate.import_id })
     const importedAt = new Date().toISOString()
+    const sourceRef = sourceFileRef(fileName, fileHash)
     let mapped = 0, fuzzyMapped = 0, skippedInvalid = 0
     const unmappedSamples = []
     const skippedSamples = []
-    const out = rows.map((row) => {
+    const out = rows.filter(hasMeaningfulClaimRow).map((row) => {
       const dateRaw = pick(row, ['date', 'วันที่'])
       const date = isoDate(dateRaw)
       if (!date) {
@@ -80,7 +82,7 @@ export default async function handler(req, res) {
         alias?.display_name || productName,
         importedAt,
         importId,
-        fileName,
+        sourceRef,
       ]
     }).filter(Boolean)
 

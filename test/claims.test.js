@@ -3,6 +3,28 @@ import assert from 'node:assert/strict'
 import { isoDate } from '../api/_lib/dates.js'
 import { normalizeGroupLabel } from '../api/_lib/productGroup.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from '../api/_lib/claimMapping.js'
+import { calculateClaimRate, findDuplicateImport, hasMeaningfulClaimRow, sourceFileRef, sourceFileName } from '../api/_lib/claimImport.js'
+
+test('filters blank claim rows', () => {
+  assert.equal(hasMeaningfulClaimRow({ date: '', product: '  ' }), false)
+  assert.equal(hasMeaningfulClaimRow({ date: '2026-07-01', product: '' }), true)
+})
+
+test('detects duplicate file content across names but permits another batch', () => {
+  const existing = [{ import_id: 'IMP-1', source_file: sourceFileRef('claims-a.xlsx', 'ABC123') }]
+  assert.equal(findDuplicateImport(existing, { fileName: 'renamed.xlsx', fileHash: 'abc123', importId: 'IMP-2' }).import_id, 'IMP-1')
+  assert.equal(findDuplicateImport(existing, { fileName: 'claims-a.xlsx', fileHash: 'different', importId: 'IMP-2' }), null)
+  assert.equal(findDuplicateImport(existing, { fileName: 'claims-a.xlsx', fileHash: 'abc123', importId: 'IMP-1' }), null)
+  assert.equal(findDuplicateImport([{ import_id: 'OLD', source_file: 'legacy.xlsx' }], { fileName: 'legacy.xlsx', fileHash: 'newhash', importId: 'IMP-2' }).import_id, 'OLD')
+  assert.equal(sourceFileName(existing[0].source_file), 'claims-a.xlsx')
+})
+
+test('calculates claim rate only from fully mapped outgoing units', () => {
+  assert.equal(calculateClaimRate(5, 100, 100), 5)
+  assert.equal(calculateClaimRate(1, 3, 100), 33.33)
+  assert.equal(calculateClaimRate(5, 100, 99.9), null)
+  assert.equal(calculateClaimRate(5, 0, 100), null)
+})
 
 test('normalizes claim dates', () => {
   assert.equal(isoDate('28/6/2026'), '2026-06-28')

@@ -45,6 +45,17 @@ function slimClaimRow(row) {
   return out
 }
 const CLAIM_BATCH_SIZE = 3000
+const hasValues = row => Object.values(row || {}).some(value => String(value ?? '').trim() !== '')
+
+function ClaimRateCell({ item, padding = '11px 14px' }) {
+  const ready = item.claimRate != null
+  return <td style={{ padding, textAlign: 'right', fontWeight: 700, color: ready ? '#dc2626' : '#94a3b8' }}>
+    <div>{ready ? `${item.claimRate.toFixed(2)}%` : '—'}</div>
+    <div style={{ marginTop: 2, fontSize: 10, fontWeight: 500, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+      {ready ? `${fmtC(item.count)} ÷ ${fmtC(item.outgoingUnits)}` : `Map ${item.mappingCoverage || 0}% · ออก ${fmtC(item.outgoingUnits)}`}
+    </div>
+  </td>
+}
 
 // ============================================================
 // COMPONENT: เครื่องมือลบประวัติล็อตไฟล์แบบซ่อนจิ๋ว
@@ -63,7 +74,11 @@ function ClearClaimsPanel({ onResetSuccess }) {
     } catch (err) { console.error(err) }
   }, [])
 
-  useEffect(() => { if (isOpen) loadUploadedFiles() }, [isOpen, loadUploadedFiles])
+  useEffect(() => {
+    if (!isOpen) return
+    const timer = setTimeout(loadUploadedFiles, 0)
+    return () => clearTimeout(timer)
+  }, [isOpen, loadUploadedFiles])
 
   const handleClearSelectedClaim = async () => {
     if (!selectedFileId) return
@@ -252,19 +267,27 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
 
   useEffect(() => {
     if (!masterSku && !productKey) return
-    setLoading(true); setErr(null)
-    const params = new URLSearchParams()
-    if (startDate) params.set('startDate', startDate)
-    if (endDate)   params.set('endDate', endDate)
-    if (business)  params.set('business', business)
-    params.set('view', 'sku')
-    if (productKey) params.set('productKey', productKey)
-    else params.set('sku', masterSku)
-    fetch(`${API_BASE_C}/claims?${params}`)
-      .then(r => r.json())
-      .then(d => { if (d.success) setDetail(d); else setErr(d.error) })
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false))
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      setLoading(true); setErr(null)
+      const params = new URLSearchParams()
+      if (startDate) params.set('startDate', startDate)
+      if (endDate) params.set('endDate', endDate)
+      if (business) params.set('business', business)
+      params.set('view', 'sku')
+      if (productKey) params.set('productKey', productKey)
+      else params.set('sku', masterSku)
+      try {
+        const response = await fetch(`${API_BASE_C}/claims?${params}`, { signal: controller.signal })
+        const result = await response.json()
+        if (result.success) setDetail(result); else setErr(result.error)
+      } catch (error) {
+        if (error.name !== 'AbortError') setErr(error.message)
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }, 0)
+    return () => { clearTimeout(timer); controller.abort() }
   }, [masterSku, productKey, startDate, endDate, business])
 
   // Close on backdrop click
@@ -466,7 +489,7 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
                   <td style={{ padding: '11px 16px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: 700 }}>{i + 1}</td>
                   <td style={{ padding: '11px 16px', color: '#1e293b', fontWeight: 700 }}>{s.display_name || 'ไม่ระบุชื่อสินค้า'}</td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
-                  <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 700, color: s.claimRate == null ? '#94a3b8' : '#dc2626' }} title={s.claimRate == null ? `Mapping ${s.mappingCoverage || 0}% · สินค้าออก ${fmtC(s.outgoingUnits)}` : `${fmtC(s.count)} เคลม ÷ ${fmtC(s.outgoingUnits)} สินค้าออก`}>{s.claimRate == null ? '—' : `${s.claimRate.toFixed(2)}%`}</td>
+                  <ClaimRateCell item={s} padding="11px 16px" />
                   <td style={{ padding: '11px 16px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
                 </tr>
               ))}
@@ -485,6 +508,7 @@ export default function ClaimView() {
   const [startDate, setStart]   = useState('')
   const [endDate, setEnd]       = useState('')
   const [business] = useState('')
+  const [productInput, setProductInput] = useState('')
   const [productFilter, setProductFilter] = useState('')
   const [reasonFilter, setReasonFilter] = useState('')
   const [ts, setTs]             = useState('')
@@ -496,6 +520,10 @@ export default function ClaimView() {
   const [monthlyLoading, setMonthlyLoading] = useState(false)
   const [selectedSku, setSelectedSku] = useState(null)
   const [showAllSkus, setShowAllSkus] = useState(false)
+  const [mapTarget, setMapTarget] = useState('')
+  const [mapOptions, setMapOptions] = useState([])
+  const [mapSearch, setMapSearch] = useState('')
+  const [mapSaving, setMapSaving] = useState(false)
 
   const loadMonthly = useCallback(async () => {
     setMonthlyLoading(true)
@@ -506,7 +534,15 @@ export default function ClaimView() {
     } catch (e) { console.error(e) } finally { setMonthlyLoading(false) }
   }, [])
 
-  useEffect(() => { loadMonthly() }, [loadMonthly])
+  useEffect(() => {
+    const timer = setTimeout(loadMonthly, 0)
+    return () => clearTimeout(timer)
+  }, [loadMonthly])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setProductFilter(productInput.trim()), 400)
+    return () => clearTimeout(timer)
+  }, [productInput])
 
 
   const load = useCallback(async () => {
@@ -529,7 +565,10 @@ export default function ClaimView() {
     } catch (e) { setErr(e.message) } finally { setLoading(false) }
   }, [startDate, endDate, business, productFilter, reasonFilter])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(load, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   const handleImport = async (e) => {
     const file = e.target.files?.[0]
@@ -540,6 +579,8 @@ export default function ClaimView() {
       const XLSX = await import('xlsx')
       // parse Excel ฝั่ง client แล้วส่ง JSON (ทำงานได้บน serverless โดยไม่ต้องมี multipart)
       const buf = await file.arrayBuffer()
+      const digest = await crypto.subtle.digest('SHA-256', buf)
+      const fileHash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       // ชีตต้นทางบางไฟล์มีชื่อเรื่อง/คำอธิบายอยู่เหนือแถวหัวตารางจริง (เช่น "Row 5" ในไฟล์เคลม)
@@ -556,7 +597,8 @@ export default function ClaimView() {
       // raw: false — เซลล์วันที่ในชีตต้นทางเป็น date type จริง (ไม่ใช่ข้อความ) ถ้าไม่บังคับ raw:false
       // จะได้ Excel serial number (เช่น 46000 กว่าๆ) แทนข้อความ "28/6/2026" แล้ว parse วันที่ฝั่ง backend ไม่ออก
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false, range: headerRowIdx })
-      const slim = rows.map(slimClaimRow)
+      const slim = rows.map(slimClaimRow).filter(hasValues)
+      if (!slim.length) throw new Error('ไม่พบแถวข้อมูลเคลมในไฟล์')
       const batches = []
       for (let i = 0; i < slim.length; i += CLAIM_BATCH_SIZE) batches.push(slim.slice(i, i + CLAIM_BATCH_SIZE))
 
@@ -569,7 +611,7 @@ export default function ClaimView() {
         const r = await fetch(`${API_BASE_C}/claims-import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file.name, importId, rows: batches[i] }),
+          body: JSON.stringify({ fileName: file.name, fileHash, importId, rows: batches[i] }),
         })
         const d = await r.json()
         if (!d.success) {
@@ -615,18 +657,20 @@ export default function ClaimView() {
     const optionsRes = await fetch(`${API_BASE_C}/claims?view=mapping-options`)
     const optionsData = await optionsRes.json()
     if (!optionsData.success) return alert(optionsData.error || 'โหลดรายการสินค้าไม่สำเร็จ')
-    const query = window.prompt(`เพิ่ม Map สำหรับ “${claimName}”\n\nกรอก Master SKU หรือค้นจากชื่อในรายการสินค้า:`)
-    if (!query) return
-    const q = query.trim().toLowerCase()
-    const matches = optionsData.products.filter((p) => p.master_sku.toLowerCase() === q || p.display_name.toLowerCase().includes(q))
-    if (matches.length !== 1) return alert(matches.length ? `พบหลายสินค้า: ${matches.slice(0, 10).map(p => `${p.master_sku} ${p.display_name}`).join(' · ')}\nกรุณากรอก Master SKU ให้ชัดเจน` : 'ไม่พบสินค้าใน product_aliases')
-    const chosen = matches[0]
+    setMapTarget(claimName); setMapOptions(optionsData.products || []); setMapSearch('')
+  }
+  const saveProductMap = async (chosen) => {
+    const claimName = mapTarget
     if (!window.confirm(`ยืนยัน Map\n${claimName}\n→ ${chosen.master_sku} ${chosen.display_name}`)) return
-    const r = await fetch(`${API_BASE_C}/claims?view=map-product`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claimName, masterSku: chosen.master_sku }) })
-    const d = await r.json()
-    if (!d.success) return alert(d.error || 'เพิ่ม Map ไม่สำเร็จ')
-    await fetch(`${API_BASE_C}/claims?view=backfill`, { method: 'POST' })
-    alert(`เพิ่ม Map สำเร็จ: ${claimName} → ${d.display_name}`); load()
+    setMapSaving(true)
+    try {
+      const r = await fetch(`${API_BASE_C}/claims?view=map-product`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claimName, masterSku: chosen.master_sku }) })
+      const d = await r.json()
+      if (!d.success) return alert(d.error || 'เพิ่ม Map ไม่สำเร็จ')
+      await fetch(`${API_BASE_C}/claims?view=backfill`, { method: 'POST' })
+      setMapTarget(''); load()
+      alert(`เพิ่ม Map สำเร็จ: ${claimName} → ${d.display_name}`)
+    } finally { setMapSaving(false) }
   }
 
   return (
@@ -642,7 +686,7 @@ export default function ClaimView() {
           <input type="date" value={startDate} onChange={e => setStart(e.target.value)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#334155', background: '#f8fafc' }} />
           <span style={{ color: '#94a3b8', fontSize: 12 }}>ถึง</span>
           <input type="date" value={endDate} onChange={e => setEnd(e.target.value)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#334155', background: '#f8fafc' }} />
-          <input value={productFilter} onChange={e => setProductFilter(e.target.value)} placeholder="ค้นหาสินค้า" style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12 }} />
+          <input value={productInput} onChange={e => setProductInput(e.target.value)} placeholder="ค้นหาสินค้า" style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12 }} />
           <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12 }}><option value="">ทุกสาเหตุ</option><option value="damaged">เสียหาย</option><option value="incomplete">ส่งไม่ครบ</option><option value="wrong">ส่งผิด</option><option value="unspecified">ไม่ระบุ</option></select>
           
           <button onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111827', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -780,7 +824,7 @@ export default function ClaimView() {
                   <td style={{ padding: '11px 14px', color: i < 3 ? '#f59e0b' : '#94a3b8', fontWeight: i < 3 ? 800 : 400 }}>{i + 1}</td>
                   <td style={{ padding: '11px 14px', color: '#1e293b', fontWeight: 700 }}>{s.display_name || 'ไม่ระบุชื่อสินค้า'}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>{fmtC(s.count)}</td>
-                  <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700, color: s.claimRate == null ? '#94a3b8' : '#dc2626' }} title={s.claimRate == null ? `Mapping ${s.mappingCoverage || 0}% · สินค้าออก ${fmtC(s.outgoingUnits)}` : `${fmtC(s.count)} เคลม ÷ ${fmtC(s.outgoingUnits)} สินค้าออก`}>{s.claimRate == null ? '—' : `${s.claimRate.toFixed(2)}%`}</td>
+                  <ClaimRateCell item={s} />
                   <td style={{ padding: '11px 14px', textAlign: 'right', color: '#475569' }}>฿{fmtC(s.value)}</td>
                 </tr>
               ))}
@@ -813,6 +857,21 @@ export default function ClaimView() {
           onSelectSku={(sku) => setSelectedSku(sku)}
         />
       )}
+
+      {mapTarget && (() => {
+        const query = mapSearch.trim().toLowerCase()
+        const matches = mapOptions.filter(p => !query || p.master_sku.toLowerCase().includes(query) || p.display_name.toLowerCase().includes(query)).slice(0, 40)
+        return <div onClick={e => { if (e.target === e.currentTarget && !mapSaving) setMapTarget('') }} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ width: 'min(620px, 100%)', maxHeight: '80vh', background: '#fff', borderRadius: 14, boxShadow: '0 20px 50px rgba(15,23,42,.25)', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><div><div style={{ fontWeight: 800 }}>เพิ่ม Map สินค้า</div><div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{mapTarget}</div></div><button disabled={mapSaving} onClick={() => setMapTarget('')} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}><X size={18} /></button></div>
+            <input autoFocus value={mapSearch} onChange={e => setMapSearch(e.target.value)} placeholder="กรอกชื่อสินค้า หรือ Master SKU เช่น PY001" style={{ border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 12px', fontSize: 13 }} />
+            <div style={{ overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 9 }}>
+              {matches.map(product => <button key={product.master_sku} disabled={mapSaving} onClick={() => saveProductMap(product)} style={{ width: '100%', border: 0, borderBottom: '1px solid #f1f5f9', background: '#fff', padding: '10px 12px', textAlign: 'left', cursor: 'pointer' }}><strong style={{ color: '#2563eb' }}>{product.master_sku}</strong><span style={{ marginLeft: 10, color: '#334155' }}>{product.display_name}</span></button>)}
+              {!matches.length && <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>ไม่พบสินค้าใน product_aliases</div>}
+            </div>
+          </div>
+        </div>
+      })()}
 
       {/* Modal: รายละเอียด SKU */}
       {selectedSku && (
