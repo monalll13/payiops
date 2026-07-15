@@ -152,9 +152,35 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, master_sku: masterSku, display_name: displayName })
     }
 
+    // ตรวจวันที่ทั้งไฟล์ก่อนนำเข้าจริง (เรียกครั้งเดียวก่อนแบ่ง batch import) — กันไฟล์ที่วันที่อ่านผิด
+    // (เช่น dd/mm สลับ mm/dd) กระจายไปลงเดือนอื่นแบบไม่รู้ตัว โดยให้ผู้ใช้เลือกเดือนที่คาดไว้มาก่อน
+    if (req.method === 'POST' && req.query.view === 'validate-dates') {
+      const { rows: vRows, expectedMonth } = req.body || {}
+      if (!Array.isArray(vRows)) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
+      if (!expectedMonth) return res.status(400).json({ success: false, error: 'ต้องระบุเดือนที่คาดไว้' })
+      const mismatches = []
+      for (const row of vRows) {
+        const d = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
+        if (d && d.slice(0, 7) !== expectedMonth) {
+          if (mismatches.length < 10) mismatches.push(d)
+        }
+      }
+      return res.status(200).json({ success: true, mismatchCount: mismatches.length, mismatchSamples: [...new Set(mismatches)] })
+    }
+
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
-    const { fileName = 'upload.xlsx', platform: platformSel = 'auto', business: bizSel = '', rows } = req.body || {}
+    const { fileName = 'upload.xlsx', platform: platformSel = 'auto', business: bizSel = '', rows, expectedMonth = '' } = req.body || {}
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
+
+    // เช็คซ้ำอีกชั้น (เผื่อ client ข้ามการเช็คตอนแรกไป) — ถ้าแถวไหนในชุดนี้ไม่ตรงเดือนที่เลือก บล็อกทั้ง batch
+    if (expectedMonth) {
+      for (const row of rows) {
+        const d = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
+        if (d && d.slice(0, 7) !== expectedMonth) {
+          return res.status(400).json({ success: false, error: `พบวันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${d} — ยกเลิกการนำเข้าทั้งไฟล์` })
+        }
+      }
+    }
 
     // ตรวจแพลตฟอร์มครั้งเดียวจากแถวแรกของไฟล์ (ไฟล์ export หนึ่งไฟล์เป็นแพลตฟอร์มเดียวเสมอ) — ถ้าเดา
     // ไม่ได้เลยและผู้ใช้ไม่ได้เลือกเอง ให้บังคับเลือกแทนที่จะเดาผิดเงียบๆ (เคยทำให้ TikTok Shop

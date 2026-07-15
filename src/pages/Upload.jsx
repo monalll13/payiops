@@ -143,6 +143,7 @@ export default function Upload() {
   const [result, setResult] = useState(null)
   const [platform, setPlatform] = useState('auto')
   const [business, setBusiness] = useState('')
+  const [expectedMonth, setExpectedMonth] = useState('')
   const [log, setLog] = useState([])
   const [deletingId, setDeletingId] = useState('')
   const [mapTarget, setMapTarget] = useState(null)
@@ -177,7 +178,7 @@ export default function Upload() {
     setFile(f); setResult(null); setParsing(true)
     // กันเลือก platform/business ค้างจากไฟล์ก่อนหน้า (เคยทำให้ไฟล์ TikTok ถูก tag เป็น Shopee
     // เพราะ dropdown ยังค้างค่าจากไฟล์ก่อนหน้าที่เพิ่งอัพโหลดไป) — บังคับเลือกใหม่ทุกไฟล์
-    setPlatform('auto'); setBusiness('')
+    setPlatform('auto'); setBusiness(''); setExpectedMonth('')
     try {
       const buf = await f.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
@@ -193,10 +194,31 @@ export default function Upload() {
   }
 
   const doImport = async () => {
-    if (!rows.length) return
+    if (!rows.length || !expectedMonth) return
     setImporting(true); setResult(null)
     try {
       const slim = rows.map(slimRow)
+
+      // เช็ควันที่ทั้งไฟล์ก่อนนำเข้าจริงสักแถวเดียว — กันไฟล์ที่วันที่อ่านผิด (เช่น dd/mm สลับ mm/dd)
+      // กระจายไปลงเดือนอื่นแบบไม่รู้ตัว ถ้าเจอวันที่ไม่ตรงเดือนที่เลือกไว้ ยกเลิกทั้งไฟล์เลย
+      setResult({ success: true, inProgress: true, note: 'กำลังตรวจวันที่ในไฟล์...' })
+      const vr = await fetch(`${API}/import-orders?view=validate-dates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: slim, expectedMonth }),
+      })
+      const vd = await readApiResponse(vr)
+      if (!vr.ok || !vd.success) {
+        setResult({ success: false, error: vd.error || 'ตรวจวันที่ไม่สำเร็จ' })
+        setImporting(false)
+        return
+      }
+      if (vd.mismatchCount > 0) {
+        setResult({ success: false, error: `พบ ${fmt(vd.mismatchCount)} แถวที่วันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${vd.mismatchSamples.join(', ')} — ยกเลิกการนำเข้าทั้งไฟล์ ตรวจไฟล์หรือเลือกเดือนใหม่` })
+        setImporting(false)
+        return
+      }
+
       const batches = []
       for (let i = 0; i < slim.length; i += BATCH_SIZE) batches.push(slim.slice(i, i + BATCH_SIZE))
 
@@ -208,7 +230,7 @@ export default function Upload() {
         const r = await fetch(`${API}/import-orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i] }),
+          body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i], expectedMonth }),
         })
         const d = await readApiResponse(r)
         if (!r.ok || !d.success) {
@@ -225,7 +247,7 @@ export default function Upload() {
       }
 
       setResult({ success: true, imported, mapped, skipped, skippedInvalid, unmappedSamples, tabs: [...tabs] })
-      setFile(null); setRows([]); setHeaders([]); loadLog()
+      setFile(null); setRows([]); setHeaders([]); setExpectedMonth(''); loadLog()
     } catch (e) {
       setResult({ success: false, error: e.message })
     } finally {
@@ -274,8 +296,16 @@ export default function Upload() {
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', marginBottom: 4 }}>ธุรกิจ/แบรนด์ (ถ้ามีในไฟล์ไม่ต้องกรอก)</div>
-              <input className="payi-input" value={business} onChange={(e) => setBusiness(e.target.value)} placeholder="เช่น Payi" style={{ padding: '8px 12px', fontSize: 13 }} />
+              <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', marginBottom: 4 }}>ธุรกิจ/แบรนด์ (ถ้ามีในไฟล์ไม่ต้องเลือก)</div>
+              <select className="payi-select" value={business} onChange={(e) => setBusiness(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }}>
+                <option value="">ไม่ระบุ</option>
+                <option value="Payi">Payi</option>
+                <option value="กรอบรูป">กรอบรูป</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', marginBottom: 4 }}>เดือนที่คาดว่าไฟล์นี้เป็น (บังคับเลือก)</div>
+              <input type="month" className="payi-input" value={expectedMonth} onChange={(e) => setExpectedMonth(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }} />
             </div>
           </div>
 
@@ -297,9 +327,10 @@ export default function Upload() {
             </table>
           </div>
 
-          <button onClick={doImport} disabled={importing} className="payi-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', fontSize: 14, fontWeight: 700, cursor: importing ? 'default' : 'pointer', opacity: importing ? 0.7 : 1 }}>
+          <button onClick={doImport} disabled={importing || !expectedMonth} className="payi-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', fontSize: 14, fontWeight: 700, cursor: importing || !expectedMonth ? 'default' : 'pointer', opacity: importing || !expectedMonth ? 0.5 : 1 }}>
             {importing ? <><Loader2 size={16} className="payi-spin" /> กำลังนำเข้า...</> : <><CheckCircle2 size={16} /> นำเข้าข้อมูลเข้า Google Sheets</>}
           </button>
+          {!expectedMonth && <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 6 }}>เลือกเดือนที่คาดไว้ก่อนถึงจะนำเข้าได้</div>}
         </div>
       )}
 
