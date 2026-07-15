@@ -8,6 +8,13 @@ import { isoDate } from './_lib/dates.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
+// Sheets (USER_ENTERED) auto-converts numeric-looking strings to real numbers — not just
+// plain digit strings (which then risk float64 precision loss past ~16 digits) but also
+// alphanumeric IDs that happen to parse as scientific notation, e.g. Shopee order id
+// "26060480584E43" reads as 2.6060480584e43. Since these fields are pure identifiers,
+// never used arithmetically, always force text — a leading "'" matches how typing '123
+// into the Sheets UI keeps it literal, and is a no-op for values already non-numeric.
+const forceText = (v) => { const s = String(v ?? ''); return s ? `'${s}` : s }
 
 const RAW_HEADERS = ['order_key', 'order_id', 'order_item_id', 'date', 'platform', 'business', 'sku_platform', 'product_name', 'variation_name', 'master_sku', 'display_name', 'qty', 'revenue', 'order_status', 'imported_at', 'source_file', 'import_id', 'alias_key']
 
@@ -186,7 +193,7 @@ export default async function handler(req, res) {
       if (!byMonth.has(tab)) byMonth.set(tab, [])
       byMonth.get(tab).push({
         orderKey,
-        arr: [orderKey, orderId, orderItemId, date, platform, business, skuPlatform, productName, variation, alias?.master_sku || '', alias?.display_name || productName, qty, revenue, status, importedAt, fileName, importId, aliasKey],
+        arr: [orderKey, forceText(orderId), forceText(orderItemId), date, platform, business, forceText(skuPlatform), productName, variation, alias?.master_sku || '', alias?.display_name || productName, qty, revenue, status, importedAt, fileName, importId, aliasKey],
       })
     }
 
