@@ -87,8 +87,14 @@ export default async function handler(req, res) {
     // "สินค้าขายดี" ตอนนี้รวมเป็นรายกลุ่มสินค้า (product family) ไม่ใช่รายแยก SKU/ไซส์
     // ใช้ deriveGroup ตัวเดียวกับ products.js/product-trends.js — SKU จริงยังดูได้ผ่าน skuCount/skus
     const sku = new Map()               // product-group key -> { name, orderIds:Set, qty, revenue, platforms:Map, platformUnits:Map, skus:Set }
-    const groupToday = new Map()        // product-group key -> revenue (today) — ใช้กับ Trending Up/Down + Alert Center
-    const groupYest = new Map()         // product-group key -> revenue (yesterday)
+    const groupThisMonth = new Map()    // product-group key -> revenue (เดือนล่าสุดที่มีข้อมูล) — ใช้กับ Trending Up/Down
+    const groupLastMonth = new Map()    // product-group key -> revenue (เดือนก่อนหน้า)
+    const latestMonth = todayD ? todayD.slice(0, 7) : null
+    const prevMonth = latestMonth ? (() => {
+      const [y, m] = latestMonth.split('-').map(Number)
+      const d = new Date(Date.UTC(y, m - 2, 1))
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    })() : null
 
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
@@ -127,8 +133,9 @@ export default async function handler(req, res) {
           s.platformUnits.set(plat, (s.platformUnits.get(plat) || 0) + qty)
         }
 
-        if (date === todayD) groupToday.set(groupKey, (groupToday.get(groupKey) || 0) + rev)
-        else if (date === yestD) groupYest.set(groupKey, (groupYest.get(groupKey) || 0) + rev)
+        const rowMonth = date.slice(0, 7)
+        if (rowMonth === latestMonth) groupThisMonth.set(groupKey, (groupThisMonth.get(groupKey) || 0) + rev)
+        else if (rowMonth === prevMonth) groupLastMonth.set(groupKey, (groupLastMonth.get(groupKey) || 0) + rev)
       }
     }
 
@@ -169,10 +176,10 @@ export default async function handler(req, res) {
     const yestRevenue = yestD ? (dailyRev.get(yestD) || 0) : 0
     const revenueGrowth = yestRevenue > 0 ? Math.round(((todayRevenue - yestRevenue) / yestRevenue) * 100) : null
 
-    const deltas = [...new Set([...groupToday.keys(), ...groupYest.keys()])].map((k) => {
-      const t = groupToday.get(k) || 0, y = groupYest.get(k) || 0
+    const deltas = [...new Set([...groupThisMonth.keys(), ...groupLastMonth.keys()])].map((k) => {
+      const t = groupThisMonth.get(k) || 0, y = groupLastMonth.get(k) || 0
       const g = sku.get(k)
-      return { key: k, display_name: g?.name || k, delta: round2(t - y), todayRevenue: round2(t) }
+      return { key: k, display_name: g?.name || k, delta: round2(t - y), monthRevenue: round2(t) }
     })
     const trendingUp = deltas.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 5)
     const trendingDown = deltas.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 5)
@@ -183,7 +190,7 @@ export default async function handler(req, res) {
     }
     if (trendingDown.length > 0 && trendingDown[0].delta < 0) {
       const t = trendingDown[0]
-      alerts.push({ type: 'warning', category: 'สินค้ายอดตก', message: `${t.display_name} ยอดตกจากเมื่อวาน ฿${Math.abs(t.delta).toLocaleString()}` })
+      alerts.push({ type: 'warning', category: 'สินค้ายอดตก', message: `${t.display_name} ยอดตกจากเดือนก่อน ฿${Math.abs(t.delta).toLocaleString()}` })
     }
 
     const data = {

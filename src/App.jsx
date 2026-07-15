@@ -248,7 +248,7 @@ function TrendingCard({ title, items, isUp }) {
                 {isUp ? '+' : ''}{item.delta?.toLocaleString()}
               </div>
               <div style={{ fontSize: 10, color: 'var(--payi-text-faint)' }}>
-                วันนี้: ฿{(item.todayRevenue || 0).toLocaleString()}
+                เดือนนี้: ฿{(item.monthRevenue || 0).toLocaleString()}
               </div>
             </div>
           </div>
@@ -618,8 +618,6 @@ export default function App() {
   const alerts = commandCenter.alerts || []
   const trendingUp = commandCenter.trendingUp || []
   const trendingDown = commandCenter.trendingDown || []
-  const todayRevenue = commandCenter.todayRevenue || 0
-  const revenueGrowth = commandCenter.revenueGrowth
 
   // ─── Original KPI data ────────────────────────────────────────────────
   const totalRevenue = dashData?.revenue ?? 0
@@ -1021,27 +1019,8 @@ export default function App() {
             {/* 1. ALERT CENTER - Full Width */}
             <AlertsSection alerts={alerts} />
 
-            {/* 2. REVENUE TODAY CARD + TRENDING ROW */}
+            {/* 2. TRENDING ROW */}
             <div style={{ display: 'flex', gap: 18, marginBottom: 28 }}>
-              {/* Revenue Today Card */}
-              <div style={{ flex: '0 0 280px', background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 20, padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.01)' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--payi-text-muted)', marginBottom: 8 }}>รายได้วันนี้</div>
-                <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--payi-text-strong)', marginBottom: 8 }}>฿{fmt(todayRevenue)}</div>
-                {revenueGrowth !== null && revenueGrowth !== undefined && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {revenueGrowth >= 0 ? (
-                      <TrendingUp size={16} color="var(--payi-success)" />
-                    ) : (
-                      <TrendingDown size={16} color="var(--payi-danger)" />
-                    )}
-                    <span style={{ fontSize: 13, fontWeight: 600, color: revenueGrowth >= 0 ? 'var(--payi-success)' : 'var(--payi-danger)' }}>
-                      {revenueGrowth >= 0 ? '+' : ''}{revenueGrowth}%
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--payi-text-faint)' }}>vs เมื่อวาน</span>
-                  </div>
-                )}
-              </div>
-
               {/* Trending Up Card */}
               <TrendingCard title="Trending Up 🔥" items={trendingUp} isUp={true} />
 
