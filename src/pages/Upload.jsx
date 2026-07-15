@@ -9,15 +9,15 @@ const fmt = (n) => Number(n || 0).toLocaleString('th-TH')
 // ใช้กรองเหลือเฉพาะคอลัมน์ที่ backend อ่านจริง ก่อนส่งขึ้น API เพื่อลดขนาด payload
 // (ไฟล์ export ดิบมีคอลัมน์เยอะมาก เช่น Shopee 75 คอลัมน์/แถว แต่ backend ใช้แค่ ~10)
 const RELEVANT_HEADER_HINTS = [
-  'order_id', 'order id', 'orderid', 'เลขที่คำสั่งซื้อ', 'หมายเลขคำสั่งซื้อ',
-  'order_item_id', 'order item id', 'item id',
-  'date', 'วันที่', 'order creation', 'created time', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ',
+  'order_id', 'order id', 'orderid', 'ordernumber', 'เลขที่คำสั่งซื้อ', 'หมายเลขคำสั่งซื้อ',
+  'order_item_id', 'order item id', 'item id', 'orderitemid',
+  'date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ',
   'business', 'ธุรกิจ', 'แบรนด์', 'brand',
   'sku_platform', 'seller sku', 'sku reference', 'เลขอ้างอิง sku', 'sku',
-  'product_name', 'ชื่อสินค้า', 'product name', 'สินค้า',
+  'product_name', 'ชื่อสินค้า', 'product name', 'สินค้า', 'itemname',
   'variation_name', 'variation', 'ชื่อตัวเลือก', 'ตัวเลือกสินค้า', 'ประเภทสินค้า',
   'qty', 'quantity', 'จำนวน', 'amount',
-  'revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม',
+  'revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม', 'paidprice',
   'order_status', 'status', 'สถานะ', 'order status',
 ]
 const normalizeHeader = (s) => String(s || '').trim().toLowerCase()
@@ -95,7 +95,7 @@ export default function Upload() {
       const batches = []
       for (let i = 0; i < slim.length; i += BATCH_SIZE) batches.push(slim.slice(i, i + BATCH_SIZE))
 
-      let imported = 0, mapped = 0, skipped = 0
+      let imported = 0, mapped = 0, skipped = 0, skippedInvalid = 0
       const tabs = new Set()
       for (let i = 0; i < batches.length; i++) {
         setResult({ success: true, inProgress: true, note: `กำลังนำเข้า batch ${i + 1}/${batches.length}...` })
@@ -113,10 +113,11 @@ export default function Upload() {
         imported += d.imported || 0
         mapped += d.mapped || 0
         skipped += d.skipped || 0
+        skippedInvalid += d.skippedInvalid || 0
         for (const t of d.tabs || []) tabs.add(t)
       }
 
-      setResult({ success: true, imported, mapped, skipped, tabs: [...tabs] })
+      setResult({ success: true, imported, mapped, skipped, skippedInvalid, tabs: [...tabs] })
       setFile(null); setRows([]); setHeaders([]); loadLog()
     } catch (e) {
       setResult({ success: false, error: e.message })
@@ -203,7 +204,7 @@ export default function Upload() {
             {result.inProgress
               ? result.note
               : result.success
-                ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped)}`
+                ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped - (result.skippedInvalid || 0))}${result.skippedInvalid ? ` · ข้อมูลไม่ครบ ${fmt(result.skippedInvalid)}` : ''}`
                 : `ผิดพลาด: ${result.error}`}
           </div>
         </div>

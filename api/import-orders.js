@@ -82,16 +82,16 @@ export default async function handler(req, res) {
 
     for (const row of rows) {
       const platform = detectPlatform(row, platformSel)
-      const orderId = String(pick(row, ['order_id', 'order id', 'เลขที่คำสั่งซื้อ', 'order sn', 'orderid', 'หมายเลขคำสั่งซื้อ']) || '')
-      let orderItemId = String(pick(row, ['order_item_id', 'order item id', 'item id']) || '')
-      const date = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
+      const orderId = String(pick(row, ['order_id', 'order id', 'เลขที่คำสั่งซื้อ', 'order sn', 'orderid', 'หมายเลขคำสั่งซื้อ', 'ordernumber']) || '')
+      let orderItemId = String(pick(row, ['order_item_id', 'order item id', 'item id', 'orderitemid']) || '')
+      const date = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
       if (!orderId || !date) { skippedInvalid++; continue }
       const business = pick(row, ['business', 'ธุรกิจ', 'แบรนด์', 'brand']) || bizSel
       const skuPlatform = pick(row, ['sku_platform', 'seller sku', 'sku reference', 'เลขอ้างอิง sku (sku reference no.)', 'sku'])
-      const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'product name', 'สินค้า'])
+      const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'product name', 'สินค้า', 'itemname'])
       const variation = pick(row, ['variation_name', 'variation', 'ชื่อตัวเลือก', 'ตัวเลือกสินค้า', 'ประเภทสินค้า'])
-      const qty = parseInt(pick(row, ['qty', 'quantity', 'จำนวน', 'amount']), 10) || 0
-      const revenue = num(pick(row, ['revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม']))
+      const qty = parseInt(pick(row, ['qty', 'quantity', 'จำนวน', 'amount']), 10) || 1
+      const revenue = num(pick(row, ['revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม', 'paidprice']))
       const status = pick(row, ['order_status', 'status', 'สถานะ', 'order status']) || ''
 
       // ไฟล์ export บางแพลตฟอร์ม (เช่น Shopee) ไม่มีคอลัมน์ item id แยกต่างหาก —
@@ -140,7 +140,7 @@ export default async function handler(req, res) {
       await appendRows('import_log', [[importId, fileName, bizSel || (byMonth.size ? '' : ''), platformSel === 'auto' ? '' : platformSel, imported, mapped, imported - mapped, importedAt, tabs.join(','), 'active']])
     } catch { /* ignore */ }
 
-    res.status(200).json({ success: true, importId, imported, mapped, skipped: skippedDup + skippedInvalid, tabs })
+    res.status(200).json({ success: true, importId, imported, mapped, skipped: skippedDup + skippedInvalid, skippedDup, skippedInvalid, tabs })
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }
