@@ -95,6 +95,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, deleted, tabs })
     }
 
+    if (req.method === 'GET' && req.query.view === 'mapping-options') {
+      const aliases = await getSheet('product_aliases')
+      const products = new Map()
+      for (const a of aliases) if (a.master_sku && !products.has(a.master_sku)) products.set(a.master_sku, { master_sku: a.master_sku, display_name: a.display_name || a.master_sku })
+      return res.status(200).json({ success: true, products: [...products.values()].sort((a, b) => a.display_name.localeCompare(b.display_name, 'th')) })
+    }
+
+    if (req.method === 'POST' && req.query.view === 'map-product') {
+      const productName = String(req.body?.productName || '').trim()
+      const masterSku = String(req.body?.masterSku || '').trim()
+      const newDisplayName = String(req.body?.displayName || '').trim()
+      const bizIn = String(req.body?.business || '').trim()
+      const platIn = String(req.body?.platform || '').trim()
+      if (!productName || !masterSku) return res.status(400).json({ success: false, error: 'ต้องระบุชื่อสินค้าและ master SKU' })
+
+      const aliases = await getSheet('product_aliases')
+      const target = aliases.find((a) => String(a.master_sku).trim() === masterSku)
+      const displayName = target?.display_name || newDisplayName || masterSku
+      if (!aliases.some((a) => String(a.alias_product_name).trim() === productName && String(a.master_sku).trim() === masterSku)) {
+        const vr = await batchGetValues(['product_aliases!A1:Z1'])
+        const headers = vr[0]?.values?.[0] || ['master_sku', 'display_name', 'business', 'platform', 'alias_product_name', 'alias_variation', 'alias_key', 'created_at']
+        const values = {
+          master_sku: masterSku, display_name: displayName, business: bizIn || target?.business || '', platform: platIn || target?.platform || '',
+          alias_product_name: productName, alias_variation: '', alias_key: `${productName}|`, created_at: new Date().toISOString(),
+        }
+        await appendRows('product_aliases', [headers.map((h) => values[h] || '')])
+      }
+      return res.status(200).json({ success: true, master_sku: masterSku, display_name: displayName })
+    }
+
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
     const { fileName = 'upload.xlsx', platform: platformSel = 'auto', business: bizSel = '', rows } = req.body || {}
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })

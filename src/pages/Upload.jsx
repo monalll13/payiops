@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Trash2, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const API = '/api'
@@ -50,6 +50,90 @@ async function readApiResponse(response) {
   }
 }
 
+function MapProductModal({ productName, business, platform, onClose, onMapped }) {
+  const [options, setOptions] = useState([])
+  const [mode, setMode] = useState('existing') // 'existing' | 'new'
+  const [masterSku, setMasterSku] = useState('')
+  const [newSku, setNewSku] = useState('')
+  const [newName, setNewName] = useState(productName)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch(`${API}/import-orders?view=mapping-options`)
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setOptions(d.products || []) })
+      .catch(() => {})
+  }, [])
+
+  const submit = async () => {
+    const sku = mode === 'existing' ? masterSku : newSku.trim()
+    if (!sku) { setError('เลือกหรือกรอก master SKU ก่อน'); return }
+    setSaving(true); setError('')
+    try {
+      const r = await fetch(`${API}/import-orders?view=map-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productName, masterSku: sku, displayName: mode === 'new' ? newName : undefined, business, platform }),
+      })
+      const d = await readApiResponse(r)
+      if (!r.ok || !d.success) { setError(d.error || 'จับคู่ไม่สำเร็จ'); return }
+      onMapped(productName)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={onClose}>
+      <div className="payi-glass-card" style={{ width: 420, maxWidth: '92vw', padding: 22 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--payi-text-strong)' }}>จับคู่สินค้า</div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--payi-text-muted)' }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--payi-text-muted)', marginBottom: 16 }}>"{productName}"</div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {[['existing', 'สินค้าที่มีอยู่แล้ว'], ['new', 'สร้างสินค้าใหม่']].map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={{
+                flex: 1, padding: '7px 10px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+                border: mode === m ? '1px solid var(--payi-mint-strong)' : '1px solid var(--payi-border)',
+                background: mode === m ? 'var(--payi-mint-strong)' : 'transparent',
+                color: mode === m ? '#fff' : 'var(--payi-text)',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'existing' ? (
+          <select className="payi-select" value={masterSku} onChange={(e) => setMasterSku(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13 }}>
+            <option value="">-- เลือกสินค้า --</option>
+            {options.map((o) => <option key={o.master_sku} value={o.master_sku}>{o.display_name} ({o.master_sku})</option>)}
+          </select>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="payi-input" placeholder="master SKU ใหม่" value={newSku} onChange={(e) => setNewSku(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }} />
+            <input className="payi-input" placeholder="ชื่อสินค้าที่แสดง" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }} />
+          </div>
+        )}
+
+        {error && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--payi-danger)' }}>{error}</div>}
+
+        <button onClick={submit} disabled={saving} className="payi-btn-primary" style={{ marginTop: 16, width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+          {saving ? <><Loader2 size={14} className="payi-spin" /> กำลังบันทึก...</> : 'จับคู่'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Upload() {
   const [file, setFile] = useState(null)
   const [rows, setRows] = useState([])
@@ -61,6 +145,7 @@ export default function Upload() {
   const [business, setBusiness] = useState('')
   const [log, setLog] = useState([])
   const [deletingId, setDeletingId] = useState('')
+  const [mapTarget, setMapTarget] = useState(null)
 
   const loadLog = useCallback(async () => {
     try {
@@ -226,7 +311,17 @@ export default function Upload() {
                 ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped - (result.skippedInvalid || 0))}${result.skippedInvalid ? ` · ข้อมูลไม่ครบ ${fmt(result.skippedInvalid)}` : ''}`
                 : `ผิดพลาด: ${result.error}`}
             {result.success && !result.inProgress && result.unmappedSamples?.length > 0 && (
-              <div style={{ marginTop: 6, color: '#92400e' }}>สินค้าที่ยังไม่จับคู่ SKU: {result.unmappedSamples.join(' · ')}</div>
+              <div style={{ marginTop: 8, color: '#92400e' }}>
+                สินค้าที่ยังไม่จับคู่ SKU:
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {result.unmappedSamples.map((name) => (
+                    <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb', fontSize: 12 }}>
+                      {name}
+                      <button onClick={() => setMapTarget(name)} style={{ border: 'none', background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 7px', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>+ Map</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -267,6 +362,19 @@ export default function Upload() {
           </table>
         )}
       </div>
+
+      {mapTarget && (
+        <MapProductModal
+          productName={mapTarget}
+          business={business}
+          platform={platform === 'auto' ? '' : platform}
+          onClose={() => setMapTarget(null)}
+          onMapped={(name) => {
+            setResult((r) => r ? { ...r, unmappedSamples: (r.unmappedSamples || []).filter((n) => n !== name) } : r)
+            setMapTarget(null)
+          }}
+        />
+      )}
     </div>
   )
 }
