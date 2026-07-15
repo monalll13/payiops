@@ -317,7 +317,7 @@ export default async function handler(req, res) {
         const left = orderData[i * 2].values || [], right = orderData[i * 2 + 1].values || []
         for (let j = 1; j < Math.max(left.length, right.length); j++) {
           const l = left[j] || [], r = right[j] || []
-          if (!inDate(String(l[2] || '')) || !keepBiz(l[4]) || isCancelled(r[4])) continue
+          if (!inDate(String(l[2] || '')) || !keepBiz(l[4] || '') || isCancelled(r[4])) continue
           const { key } = deriveGroup(r[1], r[0], overrideMap)
           unitsByProduct.set(key, (unitsByProduct.get(key) || 0) + (parseInt(r[2], 10) || 0))
         }

@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       const n = Math.max(left.length, right.length)
       for (let j = 1; j < n; j++) {
         const l = left[j] || [], r = right[j] || []
-        const orderId = l[0], date = l[2], platform = l[3], business = l[4]
+        const orderId = l[0], date = l[2], platform = l[3] || '', business = l[4] || ''
         const qty = parseInt(r[0], 10) || 0, rev = num(r[1]), status = r[2]
         if (!date || isCancelled(status)) continue
         const ym = String(date).slice(0, 7)

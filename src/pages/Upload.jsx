@@ -175,6 +175,9 @@ export default function Upload() {
   const handleFile = async (f) => {
     if (!f) return
     setFile(f); setResult(null); setParsing(true)
+    // กันเลือก platform/business ค้างจากไฟล์ก่อนหน้า (เคยทำให้ไฟล์ TikTok ถูก tag เป็น Shopee
+    // เพราะ dropdown ยังค้างค่าจากไฟล์ก่อนหน้าที่เพิ่งอัพโหลดไป) — บังคับเลือกใหม่ทุกไฟล์
+    setPlatform('auto'); setBusiness('')
     try {
       const buf = await f.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })

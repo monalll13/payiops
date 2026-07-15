@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       const n = Math.max(left.length, right.length)
       for (let j = 1; j < n; j++) {
         const l = left[j] || [], r = right[j] || []
-        const orderId = l[0], date = l[2], plat = l[3], biz = l[4]
+        const orderId = l[0], date = l[2], plat = l[3] || '', biz = l[4] || ''
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
         if (!date || isCancelled(status)) continue
         if (!keepBiz(biz) || !keepPlat(plat)) continue

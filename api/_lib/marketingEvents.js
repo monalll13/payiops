@@ -91,8 +91,8 @@ async function readOrderRows() {
       const l = left[j] || []
       const r = right[j] || []
       const date = l[2]
-      const platform = l[3]
-      const business = l[4]
+      const platform = l[3] || ''
+      const business = l[4] || ''
       const masterSku = r[0]
       const displayName = r[1]
       const qty = parseInt(r[2], 10) || 0

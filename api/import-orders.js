@@ -3,7 +3,7 @@
 //   POST   { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
 //   DELETE ?importId=IMPxxxx      → ลบล็อตไฟล์นี้ออกจาก raw_orders_* ทุก tab ที่เกี่ยวข้อง
 import { requireAuth } from './_lib/auth.js'
-import { getSheet, appendRows, batchGetValues, overwriteSheet } from './_lib/sheets.js'
+import { getSheet, appendRows, batchGetValues, overwriteSheet, getMeta } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -35,13 +35,21 @@ function pick(row, keys) {
   return ''
 }
 
-function detectPlatform(row, fallback) {
-  if (fallback && fallback !== 'auto') return fallback
+// เดาแพลตฟอร์มจาก "รูปร่างคอลัมน์" ของไฟล์ export แต่ละแพลตฟอร์ม (เชื่อถือได้กว่าหาคำว่า
+// "tiktok"/"shopee" ในเนื้อหา — ไฟล์ TikTok Shop จริงไม่มีคำว่า "tiktok" อยู่ในหัวคอลัมน์เลย
+// เคยทำให้เดาผิดเป็น Shopee เงียบๆ มาแล้ว) คืน null ถ้าเดาไม่ได้ ไม่ default เดาผิดแบบเงียบๆ อีก
+function detectPlatform(row) {
+  const keys = new Set(Object.keys(row).map(normalize))
+  const hasAny = (...cands) => cands.some((c) => keys.has(normalize(c)))
+  if (hasAny('order substatus', 'rts time', 'sku id', 'warehouse name', 'creator handle')) return 'TikTok Shop'
+  if (hasAny('orderNumber', 'createTime', 'sellerSku', 'lazadaSku', 'orderItemId')) return 'Lazada'
+  if (hasAny('เลขที่คำสั่งซื้อ', 'หมายเลขคำสั่งซื้อ', 'เลขอ้างอิง sku (sku reference no.)')) return 'Shopee'
+  // last resort: literal brand-name text anywhere in headers/values
   const blob = normalize(Object.keys(row).join(' ') + ' ' + Object.values(row).join(' '))
   if (blob.includes('tiktok')) return 'TikTok Shop'
   if (blob.includes('lazada')) return 'Lazada'
   if (blob.includes('shopee')) return 'Shopee'
-  return 'Shopee'
+  return null
 }
 
 function genImportId() {
@@ -74,8 +82,15 @@ export default async function handler(req, res) {
       const logRow = logValues.slice(1).find((row) => (row[logIdIdx] || '') === importId)
       if (!logRow) return res.status(404).json({ success: false, error: 'ไม่พบรายการนำเข้านี้' })
 
-      const tabsIdx = logHeaders.indexOf('tabs')
-      const tabs = (logRow[tabsIdx] || '').split(',').map((t) => t.trim()).filter(Boolean)
+      // ชื่อคอลัมน์ tabs จริงในชีทคือ "target_sheet" ไม่ใช่ "tabs" (เคยพลาดตรงนี้มาแล้ว ทำให้ลบ
+      // "สำเร็จ" แต่ไม่ลบอะไรเลยจริงๆ) — เผื่อชื่อคอลัมน์เปลี่ยนอีกในอนาคต ถ้าหาคอลัมน์ไม่เจอหรือ
+      // ได้ tabs ว่าง ให้ fallback ไปสแกนทุก tab raw_orders_* แทน กันเงียบไม่ลบอะไรเลยแบบเดิม
+      const tabsIdx = logHeaders.indexOf('target_sheet') >= 0 ? logHeaders.indexOf('target_sheet') : logHeaders.indexOf('tabs')
+      let tabs = tabsIdx >= 0 ? (logRow[tabsIdx] || '').split(',').map((t) => t.trim()).filter(Boolean) : []
+      if (!tabs.length) {
+        const meta = await getMeta()
+        tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
+      }
 
       let deleted = 0
       for (const tab of tabs) {
@@ -85,16 +100,21 @@ export default async function handler(req, res) {
         const headers = values[0]
         const idIdx = headers.indexOf('import_id')
         const kept = values.slice(1).filter((row) => (row[idIdx] || '') !== importId)
+        if (values.length - 1 === kept.length) continue // ไม่มีแถวของ import นี้ใน tab นี้ ข้ามไป ไม่ต้องเขียนทับเปล่าๆ
         deleted += values.length - 1 - kept.length
         await overwriteSheet(tab, headers, kept)
       }
 
       // soft-delete: เก็บ log ไว้แต่เปลี่ยน status กันโผล่ในประวัติ/กันนำ importId ซ้ำมาลบวนซ้ำ
       const statusIdx = logHeaders.indexOf('status')
+      const deletedAtIdx = logHeaders.indexOf('deleted_at')
+      const deletedRowsIdx = logHeaders.indexOf('deleted_rows')
       const updatedLog = logValues.slice(1).map((row) => {
         if ((row[logIdIdx] || '') !== importId) return row
         const next = [...row]
         next[statusIdx] = 'deleted'
+        if (deletedAtIdx >= 0) next[deletedAtIdx] = new Date().toISOString()
+        if (deletedRowsIdx >= 0) next[deletedRowsIdx] = String(deleted)
         return next
       })
       await overwriteSheet('import_log', logHeaders, updatedLog)
@@ -136,6 +156,12 @@ export default async function handler(req, res) {
     const { fileName = 'upload.xlsx', platform: platformSel = 'auto', business: bizSel = '', rows } = req.body || {}
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
 
+    // ตรวจแพลตฟอร์มครั้งเดียวจากแถวแรกของไฟล์ (ไฟล์ export หนึ่งไฟล์เป็นแพลตฟอร์มเดียวเสมอ) — ถ้าเดา
+    // ไม่ได้เลยและผู้ใช้ไม่ได้เลือกเอง ให้บังคับเลือกแทนที่จะเดาผิดเงียบๆ (เคยทำให้ TikTok Shop
+    // กลายเป็น Shopee ในข้อมูลมาแล้ว เพราะไฟล์นั้นไม่มีคำว่า "tiktok" ในหัวคอลัมน์เลย)
+    const platform = platformSel !== 'auto' ? platformSel : detectPlatform(rows[0] || {})
+    if (!platform) return res.status(400).json({ success: false, error: 'ตรวจแพลตฟอร์มจากไฟล์อัตโนมัติไม่ได้ กรุณาเลือกแพลตฟอร์มเอง (Shopee / TikTok Shop / Lazada) ก่อนนำเข้า' })
+
     // ---- alias lookup ----
     const aliasByKey = new Map(), aliasByName = new Map()
     try {
@@ -159,7 +185,6 @@ export default async function handler(req, res) {
     const itemCounter = new Map() // orderId -> next line number, for orders with no explicit item id
 
     for (const row of rows) {
-      const platform = detectPlatform(row, platformSel)
       const orderId = String(pick(row, ['order_id', 'order id', 'เลขที่คำสั่งซื้อ', 'order sn', 'orderid', 'หมายเลขคำสั่งซื้อ', 'ordernumber']) || '')
       let orderItemId = String(pick(row, ['order_item_id', 'order item id', 'item id', 'orderitemid']) || '')
       const date = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
