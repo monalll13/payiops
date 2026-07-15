@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 const API = '/api'
@@ -60,6 +60,7 @@ export default function Upload() {
   const [platform, setPlatform] = useState('auto')
   const [business, setBusiness] = useState('')
   const [log, setLog] = useState([])
+  const [deletingId, setDeletingId] = useState('')
 
   const loadLog = useCallback(async () => {
     try {
@@ -69,6 +70,22 @@ export default function Upload() {
     } catch { /* ignore */ }
   }, [])
   useEffect(() => { loadLog() }, [loadLog])
+
+  const handleDeleteImport = async (im) => {
+    if (!im.importId) return
+    if (!window.confirm(`ยืนยันลบล็อตไฟล์ "${im.file}" (${fmt(im.rows)} แถว) ออกจากข้อมูลจริง?`)) return
+    setDeletingId(im.importId)
+    try {
+      const r = await fetch(`${API}/import-orders?importId=${encodeURIComponent(im.importId)}`, { method: 'DELETE' })
+      const d = await readApiResponse(r)
+      if (!r.ok || !d.success) { alert(d.error || 'ลบไม่สำเร็จ'); return }
+      loadLog()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setDeletingId('')
+    }
+  }
 
   const handleFile = async (f) => {
     if (!f) return
@@ -97,6 +114,7 @@ export default function Upload() {
 
       let imported = 0, mapped = 0, skipped = 0, skippedInvalid = 0
       const tabs = new Set()
+      const unmappedSamples = []
       for (let i = 0; i < batches.length; i++) {
         setResult({ success: true, inProgress: true, note: `กำลังนำเข้า batch ${i + 1}/${batches.length}...` })
         const r = await fetch(`${API}/import-orders`, {
@@ -115,9 +133,10 @@ export default function Upload() {
         skipped += d.skipped || 0
         skippedInvalid += d.skippedInvalid || 0
         for (const t of d.tabs || []) tabs.add(t)
+        for (const name of (d.unmappedSamples || [])) if (unmappedSamples.length < 20 && !unmappedSamples.includes(name)) unmappedSamples.push(name)
       }
 
-      setResult({ success: true, imported, mapped, skipped, skippedInvalid, tabs: [...tabs] })
+      setResult({ success: true, imported, mapped, skipped, skippedInvalid, unmappedSamples, tabs: [...tabs] })
       setFile(null); setRows([]); setHeaders([]); loadLog()
     } catch (e) {
       setResult({ success: false, error: e.message })
@@ -206,6 +225,9 @@ export default function Upload() {
               : result.success
                 ? `นำเข้าสำเร็จ ${fmt(result.imported)} แถว · จับคู่ SKU ได้ ${fmt(result.mapped)} · ข้ามซ้ำ ${fmt(result.skipped - (result.skippedInvalid || 0))}${result.skippedInvalid ? ` · ข้อมูลไม่ครบ ${fmt(result.skippedInvalid)}` : ''}`
                 : `ผิดพลาด: ${result.error}`}
+            {result.success && !result.inProgress && result.unmappedSamples?.length > 0 && (
+              <div style={{ marginTop: 6, color: '#92400e' }}>สินค้าที่ยังไม่จับคู่ SKU: {result.unmappedSamples.join(' · ')}</div>
+            )}
           </div>
         </div>
       )}
@@ -227,6 +249,18 @@ export default function Upload() {
                   <td style={{ padding: '10px 14px', color: 'var(--payi-text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{im.file}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', color: 'var(--payi-text)', whiteSpace: 'nowrap' }}>{fmt(im.rows)} แถว</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', color: 'var(--payi-text-faint)', whiteSpace: 'nowrap' }}>{im.at ? String(im.at).slice(0, 10) : ''}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {im.importId && (
+                      <button
+                        onClick={() => handleDeleteImport(im)}
+                        disabled={deletingId === im.importId}
+                        title="ลบล็อตไฟล์นี้"
+                        style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'transparent', color: 'var(--payi-danger)', cursor: deletingId === im.importId ? 'default' : 'pointer', opacity: deletingId === im.importId ? 0.5 : 1, padding: 4 }}
+                      >
+                        {deletingId === im.importId ? <Loader2 size={14} className="payi-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

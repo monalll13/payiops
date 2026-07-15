@@ -1,8 +1,9 @@
 // /api/import-orders
-//   GET  ?view=log            → ประวัติการนำเข้าจาก import_log
-//   POST { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
+//   GET    ?view=log             → ประวัติการนำเข้าจาก import_log
+//   POST   { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
+//   DELETE ?importId=IMPxxxx      → ลบล็อตไฟล์นี้ออกจาก raw_orders_* ทุก tab ที่เกี่ยวข้อง
 import { requireAuth } from './_lib/auth.js'
-import { getSheet, appendRows, batchGetValues } from './_lib/sheets.js'
+import { getSheet, appendRows, batchGetValues, overwriteSheet } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
 
 const normalize = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -49,10 +50,49 @@ export default async function handler(req, res) {
       try {
         const log = await getSheet('import_log')
         imports = log.filter((r) => r.status === 'active' || !r.status).slice(-15).reverse().map((r) => ({
-          file: r.filename, business: r.business, platform: r.platform, rows: Number(r.rows_imported) || 0, at: r.uploaded_at,
+          importId: r.import_id, file: r.filename, business: r.business, platform: r.platform, rows: Number(r.rows_imported) || 0, at: r.uploaded_at,
         }))
       } catch { /* no import_log tab */ }
       return res.status(200).json({ success: true, imports })
+    }
+
+    if (req.method === 'DELETE') {
+      const importId = String(req.query.importId || '')
+      if (!importId) return res.status(400).json({ success: false, error: 'ต้องระบุ importId' })
+
+      const logVr = await batchGetValues(['import_log!A:Z'])
+      const logValues = logVr[0]?.values || []
+      const logHeaders = logValues[0] || []
+      const logIdIdx = logHeaders.indexOf('import_id')
+      const logRow = logValues.slice(1).find((row) => (row[logIdIdx] || '') === importId)
+      if (!logRow) return res.status(404).json({ success: false, error: 'ไม่พบรายการนำเข้านี้' })
+
+      const tabsIdx = logHeaders.indexOf('tabs')
+      const tabs = (logRow[tabsIdx] || '').split(',').map((t) => t.trim()).filter(Boolean)
+
+      let deleted = 0
+      for (const tab of tabs) {
+        const vr = await batchGetValues([`${tab}!A:R`])
+        const values = vr[0]?.values || []
+        if (!values.length) continue
+        const headers = values[0]
+        const idIdx = headers.indexOf('import_id')
+        const kept = values.slice(1).filter((row) => (row[idIdx] || '') !== importId)
+        deleted += values.length - 1 - kept.length
+        await overwriteSheet(tab, headers, kept)
+      }
+
+      // soft-delete: เก็บ log ไว้แต่เปลี่ยน status กันโผล่ในประวัติ/กันนำ importId ซ้ำมาลบวนซ้ำ
+      const statusIdx = logHeaders.indexOf('status')
+      const updatedLog = logValues.slice(1).map((row) => {
+        if ((row[logIdIdx] || '') !== importId) return row
+        const next = [...row]
+        next[statusIdx] = 'deleted'
+        return next
+      })
+      await overwriteSheet('import_log', logHeaders, updatedLog)
+
+      return res.status(200).json({ success: true, deleted, tabs })
     }
 
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
@@ -77,6 +117,7 @@ export default async function handler(req, res) {
     const byMonth = new Map() // 'raw_orders_YYYY_MM' -> [rowArray]
     const seenInFile = new Set()
     let mapped = 0, skippedInvalid = 0
+    const unmappedSamples = []
 
     const itemCounter = new Map() // orderId -> next line number, for orders with no explicit item id
 
@@ -109,6 +150,7 @@ export default async function handler(req, res) {
       const aliasKey = `${normalize(productName)}|${normalize(variation)}`
       const alias = aliasByKey.get(aliasKey) || aliasByName.get(normalize(productName))
       if (alias) mapped++
+      else if (productName && unmappedSamples.length < 20 && !unmappedSamples.includes(productName)) unmappedSamples.push(productName)
 
       const tab = `raw_orders_${date.slice(0, 4)}_${date.slice(5, 7)}`
       if (!byMonth.has(tab)) byMonth.set(tab, [])
@@ -140,7 +182,7 @@ export default async function handler(req, res) {
       await appendRows('import_log', [[importId, fileName, bizSel || (byMonth.size ? '' : ''), platformSel === 'auto' ? '' : platformSel, imported, mapped, imported - mapped, importedAt, tabs.join(','), 'active']])
     } catch { /* ignore */ }
 
-    res.status(200).json({ success: true, importId, imported, mapped, skipped: skippedDup + skippedInvalid, skippedDup, skippedInvalid, tabs })
+    res.status(200).json({ success: true, importId, imported, mapped, skipped: skippedDup + skippedInvalid, skippedDup, skippedInvalid, unmappedSamples, tabs })
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }
