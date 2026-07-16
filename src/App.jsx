@@ -498,10 +498,10 @@ export default function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
 
   // DATE FILTER STATES
-  const [datePreset, setDatePreset] = useState('all') 
+  const [datePreset, setDatePreset] = useState('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  
+
   const [business, setBusiness] = useState('all')
   const [platform, setPlatform] = useState('all')
   const [chartMode, setChartMode] = useState('revenue')
@@ -546,6 +546,33 @@ export default function App() {
     } else if (preset === 'all') {
       setStartDate(''); setEndDate('')
     }
+  }
+
+  // เลือกช่วงวันที่แบบ dropdown เดือน แทนพิมพ์วันที่ 2 ช่องแยกกัน — ของเดิมแต่ละช่องยิง fetch
+  // ของตัวเอง เลือกวันที่ทีละช่องเลยโหลดซ้ำ 2 รอบต่อการเลือก 1 ช่วง ไหนจะ native date picker บาง
+  // เบราว์เซอร์ยิง onChange หลายครั้งระหว่างคลิกปฏิทินอีก — dropdown เดือนยิง fetch แค่ครั้งเดียวจบ
+  const monthOptions = useMemo(() => {
+    const early = dashData?.dataRange?.earliestDate, late = dashData?.dataRange?.latestDate
+    if (!early || !late) return []
+    const months = []
+    let y = Number(early.slice(0, 4)), m = Number(early.slice(5, 7))
+    const ey = Number(late.slice(0, 4)), em = Number(late.slice(5, 7))
+    while (y < ey || (y === ey && m <= em)) {
+      months.push(`${y}-${String(m).padStart(2, '0')}`)
+      m++; if (m > 12) { m = 1; y++ }
+    }
+    return months.reverse()
+  }, [dashData?.dataRange?.earliestDate, dashData?.dataRange?.latestDate])
+
+  const THAI_MONTH_LABEL = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+  const monthLabel = (ym) => `${THAI_MONTH_LABEL[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`
+  const selectedMonth = (startDate && endDate && startDate.slice(0, 7) === endDate.slice(0, 7) && startDate.endsWith('-01')) ? startDate.slice(0, 7) : ''
+  const handleMonthChange = (ym) => {
+    setBusiness('all'); setPlatform('all')
+    if (!ym) { setStartDate(''); setEndDate(''); setDatePreset('all'); return }
+    const [y, m] = ym.split('-').map(Number)
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+    setStartDate(`${ym}-01`); setEndDate(`${ym}-${String(lastDay).padStart(2, '0')}`); setDatePreset('custom')
   }
 
   const fetchDashboard = useCallback(async () => {
@@ -917,20 +944,15 @@ export default function App() {
               boxShadow: '0 8px 20px rgba(16,24,40,0.04)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={e => { setStartDate(e.target.value); setDatePreset('custom'); setBusiness('all'); setPlatform('all'); }}
-                  style={{ border: '1px solid var(--payi-border)', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--payi-text)', outline: 'none', background: 'var(--payi-surface-muted)' }}
-                />
-                <span style={{ color: 'var(--payi-text-faint)', fontSize: 13, fontWeight: 500 }}>ถึง</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={e => { setEndDate(e.target.value); setDatePreset('custom'); setBusiness('all'); setPlatform('all'); }}
-                  style={{ border: '1px solid var(--payi-border)', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--payi-text)', outline: 'none', background: 'var(--payi-surface-muted)' }}
-                />
-                {(startDate || endDate) && (
+                <select
+                  value={selectedMonth}
+                  onChange={e => handleMonthChange(e.target.value)}
+                  style={{ border: '1px solid var(--payi-border)', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--payi-text)', outline: 'none', background: 'var(--payi-surface-muted)', fontWeight: 600 }}
+                >
+                  <option value="">ทั้งหมด (ทุกเดือน)</option>
+                  {monthOptions.map(ym => <option key={ym} value={ym}>{monthLabel(ym)}</option>)}
+                </select>
+                {(startDate || endDate) && !selectedMonth && (
                   <button
                     onClick={() => { setStartDate(''); setEndDate(''); setDatePreset('all'); setBusiness('all'); setPlatform('all'); }}
                     style={{ background: 'none', border: 'none', color: 'var(--payi-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '4px 8px' }}
