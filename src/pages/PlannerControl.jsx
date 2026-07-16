@@ -4,7 +4,7 @@ import { CalendarClock, Pencil, X } from 'lucide-react'
 const STORAGE_KEY = 'payi-planner-products-mockup'
 const EXCLUDED_PRODUCTS_KEY = 'payi-planner-excluded-products'
 const DEMAND_MODE_KEY = 'payi-planner-demand-mode'
-const SALES_CACHE_KEY = 'payi-planner-sales-90d'
+const SALES_CACHE_KEY = 'payi-planner-sales-90d-gross-v2'
 const SALES_REFRESH_MS = 6 * 60 * 60 * 1000
 const MANPOWER_CACHE_KEY = 'payi-manpower-today-cache'
 const MANPOWER_REFRESH_MS = 30 * 60 * 1000
@@ -157,7 +157,7 @@ export default function PlannerControl({ onNavigate }) {
           if (!/^PY/.test(masterSku)) continue
           let item = bySku.get(masterSku)
           if (!item) bySku.set(masterSku, (item = { key: masterSku, masterSku, name: row.name || masterSku, units90: 0, lastDate: anchor }))
-          item.units90 += Number(row.qty || 0)
+          item.units90 += Number(row.grossQty ?? row.qty ?? 0)
         }
         const items = [...bySku.values()].map((item) => ({ ...item, dailyAverage: item.units90 / days }))
         if (!items.length) return
@@ -253,7 +253,9 @@ export default function PlannerControl({ onNavigate }) {
   }), [products, demandMode, salesByName])
 
   const activeRows = rows.filter((item) => !excludedSkus.includes(item.masterSku))
-  const visible = activeRows.filter((item) => filter === 'ทั้งหมด' || (filter === 'ต้องทำ' ? item.remaining > 0 : filter === 'Claim Watch' ? item.claimRate >= 1 : item.group === filter))
+  const visible = activeRows
+    .filter((item) => filter === 'ทั้งหมด' || (filter === 'ต้องทำ' ? item.remaining > 0 : filter === 'Claim Watch' ? item.claimRate >= 1 : item.group === filter))
+    .sort((a, b) => b.need - a.need || b.remaining - a.remaining || a.name.localeCompare(b.name, 'th'))
   const totalRemaining = activeRows.reduce((sum, item) => sum + item.remaining, 0)
   const urgent = activeRows.filter((item) => item.remaining > 0).length
 

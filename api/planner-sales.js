@@ -6,7 +6,6 @@ import { batchGetValues, getMeta, getSheet } from './_lib/sheets.js'
 // ABC ไม่จำเป็นต้องไล่อ่าน raw_orders ทุกครั้งที่เปิดหน้า — 6 ชม. ลดทั้งเวลาและ Sheets quota
 const CACHE_MS = 6 * 60 * 60 * 1000
 let cache = null
-const isCancelled = (value = '') => String(value).includes('ยกเลิก') || String(value).toLowerCase().includes('cancel')
 const normalizeName = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '')
 const addDays = (iso, days) => {
   const date = new Date(`${String(iso).slice(0, 10)}T00:00:00.000Z`)
@@ -50,7 +49,8 @@ export default async function handler(req, res) {
         const masterSku = String(row[0] || '').trim()
         const name = String(row[1] || masterSku).trim()
         const qty = parseInt(row[2], 10) || 0
-        if (!date || !name || qty <= 0 || isCancelled(row[4])) continue
+        // แพลนฟีดอ้างอิงงานที่ออกทั้งหมด จึงนับจำนวนชิ้นรวมสถานะยกเลิก/ตีคืนด้วย
+        if (!date || !name || qty <= 0) continue
         if (date > anchor) anchor = date
         raw.push({ date, masterSku, name, qty })
       }
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
       return { ...item, abc, dailyAverage: Math.round((item.units90 / 90) * 10) / 10, cumulativePercent: totalUnits ? Math.round((cumulative / totalUnits) * 1000) / 10 : 0 }
     })
 
-    const data = { success: true, items, productMapping, anchor, start, days: 90, totalUnits, fetchedAt: new Date().toISOString() }
+    const data = { success: true, items, productMapping, anchor, start, days: 90, totalUnits, includesCancelledReturned: true, fetchedAt: new Date().toISOString() }
     cache = { at: Date.now(), data }
     res.setHeader('Cache-Control', 'private, max-age=300, stale-while-revalidate=21600')
     return res.status(200).json(data)

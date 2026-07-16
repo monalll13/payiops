@@ -88,17 +88,23 @@ export default async function handler(req, res) {
     const orderIds = new Set()
     let prevRevenue = 0, prevUnits = 0
     const prevOrderIds = new Set()
+    // ยอดขายรวมดิบ ไม่ตัดยกเลิก/ตีคืนออก — ไว้เทียบกับ "revenue" (ตัดออกแล้ว) ตามที่ขอ
+    let grossRevenue = 0
 
     const dailyRev = new Map()          // date -> amount
     const dailyOrders = new Map()       // date -> Set(order_id)
     const bizRev = new Map()            // business -> amount
     const platRev = new Map()           // platform -> amount
+    const packBySku = new Map()         // master_sku -> { master_sku, display_name, qty } — รวมยกเลิก/ตีคืน สำหรับแพลนฟีด
     // "สินค้าขายดี" ตอนนี้รวมเป็นรายกลุ่มสินค้า (product family) ไม่ใช่รายแยก SKU/ไซส์
     // ใช้ deriveGroup ตัวเดียวกับ products.js/product-trends.js — SKU จริงยังดูได้ผ่าน skuCount/skus
     const sku = new Map()               // product-group key -> { name, orderIds:Set, qty, revenue, platforms:Map, platformUnits:Map, skus:Set }
     const groupThisMonth = new Map()    // product-group key -> revenue (เดือนล่าสุดที่มีข้อมูล) — ใช้กับ Trending Up/Down
     const groupLastMonth = new Map()    // product-group key -> revenue (เดือนก่อนหน้า)
-    const latestMonth = todayD ? todayD.slice(0, 7) : null
+    // ใช้ latestDataDate (ไม่ผูกกับตัวกรองวันที่หลักของผู้ใช้ — กรอง biz/platform เท่านั้น) ไม่ใช่ todayD
+    // (ซึ่งผูกกับ inDate) กัน Trending Up/Down หายไปตอนผู้ใช้เลือกช่วงวันที่แคบๆ (เช่นแค่เดือนเดียว)
+    // ที่ทำให้ไม่มีข้อมูลเดือนก่อนหน้าเหลือให้เทียบเลย
+    const latestMonth = latestDataDate ? latestDataDate.slice(0, 7) : null
     const prevMonth = latestMonth ? (() => {
       const [y, m] = latestMonth.split('-').map(Number)
       const d = new Date(Date.UTC(y, m - 2, 1))
@@ -123,10 +129,30 @@ export default async function handler(req, res) {
           if (!excluded) { prevRevenue += rev; prevUnits += qty }
         }
 
+        // Trending Up/Down (เดือนล่าสุดจริง vs เดือนก่อนหน้า) — ไม่ผูกกับตัวกรองวันที่หลัก (inDate) ตั้งใจ
+        // ให้เห็นเทรนด์เสมอไม่ว่าผู้ใช้จะเลือกกรองช่วงวันที่แคบแค่ไหนอยู่บนหน้าจอ
+        if (!excluded && keepBiz(biz) && keepPlat(plat)) {
+          const rowMonth = date.slice(0, 7)
+          if (rowMonth === latestMonth || rowMonth === prevMonth) {
+            const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
+            if (rowMonth === latestMonth) groupThisMonth.set(trendKey, (groupThisMonth.get(trendKey) || 0) + rev)
+            else groupLastMonth.set(trendKey, (groupLastMonth.get(trendKey) || 0) + rev)
+          }
+        }
+
         if (!inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
 
+        grossRevenue += rev
         if (orderId) orderIds.add(orderId)
         let ds = dailyOrders.get(date); if (!ds) dailyOrders.set(date, (ds = new Set())); if (orderId) ds.add(orderId)
+
+        // จำนวนที่ต้องแพ็คจริง (รวมยกเลิก/ตีคืน) นับแยกราย SKU จริง ไม่รวมไซส์ — เพราะแต่ละไซส์แพ็คเป็นคนละชิ้นจริง
+        // ต่างจาก "sku" ด้านล่างที่รวมกลุ่มสินค้า (family) ไว้โชว์หน้ายอดขาย
+        if (masterSku) {
+          let p = packBySku.get(masterSku)
+          if (!p) packBySku.set(masterSku, (p = { master_sku: masterSku, display_name: name || masterSku, qty: 0 }))
+          p.qty += qty
+        }
 
         const { key: groupKey, label: groupLabel } = deriveGroup(name, masterSku, overrideMap)
         let s = sku.get(groupKey)
@@ -146,10 +172,6 @@ export default async function handler(req, res) {
           s.platforms.set(plat, (s.platforms.get(plat) || 0) + rev)
           s.platformUnits.set(plat, (s.platformUnits.get(plat) || 0) + qty)
         }
-
-        const rowMonth = date.slice(0, 7)
-        if (rowMonth === latestMonth) groupThisMonth.set(groupKey, (groupThisMonth.get(groupKey) || 0) + rev)
-        else if (rowMonth === prevMonth) groupLastMonth.set(groupKey, (groupLastMonth.get(groupKey) || 0) + rev)
       }
     }
 
@@ -210,6 +232,7 @@ export default async function handler(req, res) {
     const data = {
       success: true,
       revenue: round2(revenue),
+      grossRevenue: round2(grossRevenue),
       orders,
       units,
       aov: Math.round(aov),
@@ -217,6 +240,7 @@ export default async function handler(req, res) {
       revenueByDay, ordersByDay,
       businessBreakdown, platformBreakdown,
       topSkus,
+      packBySku: [...packBySku.values()].sort((a, b) => b.qty - a.qty),
       commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth },
       dataRange: { earliestDate: earliestDataDate, latestDate: latestDataDate },
     }

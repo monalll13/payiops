@@ -1,8 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import payiLogo from './assets/payi-logo.png'
-import { 
+import {
   Bell, Search, UserCircle2, DollarSign, ShoppingBag, Package, TrendingUp,
-  AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2
+  AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
+  LayoutDashboard, UploadCloud, Store, Radar, Megaphone, CalendarClock, Boxes,
+  ArrowLeftRight, PackageCheck, Users, ShieldAlert, ListChecks, BookOpen, Link2,
+  Code2, Brain, Settings as SettingsIcon,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -17,6 +20,7 @@ const ClaimView = lazy(() => import('./pages/ClaimView'))
 const SalesView = lazy(() => import('./pages/SalesView'))
 const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
 const PlannerControl = lazy(() => import('./pages/PlannerControl'))
+const FeedProducts = lazy(() => import('./pages/FeedProducts'))
 const WorkforceOT = lazy(() => import('./pages/WorkforceOT'))
 const ProductDashboard = lazy(() => import('./pages/ProductDashboard'))
 const ProductTrends = lazy(() => import('./pages/ProductTrends'))
@@ -67,73 +71,28 @@ const PLATFORM_COLORS = { 'Shopee': '#E05D45', 'TikTok Shop': '#2D2D2D', 'Lazada
 // ============================================================
 // CRISP SVG ICONS (MATCHING THE SCREENSHOT)
 // ============================================================
+// ไอคอนแยกตามแต่ละเมนูจริง (ก่อนหน้านี้บางไอคอนถูกใช้ซ้ำกันถึง 4 เมนู เช่น Tasks/StockMovement
+// ทำให้แยกเมนูจากไอคอนไม่ออกตอน sidebar ย่อเหลือแต่ไอคอน) — ทุกเมนูมีไอคอนของตัวเอง ไม่ซ้ำกันเลย
 const Icons = {
-  Executive: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="9" />
-      <rect x="14" y="3" width="7" height="5" />
-      <rect x="14" y="12" width="7" height="9" />
-      <rect x="3" y="16" width="7" height="5" />
-    </svg>
-  ),
-  ImportOrders: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" />
-      <path d="M12 8v8M8 12h8" />
-    </svg>
-  ),
-  Inventory: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-  ),
-  StockMovement: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="17 11 21 7 17 3" />
-      <line x1="21" y1="7" x2="9" y2="7" />
-      <polyline points="7 21 3 17 7 13" />
-      <line x1="3" y1="17" x2="15" y2="17" />
-    </svg>
-  ),
-  Tasks: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  ),
-  SOPs: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  ),
-  LinksHub: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  ),
-  DevHub: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  ),
-  AIAssistant: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-    </svg>
-  ),
-  Settings: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  )
+  Executive: LayoutDashboard,
+  Products: Package,
+  ImportOrders: UploadCloud,
+  Sales: Store,
+  MarketingRadar: Radar,
+  AdsChannels: Megaphone,
+  ContentOS: Sparkles,
+  PlannerControl: CalendarClock,
+  Inventory: Boxes,
+  StockMovement: ArrowLeftRight,
+  Packing: PackageCheck,
+  WorkforceOT: Users,
+  Claims: ShieldAlert,
+  Tasks: ListChecks,
+  SOPs: BookOpen,
+  LinksHub: Link2,
+  DevHub: Code2,
+  AIAssistant: Brain,
+  Settings: SettingsIcon,
 }
 
 const menuGroups = [
@@ -141,28 +100,28 @@ const menuGroups = [
     title: 'ภาพรวมธุรกิจ',
     items: [
       { id: 'Executive', label: 'Dashboard สรุปยอดขาย', renderIcon: Icons.Executive, group: ['Executive', 'Monthly'] },
-      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Inventory, group: ['Products', 'ProductTrends'] }
+      { id: 'Products', label: 'Dashboard สินค้า', renderIcon: Icons.Products, group: ['Products', 'ProductTrends'] }
     ]
   },
   {
     title: 'ยอดขายและการตลาด',
     items: [
       { id: 'Import Orders', label: 'Import Orders', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
-      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Executive },
-      { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.StockMovement, dotColor: 'var(--payi-warning)' },
-      { id: 'AdsChannels', label: 'Ads & Channels', renderIcon: Icons.StockMovement },
-      { id: 'ContentOS', label: 'Content OS Prototype', renderIcon: Icons.AIAssistant, dotColor: 'var(--payi-mint)' }
+      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Sales },
+      { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.MarketingRadar, dotColor: 'var(--payi-warning)' },
+      { id: 'AdsChannels', label: 'Ads & Channels', renderIcon: Icons.AdsChannels },
+      { id: 'ContentOS', label: 'Content OS Prototype', renderIcon: Icons.ContentOS, dotColor: 'var(--payi-mint)' }
     ]
   },
   {
     title: 'วางแผนและปฏิบัติการ',
     items: [
-      { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.StockMovement, dotColor: '#8b5cf6' },
+      { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.PlannerControl, dotColor: '#8b5cf6', group: ['Planner Control', 'FeedProducts'] },
       { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
       { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
-      { id: 'Packing', label: 'Packing', renderIcon: Icons.Tasks },
-      { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.Tasks, dotColor: '#7dd3fc' },
-      { id: 'Claims', label: 'Claims', renderIcon: Icons.Tasks },
+      { id: 'Packing', label: 'Packing', renderIcon: Icons.Packing },
+      { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.WorkforceOT, dotColor: '#7dd3fc' },
+      { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims },
       { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' }
     ]
   },
@@ -186,9 +145,11 @@ const menuGroups = [
 // แท็บย่อยของ Dashboard ใหญ่ที่ยุบมาจากหลายหน้า (render เดิมของแต่ละหน้ายังอยู่ครบ)
 const SALES_SUBTABS = [['Executive', 'ภาพรวม'], ['Monthly', 'รายเดือน']]
 const PRODUCT_SUBTABS = [['Products', 'ภาพรวมสินค้า'], ['ProductTrends', '% เปลี่ยนแปลง']]
+const PLANNER_SUBTABS = [['Planner Control', 'แพลนฟีด'], ['FeedProducts', 'สินค้าที่ต้องฟีด']]
 const SUB_TABS = {
   Executive: SALES_SUBTABS, Monthly: SALES_SUBTABS,
   Products: PRODUCT_SUBTABS, ProductTrends: PRODUCT_SUBTABS,
+  'Planner Control': PLANNER_SUBTABS, FeedProducts: PLANNER_SUBTABS,
 }
 
 function AlertsSection({ alerts }) {
@@ -532,7 +493,10 @@ export default function App() {
       localStorage.setItem('payi-active-tab', activeTab)
     } catch {}
   }, [activeTab])
-  
+
+  // sidebar ย่อเหลือแค่ไอคอนโดย default กันหน้าจอรก — เอาเมาส์ชี้แล้วค่อยขยายออกมาโชว์ label
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+
   // DATE FILTER STATES
   const [datePreset, setDatePreset] = useState('all') 
   const [startDate, setStartDate] = useState('')
@@ -608,7 +572,7 @@ export default function App() {
   }, [business, platform, startDate, endDate])
 
   useEffect(() => {
-    if (activeTab === 'Executive' || activeTab === 'Sales') {
+    if (activeTab === 'Executive' || activeTab === 'Sales' || activeTab === 'FeedProducts') {
       fetchDashboard()
     }
   }, [activeTab, fetchDashboard])
@@ -621,6 +585,7 @@ export default function App() {
 
   // ─── Original KPI data ────────────────────────────────────────────────
   const totalRevenue = dashData?.revenue ?? 0
+  const totalGrossRevenue = dashData?.grossRevenue ?? 0
   const totalOrders  = dashData?.orders ?? 0
   const totalQty     = dashData?.units ?? 0
   const avgOrder     = dashData?.aov ?? 0
@@ -755,6 +720,11 @@ export default function App() {
       title: 'Planner Control',
       eyebrow: 'Operations Planning',
       subtitle: 'วางแผนผลิตจาก Stock, ยอดออก, Manpower & OT และความเสี่ยงจาก Claims'
+    },
+    FeedProducts: {
+      title: 'สินค้าที่ต้องฟีด',
+      eyebrow: 'Operations Planning',
+      subtitle: 'จำนวนสินค้าราย SKU สำหรับใช้ประกอบการวางแผนฟีด'
     }
   }[activeTab] || {
     title: activeTab,
@@ -782,40 +752,61 @@ export default function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
-      {/* SIDEBAR NAVIGATION */}
-      <div style={{ width: 240, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0, boxShadow: '18px 0 48px rgba(15, 23, 42, 0.04)' }}>
+      {/* SIDEBAR NAVIGATION — ย่อเหลือแค่ไอคอนโดย default, เอาเมาส์ชี้แล้วขยายออกมาโชว์ label */}
+      <div
+        onMouseEnter={() => setSidebarExpanded(true)}
+        onMouseLeave={() => setSidebarExpanded(false)}
+        style={{
+          width: sidebarExpanded ? 240 : 68, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
+          display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0,
+          boxShadow: sidebarExpanded ? '18px 0 48px rgba(15, 23, 42, 0.08)' : '18px 0 48px rgba(15, 23, 42, 0.04)',
+          overflow: 'hidden', transition: 'width 180ms ease, box-shadow 180ms ease', zIndex: 20,
+        }}
+      >
         <div style={{ marginBottom: 10, paddingLeft: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
-          <img src={payiLogo} alt="Payi Ops" style={{ width: 39, height: 39, borderRadius: 9, objectFit: 'cover', boxShadow: '0 9px 22px rgba(37, 99, 235, 0.14)' }} />
-          <div>
-            <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Payi Ops</div>
-            <div style={{ fontSize: '9.5px', fontWeight: '700', color: '#334155', letterSpacing: 0, marginTop: '2px' }}>Business Command Center</div>
-          </div>
+          <img src={payiLogo} alt="Payi Ops" style={{ width: 39, height: 39, borderRadius: 9, objectFit: 'cover', boxShadow: '0 9px 22px rgba(37, 99, 235, 0.14)', flexShrink: 0 }} />
+          {sidebarExpanded && (
+            <div style={{ whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>Payi Ops</div>
+              <div style={{ fontSize: '9.5px', fontWeight: '700', color: '#334155', letterSpacing: 0, marginTop: '2px' }}>Business Command Center</div>
+            </div>
+          )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 0 }}>
-          {menuGroups.map((group) => (
-            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: `${group.items.length} 1 0`, minHeight: group.items.length * 32 + 14 }}>
-              <div style={{ padding: '2px 9px 3px', color: '#94a3b8', fontSize: 9, lineHeight: 1, fontWeight: 900, letterSpacing: '.08em' }}>{group.title}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: 0 }}>
+          {menuGroups.map((group, gi) => (
+            <div
+              key={group.title}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 1, flex: `${group.items.length} 1 0`, minHeight: group.items.length * 32 + 14,
+                // เส้นคั่นบางๆ ระหว่างหมวด — ตอนย่อไม่มี label กลุ่มให้ดู ต้องมีเส้นคั่นแทนกันมองเป็นเมนูก้อนเดียว
+                borderTop: gi > 0 ? '1px solid #eef2f7' : 'none', paddingTop: gi > 0 ? 6 : 0, marginTop: gi > 0 ? 5 : 0,
+              }}
+            >
+              {sidebarExpanded && <div style={{ padding: '2px 9px 3px', color: '#94a3b8', fontSize: 9, lineHeight: 1, fontWeight: 900, letterSpacing: '.08em', whiteSpace: 'nowrap' }}>{group.title}</div>}
               {group.items.map((item) => {
                 const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
                 return (
                   <button
                     key={item.id}
+                    title={sidebarExpanded ? undefined : item.label}
                     onClick={() => setActiveTab(item.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: '1 1 0', width: '100%', padding: '7px 9px', minHeight: 32, border: 'none', borderRadius: 7,
+                      display: 'flex', alignItems: 'center', justifyContent: sidebarExpanded ? 'space-between' : 'center', flex: '1 1 0', width: '100%', padding: sidebarExpanded ? '7px 9px' : '7px 0', minHeight: 32, border: 'none', borderRadius: 7,
                       backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{ color: isActive ? '#2563eb' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{item.renderIcon()}</span>
-                      <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-                        {item.helper && (
-                          <span style={{ fontSize: 8.5, lineHeight: 1, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
-                        )}
-                      </span>
+                      <span style={{ color: isActive ? '#2563eb' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}><item.renderIcon size={16} /></span>
+                      {sidebarExpanded && (
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                          {item.helper && (
+                            <span style={{ fontSize: 8.5, lineHeight: 1, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    {item.dotColor && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: item.dotColor, marginRight: '6px' }} />}
+                    {sidebarExpanded && item.dotColor && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: item.dotColor, marginRight: '6px', flexShrink: 0 }} />}
                   </button>
                 )
               })}
@@ -885,7 +876,7 @@ export default function App() {
           <div style={{ width: '100%' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
               {[
-                { title: 'Total Revenue', value: `THB ${fmt(totalRevenue)}`, subtitle: rangeLabel, icon: DollarSign, trend: fmtTrend(revenueTrend), isPositive: revenueTrend === null || revenueTrend >= 0 },
+                { title: 'Total Revenue', value: `THB ${fmt(totalRevenue)}`, subtitle: rangeLabel, note: `(รวมยกเลิก/ตีคืน THB ${fmt(totalGrossRevenue)})`, icon: DollarSign, trend: fmtTrend(revenueTrend), isPositive: revenueTrend === null || revenueTrend >= 0 },
                 { title: 'Orders', value: fmt(totalOrders), subtitle: rangeLabel, icon: ShoppingBag, trend: fmtTrend(ordersTrend), isPositive: ordersTrend === null || ordersTrend >= 0 },
                 { title: 'Units', value: fmt(totalQty), subtitle: rangeLabel, icon: Package, trend: fmtTrend(unitsTrend), isPositive: unitsTrend === null || unitsTrend >= 0 },
                 { title: 'AOV', value: `THB ${fmt(avgOrder)}`, subtitle: rangeLabel, icon: TrendingUp, trend: fmtTrend(aovTrend), isPositive: aovTrend === null || aovTrend >= 0 },
@@ -897,6 +888,9 @@ export default function App() {
                       <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', fontWeight: 800, marginBottom: 8 }}>{item.title}</div>
                       <div style={{ fontSize: 22, lineHeight: 1.05, color: 'var(--payi-text-strong)', fontWeight: 850, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
                       <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 8 }}>{item.subtitle}</div>
+                      {item.note && (
+                        <div style={{ fontSize: 10.5, color: 'var(--payi-text-muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.note}</div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', flexShrink: 0 }}>
                       <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--payi-mint-soft)', color: 'var(--payi-mint-strong)', display: 'grid', placeItems: 'center' }}>
@@ -1205,6 +1199,8 @@ export default function App() {
           </div>
         ) : activeTab === 'Monthly' ? (
             <MonthlyDashboard />
+        ) : activeTab === 'FeedProducts' ? (
+            <FeedProducts dashData={dashData} loading={isFetching} error={error} onRetry={fetchDashboard} />
         ) : activeTab === 'Products' ? (
             <ProductDashboard />
         ) : activeTab === 'ProductTrends' ? (

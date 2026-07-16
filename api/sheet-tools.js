@@ -280,14 +280,16 @@ async function opSummary(req, res) {
 
         const dKey = `${date}|${business}|${platform}`
         let d = daily.get(dKey)
-        if (!d) daily.set(dKey, d = { revenue: 0, qty: 0, orderIds: new Set() })
+        if (!d) daily.set(dKey, d = { revenue: 0, qty: 0, grossQty: 0, orderIds: new Set() })
         if (orderId) d.orderIds.add(orderId)
+        d.grossQty += qty
         if (!excluded) { d.revenue += revenue; d.qty += qty }
 
         const sKey = `${sku || '?'}|${business}|${platform}`
         let s = skus.get(sKey)
-        if (!s) skus.set(sKey, s = { name: name || sku || '(ไม่ระบุ)', revenue: 0, qty: 0, orders: 0 })
+        if (!s) skus.set(sKey, s = { name: name || sku || '(ไม่ระบุ)', revenue: 0, qty: 0, grossQty: 0, orders: 0 })
         s.orders += 1
+        s.grossQty += qty
         if (!excluded) { s.revenue += revenue; s.qty += qty }
       }
     }
@@ -298,6 +300,7 @@ async function opSummary(req, res) {
         date, business, platform,
         revenue: Math.round(v.revenue * 100) / 100,
         qty: v.qty,
+        grossQty: v.grossQty,
         orders: v.orderIds.size,
       }
     }).sort((a, b) => a.date.localeCompare(b.date))
@@ -309,6 +312,7 @@ async function opSummary(req, res) {
         name: v.name,
         revenue: Math.round(v.revenue * 100) / 100,
         qty: v.qty,
+        grossQty: v.grossQty,
         orders: v.orders,
       }
     })
