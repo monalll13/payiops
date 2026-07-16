@@ -6,6 +6,9 @@ const fmt = (value) => Number(value || 0).toLocaleString('th-TH')
 export default function FeedProducts({ dashData, loading, error, onRetry }) {
   const [config, setConfig] = useState([])
   const [configLoading, setConfigLoading] = useState(true)
+  const [selectedMonth, setSelectedMonth] = useState('')
+  const [monthlyResult, setMonthlyResult] = useState({ month: '', reload: -1, data: null, error: '' })
+  const [monthReload, setMonthReload] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -19,6 +22,52 @@ export default function FeedProducts({ dashData, loading, error, onRetry }) {
     return () => { active = false }
   }, [])
 
+  const monthOptions = useMemo(() => {
+    const earliest = String(dashData?.dataRange?.earliestDate || '').slice(0, 7)
+    const latest = String(dashData?.dataRange?.latestDate || '').slice(0, 7)
+    if (!earliest || !latest) return []
+    const [startYear, startMonth] = earliest.split('-').map(Number)
+    const [endYear, endMonth] = latest.split('-').map(Number)
+    const options = []
+    let year = endYear
+    let month = endMonth
+    while (year > startYear || (year === startYear && month >= startMonth)) {
+      const value = `${year}-${String(month).padStart(2, '0')}`
+      options.push({
+        value,
+        label: new Intl.DateTimeFormat('th-TH', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)),
+      })
+      month -= 1
+      if (month === 0) { month = 12; year -= 1 }
+    }
+    return options
+  }, [dashData?.dataRange?.earliestDate, dashData?.dataRange?.latestDate])
+
+  const effectiveMonth = selectedMonth || monthOptions[0]?.value || ''
+
+  useEffect(() => {
+    if (!effectiveMonth) return
+    let active = true
+    const [year, month] = effectiveMonth.split('-').map(Number)
+    const startDate = `${effectiveMonth}-01`
+    const endDate = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+    fetch(`/api/dashboard?startDate=${startDate}&endDate=${endDate}`)
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (!active) return
+        if (!ok || !data?.success) throw new Error(data?.error || 'โหลดข้อมูลรายเดือนไม่สำเร็จ')
+        setMonthlyResult({ month: effectiveMonth, reload: monthReload, data, error: '' })
+      })
+      .catch((fetchError) => {
+        if (active) setMonthlyResult({ month: effectiveMonth, reload: monthReload, data: null, error: fetchError.message })
+      })
+    return () => { active = false }
+  }, [effectiveMonth, monthReload])
+
+  const monthlyData = monthlyResult.month === effectiveMonth ? monthlyResult.data : null
+  const monthError = monthlyResult.month === effectiveMonth ? monthlyResult.error : ''
+  const monthLoading = Boolean(effectiveMonth) && (monthlyResult.month !== effectiveMonth || monthlyResult.reload !== monthReload)
+
   const rows = useMemo(() => {
     const disabled = new Set(
       config
@@ -26,7 +75,7 @@ export default function FeedProducts({ dashData, loading, error, onRetry }) {
         .map((row) => String(row.master_sku || '').trim().toUpperCase())
     )
 
-    return (dashData?.packBySku || [])
+    return (monthlyData?.packBySku || [])
       .map((row) => ({
         ...row,
         master_sku: String(row.master_sku || '').trim().toUpperCase(),
@@ -34,11 +83,11 @@ export default function FeedProducts({ dashData, loading, error, onRetry }) {
       }))
       .filter((row) => /^PY/.test(row.master_sku) && !disabled.has(row.master_sku))
       .sort((a, b) => b.qty - a.qty)
-  }, [config, dashData?.packBySku])
+  }, [config, monthlyData?.packBySku])
 
   const totalQty = rows.reduce((sum, row) => sum + row.qty, 0)
 
-  if (loading || configLoading) {
+  if (loading || configLoading || (!effectiveMonth && !error)) {
     return <div style={{ padding: 36, textAlign: 'center', color: '#64748b' }}>กำลังโหลดรายการสินค้าที่ต้องฟีด...</div>
   }
 
@@ -53,7 +102,17 @@ export default function FeedProducts({ dashData, loading, error, onRetry }) {
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,240px))', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
+        <label style={{ display: 'grid', gap: 5, minWidth: 220, color: '#475569', fontSize: 12, fontWeight: 800 }}>
+          เดือนที่ใช้อ้างอิง
+          <select
+            value={effectiveMonth}
+            onChange={(event) => setSelectedMonth(event.target.value)}
+            style={{ minHeight: 42, border: '1px solid #cfe0f3', borderRadius: 9, padding: '8px 11px', background: '#fff', color: '#102a43', fontWeight: 800 }}
+          >
+            {monthOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
         <Stat label="สินค้าที่ใช้งาน" value={`${fmt(rows.length)} SKU`} />
         <Stat label="จำนวนรวม" value={`${fmt(totalQty)} ชิ้น`} />
       </div>
@@ -63,11 +122,18 @@ export default function FeedProducts({ dashData, loading, error, onRetry }) {
           <PackageCheck size={19} color="#2563eb" />
           <div>
             <b style={{ color: '#102a43' }}>สินค้าที่ต้องฟีด</b>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>แสดงเฉพาะสินค้าที่ใช้งานใน Planner Control และเรียงจากจำนวนมากไปน้อย</div>
+            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>จำนวนชิ้นที่ออกในเดือนที่เลือก รวมยกเลิก/ตีคืน · แสดงเฉพาะสินค้าที่ใช้งานใน Planner Control</div>
           </div>
         </div>
 
-        {rows.length ? (
+        {monthLoading ? (
+          <div style={{ padding: 36, textAlign: 'center', color: '#64748b' }}>กำลังโหลดข้อมูลเดือนที่เลือก...</div>
+        ) : monthError ? (
+          <div style={{ padding: 36, textAlign: 'center', color: '#b91c1c' }}>
+            {monthError}
+            <button type="button" onClick={() => setMonthReload((value) => value + 1)} style={{ marginLeft: 10, border: 0, background: 'transparent', color: '#2563eb', fontWeight: 800, cursor: 'pointer' }}>ลองใหม่</button>
+          </div>
+        ) : rows.length ? (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
