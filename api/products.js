@@ -8,6 +8,7 @@ import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const isReturned = (s = '') => s.toLowerCase().includes('return')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null)
@@ -17,7 +18,7 @@ const TREND_TOP_N = 8
 
 // เหตุผลเดียวกับ dashboard.js — cacheable() บังคับ no-store ตอนเปิด auth เลย cache ในหน่วยความจำแทน CDN
 const productsCache = new Map()
-const PRODUCTS_CACHE_MS = 120000
+const PRODUCTS_CACHE_MS = 180000
 
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
@@ -60,8 +61,10 @@ export default async function handler(req, res) {
         const l = left[j] || [], r = right[j] || []
         const orderId = l[0], date = l[2], plat = l[3] || '', biz = l[4] || ''
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
-        if (!date || isCancelled(status)) continue
+        if (!date) continue
         if (!keepBiz(biz) || !keepPlat(plat)) continue
+        // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ
+        const excluded = isCancelled(status) || isReturned(status)
 
         const ym = String(date).slice(0, 7)
         monthsSet.add(ym)
@@ -72,18 +75,22 @@ export default async function handler(req, res) {
 
         let gm = g.monthly.get(ym)
         if (!gm) g.monthly.set(ym, (gm = { revenue: 0, units: 0, orderIds: new Set(), platforms: new Map() }))
-        gm.revenue += rev; gm.units += qty
         if (orderId) gm.orderIds.add(orderId)
-        if (plat) gm.platforms.set(plat, (gm.platforms.get(plat) || 0) + rev)
+        if (!excluded) {
+          gm.revenue += rev; gm.units += qty
+          if (plat) gm.platforms.set(plat, (gm.platforms.get(plat) || 0) + rev)
+        }
 
         // สมาชิก SKU ในกลุ่ม — เก็บรายเดือนด้วย เพื่อให้ตาราง/drawer สโคปตามเดือนที่เลือกได้
-        const sk = masterSku || '(ไม่ระบุ)'
-        let m = g.skus.get(sk)
-        if (!m) g.skus.set(sk, (m = { master_sku: sk, display_name: name || sk, monthly: new Map() }))
-        if (!m.display_name && name) m.display_name = name
-        let mm = m.monthly.get(ym)
-        if (!mm) m.monthly.set(ym, (mm = { revenue: 0, units: 0 }))
-        mm.revenue += rev; mm.units += qty
+        if (!excluded) {
+          const sk = masterSku || '(ไม่ระบุ)'
+          let m = g.skus.get(sk)
+          if (!m) g.skus.set(sk, (m = { master_sku: sk, display_name: name || sk, monthly: new Map() }))
+          if (!m.display_name && name) m.display_name = name
+          let mm = m.monthly.get(ym)
+          if (!mm) m.monthly.set(ym, (mm = { revenue: 0, units: 0 }))
+          mm.revenue += rev; mm.units += qty
+        }
       }
     }
 

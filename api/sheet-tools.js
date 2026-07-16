@@ -40,7 +40,7 @@ const clearWorkforceCache = () => { workforceCache = { at: 0, data: null } }
 // ดาวน์โหลด + parse ไฟล์ manpower จาก Drive เป็นส่วนที่ช้าที่สุดของหน้านี้ (ไฟล์ใหญ่ + ต้อง auth ใหม่ทุกครั้ง)
 // ตารางคนทำงานเปลี่ยนไม่บ่อย จึง cache แยกจาก workforceCache ด้วย TTL ยาวกว่ามาก (5 นาที) ลดเวลาโหลดที่ผู้ใช้เจอ
 let manpowerSourceCache = { at: 0, data: null }
-const MANPOWER_SOURCE_CACHE_MS = 300000
+const MANPOWER_SOURCE_CACHE_MS = 900000
 async function getManpowerSource(personMap) {
   if (!process.env.MANPOWER_FILE_ID) return []
   if (manpowerSourceCache.data && Date.now() - manpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return manpowerSourceCache.data
@@ -247,6 +247,7 @@ async function opWorkforceInner(req, res) {
 
 const isCancelled = (status = '') =>
   status.includes('ยกเลิก') || status.toLowerCase().includes('cancel')
+const isReturned = (status = '') => status.toLowerCase().includes('return')
 
 // ── op=summary: สรุปยอดขายจาก raw_orders_* (รายวัน + ราย SKU + import ล่าสุด) ──
 async function opSummary(req, res) {
@@ -271,23 +272,23 @@ async function opSummary(req, res) {
       for (let j = 1; j < n; j++) {
         const [orderId, , date, platform, business] = left[j] || []
         const [sku, name, qtyS, revS, status] = right[j] || []
-        if (!date || isCancelled(status)) continue
+        if (!date) continue
+        // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ
+        const excluded = isCancelled(status) || isReturned(status)
         const qty = parseInt(qtyS, 10) || 0
         const revenue = parseFloat(String(revS ?? '').replace(/,/g, '')) || 0
 
         const dKey = `${date}|${business}|${platform}`
         let d = daily.get(dKey)
         if (!d) daily.set(dKey, d = { revenue: 0, qty: 0, orderIds: new Set() })
-        d.revenue += revenue
-        d.qty += qty
         if (orderId) d.orderIds.add(orderId)
+        if (!excluded) { d.revenue += revenue; d.qty += qty }
 
         const sKey = `${sku || '?'}|${business}|${platform}`
         let s = skus.get(sKey)
         if (!s) skus.set(sKey, s = { name: name || sku || '(ไม่ระบุ)', revenue: 0, qty: 0, orders: 0 })
-        s.revenue += revenue
-        s.qty += qty
         s.orders += 1
+        if (!excluded) { s.revenue += revenue; s.qty += qty }
       }
     }
 

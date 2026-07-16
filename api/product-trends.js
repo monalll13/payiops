@@ -7,11 +7,16 @@ import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const isReturned = (s = '') => s.toLowerCase().includes('return')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 
 // จำนวนกลุ่มสูงสุดที่ส่งกลับ (คุมขนาด response — เรียงตามยอดขายรวม)
 const MAX_GROUPS = 120
+
+// เหตุผลเดียวกับ dashboard.js/products.js — cacheable() บังคับ no-store ตอนเปิด auth เลย cache ในหน่วยความจำแทน
+const trendsCache = new Map()
+const TRENDS_CACHE_MS = 180000
 
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
@@ -20,6 +25,13 @@ export default async function handler(req, res) {
   const { business = 'all', platform = 'all' } = req.query
   const keepBiz = (b) => business === 'all' || b === business
   const keepPlat = (p) => platform === 'all' || p === platform
+
+  const cacheKey = `${business}|${platform}`
+  const cached = trendsCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < TRENDS_CACHE_MS) {
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    return res.status(200).json(cached.data)
+  }
 
   try {
     let overrideMap = new Map()
@@ -52,7 +64,7 @@ export default async function handler(req, res) {
         const l = left[j] || [], r = right[j] || []
         const date = l[2], plat = l[3] || '', biz = l[4] || ''
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
-        if (!date || isCancelled(status)) continue
+        if (!date || isCancelled(status) || isReturned(status)) continue
         if (!keepBiz(biz) || !keepPlat(plat)) continue
 
         const ym = String(date).slice(0, 7)
@@ -98,13 +110,10 @@ export default async function handler(req, res) {
           .map(({ _rev, ...m }) => m),
       }))
 
+    const data = { success: true, months, groups: groupArr, groupCount: groups.size }
+    trendsCache.set(cacheKey, { data, at: Date.now() })
     res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
-    res.status(200).json({
-      success: true,
-      months,
-      groups: groupArr,
-      groupCount: groups.size,
-    })
+    res.status(200).json(data)
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

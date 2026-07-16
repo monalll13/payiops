@@ -22,9 +22,18 @@ const levelOf = (rate, units) => {
   return rate >= RED ? 'red' : rate >= AMBER ? 'amber' : 'green'
 }
 
+// เหตุผลเดียวกับ dashboard.js — cacheable() บังคับ no-store ตอนเปิด auth เลย cache ในหน่วยความจำแทน
+let managerClaimsCache = { at: 0, data: null }
+const MANAGER_CLAIMS_CACHE_MS = 180000
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
+
+  if (managerClaimsCache.data && Date.now() - managerClaimsCache.at < MANAGER_CLAIMS_CACHE_MS) {
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    return res.status(200).json(managerClaimsCache.data)
+  }
 
   try {
     let overrideMap = new Map()
@@ -88,8 +97,7 @@ export default async function handler(req, res) {
     const alertCount = products.filter((p) => p.level === 'red').length
     const lowDataCount = products.filter((p) => p.level === 'low').length
 
-    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
-    res.status(200).json({
+    const data = {
       success: true,
       thresholds: { red: RED, amber: AMBER, minUnits: MIN_UNITS },
       summary: {
@@ -99,7 +107,10 @@ export default async function handler(req, res) {
       },
       monthly: monthlyArr,
       products,
-    })
+    }
+    managerClaimsCache = { at: Date.now(), data }
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=120, stale-while-revalidate=600'))
+    res.status(200).json(data)
   } catch (e) {
     res.status(500).json({ success: false, error: e.message })
   }

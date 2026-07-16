@@ -6,7 +6,7 @@ let client
 
 // ลด round-trip ไป Google Sheets เมื่อหลาย widget ขอ tab เดียวกันพร้อมกัน
 // อายุสั้นพอให้ข้อมูลสด และ mutation ด้านล่างจะล้าง cache ทันที
-const SHEET_CACHE_MS = 30_000
+const SHEET_CACHE_MS = 120_000
 const sheetCache = new Map()
 const sheetInflight = new Map()
 const sheetVersion = new Map()

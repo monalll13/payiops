@@ -31,6 +31,16 @@ async function loadClaims() {
   return withIds // [{ id, date, business, product_name, free_item, claim_value, is_damaged, is_incomplete, is_wrong_item, note, master_sku, display_name, imported_at, import_id, source_file }]
 }
 
+// ---- cache สำหรับ view ที่หนัก (ต้องอ่าน raw_orders_* ทั้งหมด) — monthly/sku/by-product/summary ----
+// mutation ใดๆ (DELETE import, map-product, backfill, update-claim) ต้อง clear cache นี้ทันที
+// กันข้อมูลค้าง เพราะ view เหล่านี้ยังอ้างอิง claims sheet ที่เพิ่งแก้ไป
+// สั้นกว่า dashboard/products เพราะ claims-import.js เป็นคนละ serverless function แยกกัน
+// (บน Vercel แต่ละ api/*.js คือ function คนละตัว ไม่แชร์ตัวแปรในหน่วยความจำ) ตัดข้อมูลใหม่แล้ว
+// เรียก clearClaimsCache() ข้ามไฟล์ไม่ได้ — TTL สั้นไว้ก่อนเพื่อจำกัดเวลาที่ข้อมูลอาจค้าง
+const claimsViewCache = new Map()
+const CLAIMS_CACHE_MS = 180000
+const clearClaimsCache = () => claimsViewCache.clear()
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
   const view = req.query.view || 'summary'
@@ -46,6 +56,7 @@ export default async function handler(req, res) {
       const idIdx = headers.indexOf('import_id')
       const kept = values.slice(1).filter((row) => (row[idIdx] || '') !== importId)
       await overwriteSheet('claims', headers, kept)
+      clearClaimsCache()
       return res.status(200).json({ success: true, deleted: values.length - 1 - kept.length })
     }
 
@@ -84,6 +95,7 @@ export default async function handler(req, res) {
         }
         await appendRows('product_aliases', [headers.map((h) => values[h] || '')])
       }
+      clearClaimsCache()
       return res.status(200).json({ success: true, master_sku: masterSku, display_name: target.display_name || masterSku })
     }
 
@@ -100,7 +112,7 @@ export default async function handler(req, res) {
         if (!alias) return row
         const next = [...row]; next[skuIdx] = alias.master_sku; next[displayIdx] = alias.display_name; updated++; if (alias.match_method === 'fuzzy') fuzzyUpdated++; return next
       })
-      if (updated) await overwriteSheet('claims', headers, kept)
+      if (updated) { await overwriteSheet('claims', headers, kept); clearClaimsCache() }
       return res.status(200).json({ success: true, updated, fuzzyUpdated })
     }
 
@@ -121,8 +133,17 @@ export default async function handler(req, res) {
       }
       const next = current.map((r, i) => (i === idx ? updated : r))
       await overwriteSheet('claims', CLAIMS_HEADERS, next.map((r) => CLAIMS_HEADERS.map((h) => r[h] ?? '')))
+      clearClaimsCache()
       return res.status(200).json({ success: true, claim: updated })
     }
+
+    // view หนักที่เหลือ (monthly/sku/by-product/summary) ต้องอ่าน raw_orders_* ทั้งหมด — cache ไว้
+    const heavyCacheKey = req.method === 'GET' ? `${view}|${JSON.stringify(req.query)}` : null
+    if (heavyCacheKey) {
+      const cached = claimsViewCache.get(heavyCacheKey)
+      if (cached && Date.now() - cached.at < CLAIMS_CACHE_MS) return res.status(200).json(cached.data)
+    }
+    const sendCached = (data) => { if (heavyCacheKey) claimsViewCache.set(heavyCacheKey, { data, at: Date.now() }); return res.status(200).json(data) }
 
     const rows = await loadClaims()
     const { startDate = '', endDate = '', business = '', product = '', reason = '' } = req.query
@@ -202,7 +223,7 @@ export default async function handler(req, res) {
       monthlyTotal.claimRate = monthlyTotal.outgoingUnits > 0 ? round2((monthlyTotal.count / monthlyTotal.outgoingUnits) * 100) : null
       for (const b of businesses) byBizTotal[b].value = round2(byBizTotal[b].value)
 
-      return res.status(200).json({ success: true, monthly, monthlyTotal, businesses, byBusinessMonthly: byBiz, byBusinessTotal: byBizTotal })
+      return sendCached({ success: true, monthly, monthlyTotal, businesses, byBusinessMonthly: byBiz, byBusinessTotal: byBizTotal })
     }
 
     if (view === 'sku') {
@@ -233,7 +254,7 @@ export default async function handler(req, res) {
         const ym = String(r.date || '').slice(0, 7)
         if (ym) { const m = monthlyMap.get(ym) || { month: ym, count: 0, value: 0 }; m.count++; m.value += val; monthlyMap.set(ym, m) }
       }
-      return res.status(200).json({
+      return sendCached({
         success: true,
         totalCount: recs.length,
         totalValue: round2(totalValue),
@@ -271,7 +292,7 @@ export default async function handler(req, res) {
       const products = [...groupMap.values()]
         .map((g) => ({ ...g, value: round2(g.value), skuCount: g.skus.size, skus: [...g.skus] }))
         .sort((a, b) => b.count - a.count)
-      return res.status(200).json({ success: true, totalCount: recs.length, products })
+      return sendCached({ success: true, totalCount: recs.length, products })
     }
 
     // ---- view === 'summary' ----
@@ -332,7 +353,7 @@ export default async function handler(req, res) {
       })
       .sort((a, b) => b.count - a.count)
 
-    return res.status(200).json({
+    return sendCached({
       success: true,
       totalClaims: filtered.length,
       claimValue: round2(claimValue),

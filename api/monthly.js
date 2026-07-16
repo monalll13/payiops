@@ -4,6 +4,7 @@ import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues } from './_lib/sheets.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const isReturned = (s = '') => s.toLowerCase().includes('return')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 const platShort = (p) => String(p || '').replace(' Shop', '')
@@ -42,21 +43,25 @@ export default async function handler(req, res) {
         const l = left[j] || [], r = right[j] || []
         const orderId = l[0], date = l[2], platform = l[3] || '', business = l[4] || ''
         const qty = parseInt(r[0], 10) || 0, rev = num(r[1]), status = r[2]
-        if (!date || isCancelled(status)) continue
+        if (!date) continue
+        // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ
+        const excluded = isCancelled(status) || isReturned(status)
         const ym = String(date).slice(0, 7)
         yearsSet.add(String(date).slice(0, 4))
         if (year && !ym.startsWith(year)) continue
 
         let t = trend.get(ym)
         if (!t) trend.set(ym, (t = { sales: 0, units: 0, orderIds: new Set() }))
-        t.sales += rev; t.units += qty; if (orderId) t.orderIds.add(orderId)
+        if (orderId) t.orderIds.add(orderId)
+        if (!excluded) { t.sales += rev; t.units += qty }
 
         let sm = store.get(ym)
         if (!sm) store.set(ym, (sm = new Map()))
         const key = `${business} ${platShort(platform)}`
         let s = sm.get(key)
         if (!s) sm.set(key, (s = { store: key, business, platform, sales: 0, units: 0, orderIds: new Set() }))
-        s.sales += rev; s.units += qty; if (orderId) s.orderIds.add(orderId)
+        if (orderId) s.orderIds.add(orderId)
+        if (!excluded) { s.sales += rev; s.units += qty }
       }
     }
 

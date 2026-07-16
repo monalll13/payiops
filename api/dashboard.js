@@ -5,13 +5,22 @@ import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+// "returned" ในภาษาอังกฤษเท่านั้น (ไม่ใช่ substring "คืน" ภาษาไทย) — สถานะ "ผู้ซื้อได้รับสินค้าแล้ว
+// โปรดทราบว่าผู้ซื้อสามารถยื่นคำขอคืนเงิน/คืนสินค้าได้จนถึง..." เป็นออเดอร์ที่ส่งสำเร็จปกติ ยังไม่ได้คืนจริง
+// ไม่ควรตัดออก ต่างจาก "returned"/"package returned" ที่คืนสำเร็จแล้วจริงๆ
+const isReturned = (s = '') => s.toLowerCase().includes('return')
+// จำนวนออเดอร์ = งานที่ทีมแพ็คต้องทำ นับรวมยกเลิก/ตีคืนด้วย (แพ็คไปแล้วก็คืองาน) — ต่างจากยอดขาย/
+// จำนวนชิ้นที่ตัดยกเลิก/ตีคืนออก เพราะไม่ได้เป็นรายได้จริง
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 
 // อ่าน raw_orders ทั้งหมดช้า (~5-12s) — cache แบบ public Cache-Control ใช้ไม่ได้ตอนเปิด auth
 // (cacheable() บังคับ no-store เพราะ response แต่ละคนไม่ควร cache ที่ CDN) จึงต้อง cache ในหน่วยความจำแทน
 const dashboardCache = new Map()
-const DASHBOARD_CACHE_MS = 120000
+// สั้นกว่าที่คิดไว้ตอนแรกโดยตั้งใจ — import-orders.js เป็นคนละ serverless function แยกกัน
+// (บน Vercel แต่ละ api/*.js ไม่แชร์หน่วยความจำ) import ข้อมูลใหม่แล้วเรียกล้าง cache นี้ไม่ได้
+// ตั้งยาวไปจะกลายเป็น "เพิ่งอัพโหลดแล้วทำไมไม่ขึ้น" แทน
+const DASHBOARD_CACHE_MS = 180000
 
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return
@@ -104,30 +113,35 @@ export default async function handler(req, res) {
         const l = left[j] || [], r = right[j] || []
         const orderId = l[0], date = l[2], plat = l[3] || '', biz = l[4] || ''
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
-        if (!date || isCancelled(status)) continue
+        if (!date) continue
+        // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ (ไม่ใช่รายได้จริง)
+        const excluded = isCancelled(status) || isReturned(status)
 
         // ช่วงก่อนหน้า (ไม่สน platform/biz filter ยกเว้นที่ผู้ใช้เลือก) — ใช้เทียบ trend
         if (inPrev(date) && keepBiz(biz) && keepPlat(plat)) {
-          prevRevenue += rev; prevUnits += qty
           if (orderId) prevOrderIds.add(orderId)
+          if (!excluded) { prevRevenue += rev; prevUnits += qty }
         }
 
         if (!inDate(date) || !keepBiz(biz) || !keepPlat(plat)) continue
 
-        revenue += rev; units += qty
         if (orderId) orderIds.add(orderId)
-
-        dailyRev.set(date, (dailyRev.get(date) || 0) + rev)
         let ds = dailyOrders.get(date); if (!ds) dailyOrders.set(date, (ds = new Set())); if (orderId) ds.add(orderId)
-        bizRev.set(biz, (bizRev.get(biz) || 0) + rev)
-        platRev.set(plat, (platRev.get(plat) || 0) + rev)
 
         const { key: groupKey, label: groupLabel } = deriveGroup(name, masterSku, overrideMap)
         let s = sku.get(groupKey)
         if (!s) sku.set(groupKey, (s = { name: groupLabel, orderIds: new Set(), qty: 0, revenue: 0, platforms: new Map(), platformUnits: new Map(), skus: new Set() }))
-        s.qty += qty; s.revenue += rev
         if (orderId) s.orderIds.add(orderId)
         if (masterSku) s.skus.add(masterSku)
+
+        if (excluded) continue
+
+        revenue += rev; units += qty
+        dailyRev.set(date, (dailyRev.get(date) || 0) + rev)
+        bizRev.set(biz, (bizRev.get(biz) || 0) + rev)
+        platRev.set(plat, (platRev.get(plat) || 0) + rev)
+
+        s.qty += qty; s.revenue += rev
         if (plat) {
           s.platforms.set(plat, (s.platforms.get(plat) || 0) + rev)
           s.platformUnits.set(plat, (s.platformUnits.get(plat) || 0) + qty)
