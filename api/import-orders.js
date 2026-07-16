@@ -153,19 +153,34 @@ export default async function handler(req, res) {
     }
 
     // ตรวจวันที่ทั้งไฟล์ก่อนนำเข้าจริง (เรียกครั้งเดียวก่อนแบ่ง batch import) — กันไฟล์ที่วันที่อ่านผิด
-    // (เช่น dd/mm สลับ mm/dd) กระจายไปลงเดือนอื่นแบบไม่รู้ตัว โดยให้ผู้ใช้เลือกเดือนที่คาดไว้มาก่อน
+    // (เช่น dd/mm สลับ mm/dd) กระจายไปลงเดือนอื่นแบบไม่รู้ตัว
+    // - expectedMonth = 'YYYY-MM' เดี่ยวๆ → โหมดไฟล์เดือนเดียว บล็อกทั้งไฟล์ถ้าเจอวันที่นอกเดือนนั้น
+    // - expectedMonth = 'multi' หรือไม่ส่งมา → โหมดไฟล์หลายเดือน ไม่บล็อก แค่คืน breakdown ต่อเดือน
+    //   ให้ผู้ใช้ดูยืนยันเองว่าจำนวนแถวต่อเดือนสมเหตุสมผล (เผื่อ parse วันที่ผิดจะได้เห็นความผิดปกติ)
     if (req.method === 'POST' && req.query.view === 'validate-dates') {
       const { rows: vRows, expectedMonth } = req.body || {}
       if (!Array.isArray(vRows)) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
-      if (!expectedMonth) return res.status(400).json({ success: false, error: 'ต้องระบุเดือนที่คาดไว้' })
-      const mismatches = []
+
+      if (expectedMonth && expectedMonth !== 'multi') {
+        const mismatches = []
+        for (const row of vRows) {
+          const d = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
+          if (d && d.slice(0, 7) !== expectedMonth) {
+            if (mismatches.length < 10) mismatches.push(d)
+          }
+        }
+        return res.status(200).json({ success: true, mismatchCount: mismatches.length, mismatchSamples: [...new Set(mismatches)] })
+      }
+
+      const monthBreakdown = {}
+      let unparseable = 0
       for (const row of vRows) {
         const d = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
-        if (d && d.slice(0, 7) !== expectedMonth) {
-          if (mismatches.length < 10) mismatches.push(d)
-        }
+        if (!d) { unparseable++; continue }
+        const m = d.slice(0, 7)
+        monthBreakdown[m] = (monthBreakdown[m] || 0) + 1
       }
-      return res.status(200).json({ success: true, mismatchCount: mismatches.length, mismatchSamples: [...new Set(mismatches)] })
+      return res.status(200).json({ success: true, monthBreakdown, unparseable })
     }
 
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
@@ -173,7 +188,8 @@ export default async function handler(req, res) {
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลในไฟล์' })
 
     // เช็คซ้ำอีกชั้น (เผื่อ client ข้ามการเช็คตอนแรกไป) — ถ้าแถวไหนในชุดนี้ไม่ตรงเดือนที่เลือก บล็อกทั้ง batch
-    if (expectedMonth) {
+    // (ข้ามการเช็คนี้ถ้าเป็นโหมดหลายเดือน — 'multi' แปลว่าตั้งใจให้กระจายหลายเดือนอยู่แล้ว)
+    if (expectedMonth && expectedMonth !== 'multi') {
       for (const row of rows) {
         const d = isoDate(pick(row, ['date', 'วันที่', 'order creation', 'created time', 'createtime', 'เวลาการชำระ', 'วันเวลาที่ทำการสั่งซื้อ']))
         if (d && d.slice(0, 7) !== expectedMonth) {
@@ -220,7 +236,11 @@ export default async function handler(req, res) {
       const productName = pick(row, ['product_name', 'ชื่อสินค้า', 'product name', 'สินค้า', 'itemname'])
       const variation = pick(row, ['variation_name', 'variation', 'ชื่อตัวเลือก', 'ตัวเลือกสินค้า', 'ประเภทสินค้า'])
       const qty = parseInt(pick(row, ['qty', 'quantity', 'จำนวน', 'amount']), 10) || 1
-      const revenue = num(pick(row, ['revenue', 'ยอดขาย', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม', 'paidprice']))
+      // ระวัง: candidate 'total' แบบกว้างๆ จะไปแมตช์ "SKU Subtotal Before Discount" ของ TikTok Shop
+      // โดยไม่ตั้งใจ (เพราะ "subtotal" มีคำว่า "total" อยู่ในนั้น) แล้วได้ราคาก่อนหักส่วนลดมาแทน
+      // ราคาที่จ่ายจริง — ต้องใส่ชื่อคอลัมน์จริงของ TikTok ("SKU Subtotal After Discount"/"Order
+      // Amount") เป็น candidate แบบ exact-match ไว้ก่อน กัน pass 2 (substring) ไปจับผิดคอลัมน์
+      const revenue = num(pick(row, ['revenue', 'ยอดขาย', 'sku subtotal after discount', 'order amount', 'total', 'ราคาขายสุทธิ', 'grand total', 'ยอดรวม', 'paidprice']))
       const status = pick(row, ['order_status', 'status', 'สถานะ', 'order status']) || ''
 
       // ไฟล์ export บางแพลตฟอร์ม (เช่น Shopee) ไม่มีคอลัมน์ item id แยกต่างหาก —

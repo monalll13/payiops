@@ -144,6 +144,10 @@ export default function Upload() {
   const [platform, setPlatform] = useState('auto')
   const [business, setBusiness] = useState('')
   const [expectedMonth, setExpectedMonth] = useState('')
+  const [multiMonth, setMultiMonth] = useState(false)
+  const [monthBreakdown, setMonthBreakdown] = useState(null)
+  const [checkingMonths, setCheckingMonths] = useState(false)
+  const [breakdownConfirmed, setBreakdownConfirmed] = useState(false)
   const [log, setLog] = useState([])
   const [deletingId, setDeletingId] = useState('')
   const [mapTarget, setMapTarget] = useState(null)
@@ -178,7 +182,7 @@ export default function Upload() {
     setFile(f); setResult(null); setParsing(true)
     // กันเลือก platform/business ค้างจากไฟล์ก่อนหน้า (เคยทำให้ไฟล์ TikTok ถูก tag เป็น Shopee
     // เพราะ dropdown ยังค้างค่าจากไฟล์ก่อนหน้าที่เพิ่งอัพโหลดไป) — บังคับเลือกใหม่ทุกไฟล์
-    setPlatform('auto'); setBusiness(''); setExpectedMonth('')
+    setPlatform('auto'); setBusiness(''); setExpectedMonth(''); setMultiMonth(false); setMonthBreakdown(null); setBreakdownConfirmed(false)
     try {
       const buf = await f.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
@@ -193,30 +197,55 @@ export default function Upload() {
     }
   }
 
+  const checkMonthBreakdown = async () => {
+    if (!rows.length) return
+    setCheckingMonths(true); setMonthBreakdown(null); setBreakdownConfirmed(false)
+    try {
+      const slim = rows.map(slimRow)
+      const r = await fetch(`${API}/import-orders?view=validate-dates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: slim, expectedMonth: 'multi' }),
+      })
+      const d = await readApiResponse(r)
+      if (!r.ok || !d.success) { setResult({ success: false, error: d.error || 'ตรวจเดือนในไฟล์ไม่สำเร็จ' }); return }
+      setMonthBreakdown(d)
+    } catch (e) {
+      setResult({ success: false, error: e.message })
+    } finally {
+      setCheckingMonths(false)
+    }
+  }
+
   const doImport = async () => {
-    if (!rows.length || !expectedMonth) return
+    if (!rows.length) return
+    if (multiMonth ? !breakdownConfirmed : !expectedMonth) return
     setImporting(true); setResult(null)
     try {
       const slim = rows.map(slimRow)
+      const effectiveMonth = multiMonth ? 'multi' : expectedMonth
 
-      // เช็ควันที่ทั้งไฟล์ก่อนนำเข้าจริงสักแถวเดียว — กันไฟล์ที่วันที่อ่านผิด (เช่น dd/mm สลับ mm/dd)
-      // กระจายไปลงเดือนอื่นแบบไม่รู้ตัว ถ้าเจอวันที่ไม่ตรงเดือนที่เลือกไว้ ยกเลิกทั้งไฟล์เลย
-      setResult({ success: true, inProgress: true, note: 'กำลังตรวจวันที่ในไฟล์...' })
-      const vr = await fetch(`${API}/import-orders?view=validate-dates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: slim, expectedMonth }),
-      })
-      const vd = await readApiResponse(vr)
-      if (!vr.ok || !vd.success) {
-        setResult({ success: false, error: vd.error || 'ตรวจวันที่ไม่สำเร็จ' })
-        setImporting(false)
-        return
-      }
-      if (vd.mismatchCount > 0) {
-        setResult({ success: false, error: `พบ ${fmt(vd.mismatchCount)} แถวที่วันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${vd.mismatchSamples.join(', ')} — ยกเลิกการนำเข้าทั้งไฟล์ ตรวจไฟล์หรือเลือกเดือนใหม่` })
-        setImporting(false)
-        return
+      // เช็ควันที่ทั้งไฟล์ก่อนนำเข้าจริงสักแถวเดียว (เฉพาะโหมดเดือนเดียว) — กันไฟล์ที่วันที่อ่านผิด
+      // (เช่น dd/mm สลับ mm/dd) กระจายไปลงเดือนอื่นแบบไม่รู้ตัว ถ้าเจอวันที่ไม่ตรงเดือนที่เลือกไว้ ยกเลิกทั้งไฟล์เลย
+      // โหมดหลายเดือนตรวจ+ยืนยัน breakdown ไปแล้วตอนกด "ตรวจสอบเดือนในไฟล์" ก่อนหน้านี้
+      if (!multiMonth) {
+        setResult({ success: true, inProgress: true, note: 'กำลังตรวจวันที่ในไฟล์...' })
+        const vr = await fetch(`${API}/import-orders?view=validate-dates`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: slim, expectedMonth }),
+        })
+        const vd = await readApiResponse(vr)
+        if (!vr.ok || !vd.success) {
+          setResult({ success: false, error: vd.error || 'ตรวจวันที่ไม่สำเร็จ' })
+          setImporting(false)
+          return
+        }
+        if (vd.mismatchCount > 0) {
+          setResult({ success: false, error: `พบ ${fmt(vd.mismatchCount)} แถวที่วันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${vd.mismatchSamples.join(', ')} — ยกเลิกการนำเข้าทั้งไฟล์ ตรวจไฟล์หรือเลือกเดือนใหม่` })
+          setImporting(false)
+          return
+        }
       }
 
       const batches = []
@@ -230,7 +259,7 @@ export default function Upload() {
         const r = await fetch(`${API}/import-orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i], expectedMonth }),
+          body: JSON.stringify({ fileName: file?.name || 'upload.xlsx', platform, business, rows: batches[i], expectedMonth: effectiveMonth }),
         })
         const d = await readApiResponse(r)
         if (!r.ok || !d.success) {
@@ -247,7 +276,7 @@ export default function Upload() {
       }
 
       setResult({ success: true, imported, mapped, skipped, skippedInvalid, unmappedSamples, tabs: [...tabs] })
-      setFile(null); setRows([]); setHeaders([]); setExpectedMonth(''); loadLog()
+      setFile(null); setRows([]); setHeaders([]); setExpectedMonth(''); setMultiMonth(false); setMonthBreakdown(null); setBreakdownConfirmed(false); loadLog()
     } catch (e) {
       setResult({ success: false, error: e.message })
     } finally {
@@ -305,9 +334,52 @@ export default function Upload() {
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', marginBottom: 4 }}>เดือนที่คาดว่าไฟล์นี้เป็น (บังคับเลือก)</div>
-              <input type="month" className="payi-input" value={expectedMonth} onChange={(e) => setExpectedMonth(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }} />
+              {!multiMonth ? (
+                <input type="month" className="payi-input" value={expectedMonth} onChange={(e) => setExpectedMonth(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }} />
+              ) : (
+                <div style={{ padding: '8px 0', fontSize: 12, color: 'var(--payi-text-muted)' }}>ตรวจจากไฟล์อัตโนมัติ (ดูด้านล่าง)</div>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, fontSize: 11, color: 'var(--payi-text-muted)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={multiMonth} onChange={(e) => { setMultiMonth(e.target.checked); setExpectedMonth(''); setMonthBreakdown(null); setBreakdownConfirmed(false) }} />
+                ไฟล์นี้มีหลายเดือนรวมกัน
+              </label>
             </div>
           </div>
+
+          {multiMonth && (
+            <div style={{ border: '1px solid var(--payi-border)', borderRadius: 10, padding: 14, marginBottom: 14, background: 'var(--payi-surface-muted)' }}>
+              <button onClick={checkMonthBreakdown} disabled={checkingMonths} className="payi-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: checkingMonths ? 'default' : 'pointer', opacity: checkingMonths ? 0.7 : 1 }}>
+                {checkingMonths ? <><Loader2 size={14} className="payi-spin" /> กำลังตรวจ...</> : 'ตรวจสอบเดือนในไฟล์'}
+              </button>
+              {monthBreakdown && (
+                <div style={{ marginTop: 12 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--payi-border)' }}>
+                        <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--payi-text-muted)' }}>เดือน</th>
+                        <th style={{ textAlign: 'right', padding: '4px 8px', color: 'var(--payi-text-muted)' }}>จำนวนแถว</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(monthBreakdown.monthBreakdown || {}).sort(([a], [b]) => a.localeCompare(b)).map(([m, c]) => (
+                        <tr key={m} style={{ borderBottom: '1px solid var(--payi-border)' }}>
+                          <td style={{ padding: '4px 8px', color: 'var(--payi-text-strong)' }}>{m}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--payi-text)' }}>{fmt(c)} แถว</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {monthBreakdown.unparseable > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--payi-danger)' }}>อ่านวันที่ไม่ออก {fmt(monthBreakdown.unparseable)} แถว (แถวพวกนี้จะถูกข้ามตอนนำเข้า)</div>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, color: 'var(--payi-text-strong)', cursor: 'pointer', fontWeight: 600 }}>
+                    <input type="checkbox" checked={breakdownConfirmed} onChange={(e) => setBreakdownConfirmed(e.target.checked)} />
+                    ตรวจแล้ว จำนวนแถวต่อเดือนดูถูกต้อง ยืนยันนำเข้า
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ตัวอย่างคอลัมน์ */}
           <div style={{ overflowX: 'auto', border: '1px solid var(--payi-border)', borderRadius: 10, marginBottom: 16 }}>
@@ -327,10 +399,21 @@ export default function Upload() {
             </table>
           </div>
 
-          <button onClick={doImport} disabled={importing || !expectedMonth} className="payi-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', fontSize: 14, fontWeight: 700, cursor: importing || !expectedMonth ? 'default' : 'pointer', opacity: importing || !expectedMonth ? 0.5 : 1 }}>
-            {importing ? <><Loader2 size={16} className="payi-spin" /> กำลังนำเข้า...</> : <><CheckCircle2 size={16} /> นำเข้าข้อมูลเข้า Google Sheets</>}
-          </button>
-          {!expectedMonth && <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 6 }}>เลือกเดือนที่คาดไว้ก่อนถึงจะนำเข้าได้</div>}
+          {(() => {
+            const canImport = multiMonth ? breakdownConfirmed : !!expectedMonth
+            return (
+              <>
+                <button onClick={doImport} disabled={importing || !canImport} className="payi-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', fontSize: 14, fontWeight: 700, cursor: importing || !canImport ? 'default' : 'pointer', opacity: importing || !canImport ? 0.5 : 1 }}>
+                  {importing ? <><Loader2 size={16} className="payi-spin" /> กำลังนำเข้า...</> : <><CheckCircle2 size={16} /> นำเข้าข้อมูลเข้า Google Sheets</>}
+                </button>
+                {!canImport && (
+                  <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 6 }}>
+                    {multiMonth ? 'กด "ตรวจสอบเดือนในไฟล์" แล้วยืนยันก่อนถึงจะนำเข้าได้' : 'เลือกเดือนที่คาดไว้ก่อนถึงจะนำเข้าได้'}
+                  </div>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
