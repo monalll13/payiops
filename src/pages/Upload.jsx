@@ -197,19 +197,38 @@ export default function Upload() {
     }
   }
 
+  // ส่งเป็น batch เหมือน import จริง ไม่ใช่ยิงทั้งไฟล์ในก้อนเดียว — ไฟล์เดือนเดียวก็ใหญ่ได้ถึง
+  // หลักหมื่นแถว (~10MB+) ยิงทีเดียวจะชน payload limit ของ serverless function เหมือนที่ import จริงเจอมาก่อน
+  const postValidateBatches = async (slim, expectedMonth, onProgress) => {
+    const results = []
+    const total = Math.ceil(slim.length / BATCH_SIZE)
+    for (let i = 0; i < slim.length; i += BATCH_SIZE) {
+      if (onProgress) onProgress(Math.floor(i / BATCH_SIZE) + 1, total)
+      const r = await fetch(`${API}/import-orders?view=validate-dates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: slim.slice(i, i + BATCH_SIZE), expectedMonth }),
+      })
+      const d = await readApiResponse(r)
+      if (!r.ok || !d.success) throw new Error(d.error || 'ตรวจวันที่ไม่สำเร็จ')
+      results.push(d)
+    }
+    return results
+  }
+
   const checkMonthBreakdown = async () => {
     if (!rows.length) return
     setCheckingMonths(true); setMonthBreakdown(null); setBreakdownConfirmed(false)
     try {
       const slim = rows.map(slimRow)
-      const r = await fetch(`${API}/import-orders?view=validate-dates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: slim, expectedMonth: 'multi' }),
-      })
-      const d = await readApiResponse(r)
-      if (!r.ok || !d.success) { setResult({ success: false, error: d.error || 'ตรวจเดือนในไฟล์ไม่สำเร็จ' }); return }
-      setMonthBreakdown(d)
+      const results = await postValidateBatches(slim, 'multi')
+      const monthBreakdown = {}
+      let unparseable = 0
+      for (const d of results) {
+        for (const [m, c] of Object.entries(d.monthBreakdown || {})) monthBreakdown[m] = (monthBreakdown[m] || 0) + c
+        unparseable += d.unparseable || 0
+      }
+      setMonthBreakdown({ monthBreakdown, unparseable })
     } catch (e) {
       setResult({ success: false, error: e.message })
     } finally {
@@ -229,20 +248,23 @@ export default function Upload() {
       // (เช่น dd/mm สลับ mm/dd) กระจายไปลงเดือนอื่นแบบไม่รู้ตัว ถ้าเจอวันที่ไม่ตรงเดือนที่เลือกไว้ ยกเลิกทั้งไฟล์เลย
       // โหมดหลายเดือนตรวจ+ยืนยัน breakdown ไปแล้วตอนกด "ตรวจสอบเดือนในไฟล์" ก่อนหน้านี้
       if (!multiMonth) {
-        setResult({ success: true, inProgress: true, note: 'กำลังตรวจวันที่ในไฟล์...' })
-        const vr = await fetch(`${API}/import-orders?view=validate-dates`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rows: slim, expectedMonth }),
-        })
-        const vd = await readApiResponse(vr)
-        if (!vr.ok || !vd.success) {
-          setResult({ success: false, error: vd.error || 'ตรวจวันที่ไม่สำเร็จ' })
-          setImporting(false)
-          return
-        }
-        if (vd.mismatchCount > 0) {
-          setResult({ success: false, error: `พบ ${fmt(vd.mismatchCount)} แถวที่วันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${vd.mismatchSamples.join(', ')} — ยกเลิกการนำเข้าทั้งไฟล์ ตรวจไฟล์หรือเลือกเดือนใหม่` })
+        try {
+          const results = await postValidateBatches(slim, expectedMonth, (i, total) => {
+            setResult({ success: true, inProgress: true, note: `กำลังตรวจวันที่ในไฟล์... (${i}/${total})` })
+          })
+          let mismatchCount = 0
+          const mismatchSamples = []
+          for (const d of results) {
+            mismatchCount += d.mismatchCount || 0
+            for (const s of d.mismatchSamples || []) if (mismatchSamples.length < 10 && !mismatchSamples.includes(s)) mismatchSamples.push(s)
+          }
+          if (mismatchCount > 0) {
+            setResult({ success: false, error: `พบ ${fmt(mismatchCount)} แถวที่วันที่ไม่ตรงเดือนที่เลือก (${expectedMonth}) เช่น ${mismatchSamples.join(', ')} — ยกเลิกการนำเข้าทั้งไฟล์ ตรวจไฟล์หรือเลือกเดือนใหม่` })
+            setImporting(false)
+            return
+          }
+        } catch (e) {
+          setResult({ success: false, error: e.message })
           setImporting(false)
           return
         }
