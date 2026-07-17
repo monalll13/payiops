@@ -6,6 +6,7 @@ import Login from './pages/Login.jsx'
 
 const ManagerClaimsPrototype = lazy(() => import('./pages/ManagerClaimsPrototype.jsx'))
 const WorkforceOTPreview = lazy(() => import('./pages/WorkforceOT.jsx'))
+const HRMobile = lazy(() => import('./pages/HRMobile.jsx'))
 
 // ── API auth: แนบ token กับทุก fetch ที่ยิง /api (จุดเดียว ครอบทุกหน้า) ──
 // token มาจากการ login (/api/auth) เก็บใน localStorage — ถ้า server ตอบ 401 (token หมดอายุ/ผิด)
@@ -41,6 +42,7 @@ window.fetch = async (input, init = {}) => {
 // PROTOTYPE switch: เปิด /?manager เพื่อดูโหมดผู้จัดการ (มือถือ) โดยไม่กระทบแอปหลัก
 const showManagerPrototype = new URLSearchParams(window.location.search).has('manager')
 const showOTPreview = new URLSearchParams(window.location.search).has('ot-preview')
+const showHrMobile = new URLSearchParams(window.location.search).has('hr')
 
 // ── ประตู login: เช็คสถานะระบบก่อน — ปิด auth อยู่ (local dev) ก็เข้าแอปตรงๆ ──
 function Root() {
@@ -78,11 +80,17 @@ function Root() {
   const needLogin = status.enabled && !(localStorage.getItem(TOKEN_KEY) && user)
   if (needLogin) return <Login firstTime={!status.hasUsers} onLogin={setUser} />
 
-  return showManagerPrototype ? (
+  if (showManagerPrototype) return (
     <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'var(--payi-text-muted)', fontSize: 14 }}>กำลังโหลด...</div>}>
       <ManagerClaimsPrototype />
     </Suspense>
-  ) : <App />
+  )
+  if (showHrMobile) return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: 'var(--payi-text-muted)', fontSize: 14 }}>กำลังโหลด...</div>}>
+      <HRMobile />
+    </Suspense>
+  )
+  return <App />
 }
 
 createRoot(document.getElementById('root')).render(

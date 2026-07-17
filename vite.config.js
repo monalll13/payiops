@@ -31,7 +31,8 @@ function localApi() {
         if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
           const chunks = []
           for await (const c of req) chunks.push(c)
-          try { req.body = JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { req.body = {} }
+          req.rawBody = Buffer.concat(chunks).toString()
+          try { req.body = JSON.parse(req.rawBody || '{}') } catch { req.body = {} }
         }
         res.status = (code) => { res.statusCode = code; return res }
         res.json = (obj) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)) }

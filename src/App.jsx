@@ -5,7 +5,7 @@ import {
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
   LayoutDashboard, UploadCloud, Store, Radar, Megaphone, CalendarClock, Boxes,
   ArrowLeftRight, PackageCheck, Users, ShieldAlert, ListChecks, BookOpen, Link2,
-  Code2, Brain, Settings as SettingsIcon,
+  Code2, Brain, Settings as SettingsIcon, CalendarCheck,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -22,6 +22,7 @@ const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
 const PlannerControl = lazy(() => import('./pages/PlannerControl'))
 const FeedProducts = lazy(() => import('./pages/FeedProducts'))
 const WorkforceOT = lazy(() => import('./pages/WorkforceOT'))
+const HR = lazy(() => import('./pages/HR'))
 const ProductDashboard = lazy(() => import('./pages/ProductDashboard'))
 const ProductTrends = lazy(() => import('./pages/ProductTrends'))
 const MarketingRadar = lazy(() => import('./pages/MarketingRadar'))
@@ -86,6 +87,7 @@ const Icons = {
   StockMovement: ArrowLeftRight,
   Packing: PackageCheck,
   WorkforceOT: Users,
+  HR: CalendarCheck,
   Claims: ShieldAlert,
   Tasks: ListChecks,
   SOPs: BookOpen,
@@ -121,6 +123,7 @@ const menuGroups = [
       { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
       { id: 'Packing', label: 'Packing', renderIcon: Icons.Packing },
       { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.WorkforceOT, dotColor: '#7dd3fc' },
+      { id: 'HR', label: 'พนักงาน (ลา/ตารางเวร)', renderIcon: Icons.HR, dotColor: '#a78bfa' },
       { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims },
       { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' }
     ]
@@ -752,6 +755,11 @@ export default function App() {
       title: 'สินค้าที่ต้องฟีด',
       eyebrow: 'Operations Planning',
       subtitle: 'จำนวนสินค้าราย SKU สำหรับใช้ประกอบการวางแผนฟีด'
+    },
+    HR: {
+      title: 'พนักงาน (ลา/ตารางเวร)',
+      eyebrow: 'Operations Planning',
+      subtitle: 'คำขอลา + อนุมัติ และตารางเวรพนักงาน'
     }
   }[activeTab] || {
     title: activeTab,
@@ -1241,6 +1249,8 @@ export default function App() {
             <PlannerControl onNavigate={setActiveTab} />
         ) : activeTab === 'Workforce OT' ? (
             <WorkforceOT />
+        ) : activeTab === 'HR' ? (
+            <HR />
         ) : activeTab === 'Claims' ? (
             <ClaimView />
         ) : activeTab === 'Import Orders' ? (

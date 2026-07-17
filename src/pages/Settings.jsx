@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, KeyRound, UserPlus, Trash2, Users, ShieldCheck } from 'lucide-react'
+import { Loader2, KeyRound, UserPlus, Trash2, Users, ShieldCheck, MessageCircle } from 'lucide-react'
 
 const getMe = () => {
   try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null }
@@ -12,8 +12,67 @@ export default function Settings() {
   return (
     <div style={{ width: '100%', display: 'grid', gap: 20, maxWidth: 720 }}>
       <ChangePasswordCard me={me} />
+      <LineLinkCard me={me} />
       {isAdmin && <UserManagementCard me={me} />}
     </div>
+  )
+}
+
+function LineLinkCard({ me }) {
+  const [lineUserId, setLineUserId] = useState('')
+  const [saved, setSaved] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/sheet-tools?op=hr').then((r) => r.json()).then((d) => {
+      const mine = (d.lineLinks || []).find((l) => l.username === me?.u)
+      if (mine) { setLineUserId(mine.line_user_id); setSaved(mine.line_user_id) }
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [me?.u])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch('/api/sheet-tools?op=hr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-line-id', line_user_id: lineUserId }),
+      })
+      const d = await res.json()
+      if (!d.success) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
+      setSaved(lineUserId)
+      setMsg({ ok: true, text: lineUserId ? 'เชื่อม LINE สำเร็จ' : 'ยกเลิกการเชื่อม LINE แล้ว' })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card icon={MessageCircle} title="แจ้งเตือนผ่าน LINE" sub="เชื่อม LINE userId เพื่อรับแจ้งเตือนคำขอลาใหม่ (สำหรับ admin) พร้อมกดอนุมัติ/ปฏิเสธจากแชทได้เลย">
+      {loading ? (
+        <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>กำลังโหลด...</div>
+      ) : (
+        <form onSubmit={submit} style={{ display: 'grid', gap: 10, maxWidth: 420 }}>
+          <input value={lineUserId} onChange={(e) => setLineUserId(e.target.value)} placeholder="LINE userId (เช่น U1234567890abcdef...)" style={inputStyle} autoCapitalize="none" />
+          <div style={{ fontSize: 11.5, color: 'var(--payi-text-faint)', lineHeight: 1.5 }}>
+            หา userId ได้จากหน้า LINE Developers Console ของ OA (Basic settings) หรือดูจาก log ตอนทักแชทเข้า OA ครั้งแรก
+          </div>
+          {msg && (
+            <div style={{ fontSize: 12.5, padding: '8px 10px', borderRadius: 8, color: msg.ok ? 'var(--payi-success)' : 'var(--payi-danger)', background: msg.ok ? 'var(--payi-success-bg)' : 'var(--payi-danger-bg)' }}>
+              {msg.text}
+            </div>
+          )}
+          <button type="submit" disabled={busy || lineUserId === saved} style={{ ...primaryBtn, opacity: busy || lineUserId === saved ? 0.6 : 1, justifySelf: 'start' }}>
+            {busy ? <Loader2 size={14} className="payi-spin" /> : <MessageCircle size={14} />} บันทึก
+          </button>
+        </form>
+      )}
+    </Card>
   )
 }
 

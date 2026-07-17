@@ -1,8 +1,20 @@
-// GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite
+// GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite|workforce|planner|hr
 // รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth, cacheable, authEnabled } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet, ensureSheet, downloadDriveFile } from './_lib/sheets.js'
+import { verifySignature, pushMessage, replyMessage } from './_lib/line.js'
+
+// ปิด body parser อัตโนมัติของ Vercel — ต้องอ่าน raw body เองเพื่อตรวจลายเซ็น LINE webhook (HMAC ต้องใช้ byte ดิบ)
+// req.body ยังใช้ได้ตามปกติในทุก op เดิม เพราะ readRawBody() ด้านล่าง parse JSON ให้เหมือน Vercel ทำเอง
+export const config = { api: { bodyParser: false } }
+async function readRawBody(req) {
+  if (typeof req.rawBody === 'string') return req.rawBody // dev middleware (vite.config.js) เซ็ตไว้ให้แล้ว
+  const chunks = []
+  for await (const c of req) chunks.push(c)
+  req.rawBody = Buffer.concat(chunks).toString()
+  return req.rawBody
+}
 // import ต้องเป็น static (ไม่ใช่ createRequire) ไม่งั้น @vercel/nft ตอน deploy ตรวจไม่เจอว่าไฟล์นี้ใช้ xlsx
 // แล้วไม่ bundle แพ็กเกจไปด้วย → "Cannot find module 'xlsx'" ตอนรันจริงบน Vercel (yืนยันจาก log จริง)
 // แต่ static import ของแพ็กเกจ CJS นี้บาง bundler ก็ห่อ exports ไว้ใต้ .default แทนที่จะแปะตรงๆ บน namespace
@@ -18,6 +30,57 @@ const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'appro
 const PEOPLE_HEADERS = ['code', 'name', 'group']
 const OT_LIMIT_HEADERS = ['employee', 'limit_hours', 'updated_at', 'updated_by']
 const OT_APPROVAL_HISTORY_HEADERS = ['id', 'month', 'employee', 'before_minutes', 'after_minutes', 'changed_at', 'changed_by']
+const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note']
+const SCHEDULE_HEADERS = ['id', 'date', 'username', 'employee_name', 'shift_start', 'shift_end', 'role_note', 'created_at', 'created_by']
+const LINE_LINK_HEADERS = ['username', 'line_user_id', 'updated_at']
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS]]
+let hrEnsurePromise
+let hrCache = { at: 0, data: null }
+const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
+const clearHrCache = () => { hrCache = { at: 0, data: null } }
+const daysBetween = (start, end) => Math.round((new Date(`${end}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1
+
+// ใช้ร่วมกันทั้งจาก action decide-leave (กดในเว็บ) และ webhook LINE (กดปุ่มในแชท)
+async function applyLeaveDecision(id, decision, decidedBy, decisionNote = '') {
+  if (!id || !['approved', 'rejected'].includes(decision)) return { error: 'ข้อมูลไม่ถูกต้อง' }
+  const current = await getSheet('hr_leave')
+  const target = current.find((r) => String(r.id) === String(id))
+  if (!target) return { error: 'ไม่พบคำขอลานี้' }
+  if (target.status !== 'pending') return { error: 'คำขอนี้ถูกพิจารณาไปแล้ว', target }
+  const now = new Date().toISOString()
+  const record = { ...target, status: decision, decided_by: decidedBy, decided_at: now, decision_note: decisionNote }
+  const next = current.map((r) => String(r.id) === String(id) ? record : r)
+  await overwriteSheet('hr_leave', LEAVE_HEADERS, next.map((r) => LEAVE_HEADERS.map((h) => r[h] ?? '')))
+  clearHrCache()
+  return { record }
+}
+
+// รายชื่อ admin ที่ผูก LINE ไว้แล้ว (username, line_user_id) — ใช้ตอนแจ้งเตือนคำขอลาใหม่
+async function getAdminLineTargets() {
+  const [users, links] = await Promise.all([getSheet('users'), getSheet('hr_line_links')])
+  const linkByUsername = Object.fromEntries(links.filter((l) => l.username && l.line_user_id).map((l) => [l.username, l.line_user_id]))
+  return users.filter((u) => (u.role || 'staff') === 'admin' && linkByUsername[u.username]).map((u) => ({ username: u.username, line_user_id: linkByUsername[u.username] }))
+}
+
+const leaveSummaryText = (l) => `${l.employee_name} ขอลา${l.leave_type}\n${l.start_date}${Number(l.days) === 0.5 ? ' (ครึ่งวัน)' : l.end_date !== l.start_date ? ` – ${l.end_date}` : ''} · ${l.days} วัน${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
+
+// แจ้งเตือน admin ที่ผูก LINE ไว้ทุกคน พร้อมปุ่มอนุมัติ/ปฏิเสธ — best-effort ล้วนๆ ห้ามทำให้คำขอลาพัง แม้ LINE ล่ม
+async function notifyNewLeaveRequest(record) {
+  const targets = await getAdminLineTargets()
+  if (!targets.length) return
+  const message = {
+    type: 'template', altText: `คำขอลาใหม่: ${leaveSummaryText(record)}`,
+    template: {
+      type: 'buttons', text: leaveSummaryText(record).slice(0, 160),
+      actions: [
+        { type: 'postback', label: 'อนุมัติ', data: `hr-approve:${record.id}`, displayText: 'อนุมัติคำขอลา' },
+        { type: 'postback', label: 'ปฏิเสธ', data: `hr-reject:${record.id}`, displayText: 'ปฏิเสธคำขอลา' },
+      ],
+    },
+  }
+  await Promise.all(targets.map((t) => pushMessage(t.line_user_id, [message])))
+}
+
 const PLANNER_CONFIG_SHEET = 'planner_config'
 const PLANNER_DAILY_SHEET = 'planner_daily'
 const PLANNER_CONFIG_HEADERS = ['master_sku', 'enabled', 'reserve_days', 'safety_percent', 'updated_at', 'updated_by']
@@ -245,6 +308,114 @@ async function opWorkforceInner(req, res) {
   return res.status(400).json({ error: `Unknown workforce action: ${action || '(empty)'}` })
 }
 
+async function opHr(req, res) {
+  try {
+    return await opHrInner(req, res)
+  } catch (e) {
+    console.error('opHr:', e)
+    return res.status(500).json({ success: false, error: e.message })
+  }
+}
+
+async function opHrInner(req, res) {
+  const actorUsername = () => req.user?.u || null
+  const actorName = () => req.user?.name || 'Boss'
+  await ensureHrSheets()
+
+  if (req.method === 'GET') {
+    if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(hrCache.data)
+    const [leaveRange, scheduleRange, lineLinkRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z'])
+    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []) }
+    res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
+    hrCache = { at: Date.now(), data }
+    return res.status(200).json(data)
+  }
+  if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
+  const body = req.body || {}
+  const action = String(body.action || '').trim().toLowerCase()
+
+  if (action === 'request-leave') {
+    if (!body.start_date || !body.leave_type) return res.status(400).json({ success: false, error: 'กรุณาระบุประเภทการลาและวันที่' })
+    const halfDay = Boolean(body.half_day)
+    const endDate = halfDay ? body.start_date : body.end_date
+    if (!halfDay && !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุวันสิ้นสุด' })
+    if (!halfDay && endDate < body.start_date) return res.status(400).json({ success: false, error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่ม' })
+    const now = new Date().toISOString()
+    const username = actorUsername() || 'boss'
+    const employeeName = actorName()
+    const record = {
+      id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      username, employee_name: employeeName, leave_type: body.leave_type,
+      start_date: body.start_date, end_date: endDate,
+      days: halfDay ? 0.5 : daysBetween(body.start_date, endDate),
+      reason: body.reason || '', status: 'pending',
+      requested_by: employeeName, requested_at: now,
+      decided_by: '', decided_at: '', decision_note: '',
+    }
+    await appendRows('hr_leave', [LEAVE_HEADERS.map((h) => record[h] ?? '')])
+    clearHrCache()
+    notifyNewLeaveRequest(record).catch((e) => console.error('notifyNewLeaveRequest:', e.message))
+    return res.status(200).json({ success: true, leave: record })
+  }
+  if (action === 'decide-leave') {
+    if (!requireAdmin(req, res)) return
+    const { record, error } = await applyLeaveDecision(body.id, body.decision, actorName(), body.decision_note || '')
+    if (error) return res.status(record ? 400 : 404).json({ success: false, error })
+    return res.status(200).json({ success: true, leave: record })
+  }
+  if (action === 'cancel-leave') {
+    if (!body.id) return res.status(400).json({ success: false, error: 'กรุณาระบุ id' })
+    const current = await getSheet('hr_leave')
+    const target = current.find((r) => String(r.id) === String(body.id))
+    if (!target) return res.status(404).json({ success: false, error: 'ไม่พบคำขอลานี้' })
+    const isOwner = target.username === actorUsername()
+    const isAdmin = !authEnabled() || req.user?.role === 'admin'
+    if (!isOwner && !isAdmin) return res.status(403).json({ success: false, error: 'ยกเลิกได้เฉพาะคำขอของตัวเองหรือ admin' })
+    if (target.status !== 'pending') return res.status(400).json({ success: false, error: 'ยกเลิกได้เฉพาะรายการที่ยัง pending' })
+    const kept = current.filter((r) => String(r.id) !== String(body.id))
+    await overwriteSheet('hr_leave', LEAVE_HEADERS, kept.map((r) => LEAVE_HEADERS.map((h) => r[h] ?? '')))
+    clearHrCache()
+    return res.status(200).json({ success: true })
+  }
+  if (action === 'set-line-id') {
+    const username = actorUsername() || 'boss'
+    const lineUserId = String(body.line_user_id || '').trim()
+    const current = await getSheet('hr_line_links')
+    const now = new Date().toISOString()
+    const kept = current.filter((r) => r.username !== username).map((r) => LINE_LINK_HEADERS.map((h) => r[h] ?? ''))
+    const rows = lineUserId ? [...kept, LINE_LINK_HEADERS.map((h) => ({ username, line_user_id: lineUserId, updated_at: now })[h] ?? '')] : kept
+    await overwriteSheet('hr_line_links', LINE_LINK_HEADERS, rows)
+    clearHrCache()
+    return res.status(200).json({ success: true, line_user_id: lineUserId })
+  }
+  if (action === 'create-schedule') {
+    if (!requireAdmin(req, res)) return
+    if (!body.date || !body.username || !validTime(body.shift_start) || !validTime(body.shift_end) || clockMinutes(body.shift_end) <= clockMinutes(body.shift_start)) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่ พนักงาน และเวลากะให้ถูกต้อง' })
+    }
+    const now = new Date().toISOString()
+    const record = {
+      id: `sched-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      date: body.date, username: body.username, employee_name: body.employee_name || body.username,
+      shift_start: body.shift_start, shift_end: body.shift_end, role_note: body.role_note || '',
+      created_at: now, created_by: actorName(),
+    }
+    await appendRows('hr_schedule', [SCHEDULE_HEADERS.map((h) => record[h] ?? '')])
+    clearHrCache()
+    return res.status(200).json({ success: true, schedule: record })
+  }
+  if (action === 'delete-schedule') {
+    if (!requireAdmin(req, res)) return
+    if (!body.id) return res.status(400).json({ success: false, error: 'กรุณาระบุ id' })
+    const current = await getSheet('hr_schedule')
+    const kept = current.filter((r) => String(r.id) !== String(body.id))
+    await overwriteSheet('hr_schedule', SCHEDULE_HEADERS, kept.map((r) => SCHEDULE_HEADERS.map((h) => r[h] ?? '')))
+    clearHrCache()
+    return res.status(200).json({ success: true, deleted: current.length - kept.length })
+  }
+  return res.status(400).json({ success: false, error: `Unknown hr action: ${action || '(empty)'}` })
+}
+
 const isCancelled = (status = '') =>
   status.includes('ยกเลิก') || status.toLowerCase().includes('cancel')
 const isReturned = (status = '') => status.toLowerCase().includes('return')
@@ -443,14 +614,46 @@ async function opPlanner(req, res) {
   }
 }
 
+// ── op=line-webhook: LINE เรียกเข้ามาตอนกดปุ่มอนุมัติ/ปฏิเสธในแชท — ไม่มี x-api-token ต้องตรวจลายเซ็นแทน ──
+async function opLineWebhook(req, res) {
+  if (req.method !== 'POST') return res.status(405).end()
+  if (!verifySignature(req.rawBody, req.headers['x-line-signature'])) return res.status(401).end()
+  const events = Array.isArray(req.body?.events) ? req.body.events : []
+  for (const event of events) {
+    try {
+      if (event.type !== 'postback') continue
+      const [, kind, id] = String(event.postback?.data || '').match(/^hr-(approve|reject):(.+)$/) || []
+      if (!kind || !id) continue
+      const decision = kind === 'approve' ? 'approved' : 'rejected'
+      const links = await getSheet('hr_line_links')
+      const link = links.find((l) => l.line_user_id === event.source?.userId)
+      let decidedBy = 'LINE'
+      if (link) {
+        const user = (await getSheet('users')).find((u) => u.username === link.username)
+        decidedBy = user?.display_name || link.username
+      }
+      const { record, error } = await applyLeaveDecision(id, decision, decidedBy)
+      const text = error ? `ทำรายการไม่สำเร็จ: ${error}` : `${decision === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติแล้ว'}\n${leaveSummaryText(record)}`
+      if (event.replyToken) await replyMessage(event.replyToken, [{ type: 'text', text }])
+    } catch (e) { console.error('opLineWebhook event:', e.message) }
+  }
+  return res.status(200).end()
+}
+
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
+  if (req.method !== 'GET') {
+    await readRawBody(req)
+    try { req.body = JSON.parse(req.rawBody || '{}') } catch { req.body = {} }
+  }
   const op = String(req.query.op || '')
+  if (op === 'line-webhook') return opLineWebhook(req, res)
+  if (!requireAuth(req, res)) return
   if (op === 'summary') return opSummary(req, res)
   if (op === 'sheet') return opSheet(req, res)
   if (op === 'append') return opAppend(req, res)
   if (op === 'overwrite') return opOverwrite(req, res)
   if (op === 'workforce') return opWorkforce(req, res)
   if (op === 'planner') return opPlanner(req, res)
-  return res.status(400).json({ error: 'ต้องระบุ ?op=summary|sheet|append|overwrite|workforce|planner' })
+  if (op === 'hr') return opHr(req, res)
+  return res.status(400).json({ error: 'ต้องระบุ ?op=summary|sheet|append|overwrite|workforce|planner|hr|line-webhook' })
 }
