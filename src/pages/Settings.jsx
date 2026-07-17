@@ -79,6 +79,8 @@ function LineLinkCard({ me }) {
 
 function StaffLineLinkCard() {
   const [people, setPeople] = useState([])
+  const [activeMonths, setActiveMonths] = useState({})
+  const [month, setMonth] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 7))
   const [links, setLinks] = useState({}) // { [code]: line_user_id }
   const [drafts, setDrafts] = useState({}) // { [code]: input value }
   const [loading, setLoading] = useState(true)
@@ -93,11 +95,16 @@ function StaffLineLinkCard() {
         if (String(l.username || '').startsWith('mp:')) linkMap[l.username.slice(3)] = l.line_user_id
       }
       setPeople(d.people || [])
+      setActiveMonths(d.activeMonths || {})
       setLinks(linkMap)
       setDrafts((prev) => ({ ...linkMap, ...prev }))
     }).catch(() => {}).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+
+  // เอาเฉพาะคนที่มีชื่อในตาราง SKJ เดือนที่เลือกจริง (ตัดคนออกแล้ว/พาร์ทไทม์นอกช่วง) — ไม่มีข้อมูลเดือนเลยโชว์ทุกคนไว้ก่อน
+  const monthOptions = [...new Set(Object.values(activeMonths).flat())].sort().reverse()
+  const visiblePeople = Object.keys(activeMonths).length === 0 ? people : people.filter((p) => (activeMonths[p.code] || []).includes(month))
 
   const save = async (code) => {
     setBusyCode(code); setMsg(null)
@@ -124,12 +131,21 @@ function StaffLineLinkCard() {
         <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>กำลังโหลด...</div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
+          {monthOptions.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', marginBottom: 4 }}>
+              เดือน (จากตาราง SKJ)
+              <select value={month} onChange={(e) => setMonth(e.target.value)} className="payi-select" style={{ ...inputStyle, width: 'auto' }}>
+                {monthOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+          )}
           {msg && (
             <div style={{ fontSize: 12.5, padding: '8px 10px', borderRadius: 8, color: msg.ok ? 'var(--payi-success)' : 'var(--payi-danger)', background: msg.ok ? 'var(--payi-success-bg)' : 'var(--payi-danger-bg)' }}>
               {msg.text}
             </div>
           )}
-          {people.map((p) => (
+          {!visiblePeople.length && <div style={{ fontSize: 13, color: 'var(--payi-text-faint)' }}>ไม่มีพนักงานในตาราง SKJ เดือนนี้</div>}
+          {visiblePeople.map((p) => (
             <div key={p.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: 110, flexShrink: 0, fontSize: 13, fontWeight: 700, color: 'var(--payi-text-strong)' }}>{p.name}{links[p.code] && <span title="ผูกแล้ว" style={{ color: 'var(--payi-success)', marginLeft: 4 }}>●</span>}</div>
               <input
@@ -148,7 +164,6 @@ function StaffLineLinkCard() {
               </button>
             </div>
           ))}
-          {!people.length && <div style={{ fontSize: 13, color: 'var(--payi-text-faint)' }}>ไม่มีข้อมูลพนักงานในตาราง manpower</div>}
         </div>
       )}
     </Card>
