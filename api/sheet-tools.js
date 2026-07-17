@@ -324,8 +324,8 @@ async function opHrInner(req, res) {
 
   if (req.method === 'GET') {
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(hrCache.data)
-    const [leaveRange, scheduleRange, lineLinkRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z'])
-    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []) }
+    const [leaveRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
+    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: rowsToObjects(peopleRange.values || []) }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
     hrCache = { at: Date.now(), data }
     return res.status(200).json(data)
@@ -334,22 +334,36 @@ async function opHrInner(req, res) {
   const body = req.body || {}
   const action = String(body.action || '').trim().toLowerCase()
 
-  if (action === 'request-leave') {
+  if (action === 'request-leave' || action === 'request-leave-for') {
+    const forSomeoneElse = action === 'request-leave-for'
+    if (forSomeoneElse && !requireAdmin(req, res)) return
     if (!body.start_date || !body.leave_type) return res.status(400).json({ success: false, error: 'กรุณาระบุประเภทการลาและวันที่' })
     const halfDay = Boolean(body.half_day)
     const endDate = halfDay ? body.start_date : body.end_date
     if (!halfDay && !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุวันสิ้นสุด' })
     if (!halfDay && endDate < body.start_date) return res.status(400).json({ success: false, error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่ม' })
+
+    let username, employeeName
+    if (forSomeoneElse) {
+      // ยื่นแทนพนักงานที่ไม่มีบัญชี login — ระบุตัวตนจากตาราง manpower (workforce_people) ไม่ใช่ users
+      const code = String(body.employee_code || '').trim()
+      const person = (await getSheet('workforce_people')).find((p) => p.code === code)
+      if (!code || !person) return res.status(400).json({ success: false, error: 'ไม่พบพนักงานในตาราง manpower' })
+      username = `mp:${code}`
+      employeeName = person.name
+    } else {
+      username = actorUsername() || 'boss'
+      employeeName = actorName()
+    }
+
     const now = new Date().toISOString()
-    const username = actorUsername() || 'boss'
-    const employeeName = actorName()
     const record = {
       id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       username, employee_name: employeeName, leave_type: body.leave_type,
       start_date: body.start_date, end_date: endDate,
       days: halfDay ? 0.5 : daysBetween(body.start_date, endDate),
       reason: body.reason || '', status: 'pending',
-      requested_by: employeeName, requested_at: now,
+      requested_by: actorName(), requested_at: now,
       decided_by: '', decided_at: '', decision_note: '',
     }
     await appendRows('hr_leave', [LEAVE_HEADERS.map((h) => record[h] ?? '')])

@@ -54,6 +54,7 @@ export default function HRMobile() {
 
   const [leave, setLeave] = useState([])
   const [users, setUsers] = useState([])
+  const [people, setPeople] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -62,14 +63,14 @@ export default function HRMobile() {
   const [filterEmployee, setFilterEmployee] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
 
-  const [form, setForm] = useState({ leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+  const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
 
   const load = async () => {
     setLoading(true); setError('')
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || [])
+      setLeave(d.leave || []); setPeople(d.people || [])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
@@ -96,9 +97,10 @@ export default function HRMobile() {
   const submitLeave = async (e) => {
     e.preventDefault(); setSaving(true); setError('')
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request-leave', ...form }) })
+      const action = form.employee_code ? 'request-leave-for' : 'request-leave'
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...form }) })
       const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ส่งคำขอไม่สำเร็จ')
-      setForm({ leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+      setForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
       await load(); setView('list')
     } catch (e2) { setError(e2.message) } finally { setSaving(false) }
   }
@@ -223,10 +225,19 @@ export default function HRMobile() {
             </div>
 
             <form onSubmit={submitLeave} style={{ background: C.card, border: `1px solid ${C.blueLine}`, borderRadius: 16, padding: 18, display: 'grid', gap: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Avatar name={myName} size={42} />
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>พนักงาน : {myName}</div>
-              </div>
+              {isBoss && people.length > 0 ? (
+                <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>ยื่นแทนพนักงาน (จากตาราง manpower)
+                  <select value={form.employee_code} onChange={(e) => setForm({ ...form, employee_code: e.target.value })} style={inputStyle}>
+                    <option value="">— ตัวเอง ({myName}) —</option>
+                    {people.map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Avatar name={myName} size={42} />
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>พนักงาน : {myName}</div>
+                </div>
+              )}
 
               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>วันที่ลา
                 <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value, end_date: form.half_day ? e.target.value : form.end_date })} style={inputStyle} required />

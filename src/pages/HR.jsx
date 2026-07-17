@@ -37,11 +37,12 @@ export default function HR() {
   const [leave, setLeave] = useState([])
   const [schedule, setSchedule] = useState([])
   const [users, setUsers] = useState([])
+  const [people, setPeople] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [leaveForm, setLeaveForm] = useState({ leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+  const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
   const [schedForm, setSchedForm] = useState({ date: today(), username: '', shift_start: '09:00', shift_end: '17:00', role_note: '' })
 
   const load = async () => {
@@ -49,7 +50,7 @@ export default function HR() {
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setSchedule(d.schedule || [])
+      setLeave(d.leave || []); setSchedule(d.schedule || []); setPeople(d.people || [])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
@@ -62,9 +63,10 @@ export default function HR() {
   const submitLeave = async (e) => {
     e.preventDefault(); setSaving(true); setError('')
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request-leave', ...leaveForm }) })
+      const action = leaveForm.employee_code ? 'request-leave-for' : 'request-leave'
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...leaveForm }) })
       const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ส่งคำขอไม่สำเร็จ')
-      setLeaveForm({ leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+      setLeaveForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
       await load()
     } catch (e2) { setError(e2.message) } finally { setSaving(false) }
   }
@@ -128,6 +130,14 @@ export default function HR() {
       {tab === 'leave' && <div style={{ display: 'grid', gap: 14 }}>
         <form onSubmit={submitLeave} style={{ ...card, padding: 20, display: 'grid', gap: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>ส่งคำขอลา</div>
+          {isBoss && people.length > 0 && (
+            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ยื่นแทนพนักงาน (จากตาราง manpower)
+              <select className="payi-select" value={leaveForm.employee_code} onChange={(e) => setLeaveForm({ ...leaveForm, employee_code: e.target.value })}>
+                <option value="">— ตัวเอง —</option>
+                {people.map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
+              </select>
+            </label>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ประเภทการลา
               <select className="payi-select" value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}>
