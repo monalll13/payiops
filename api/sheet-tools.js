@@ -621,6 +621,11 @@ async function opLineWebhook(req, res) {
   const events = Array.isArray(req.body?.events) ? req.body.events : []
   for (const event of events) {
     try {
+      // ทักแชทมาเฉยๆ (ไม่ใช่กดปุ่ม) — ตอบ userId กลับไปให้ก็อปไปผูกในหน้า Settings ได้เลย ไม่ต้องเปิด log
+      if (event.type === 'message' && event.replyToken) {
+        await replyMessage(event.replyToken, [{ type: 'text', text: `LINE userId ของคุณคือ:\n${event.source?.userId || '(ไม่พบ)'}\n\nเอาไปวางที่เว็บ Payi Ops > Settings > แจ้งเตือนผ่าน LINE` }])
+        continue
+      }
       if (event.type !== 'postback') continue
       const [, kind, id] = String(event.postback?.data || '').match(/^hr-(approve|reject):(.+)$/) || []
       if (!kind || !id) continue
