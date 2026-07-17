@@ -728,7 +728,8 @@ async function handleLeaveWizard(event, staffLink) {
     const text = String(event.message.text || '').trim()
     const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
 
-    if (!session && text === LEAVE_TRIGGER) {
+    // พิมพ์ "ลา" เริ่มใหม่ได้เสมอ แม้มี session ค้างจากรอบก่อน (เช่น กดออกจากแชทกลางคัน ไม่กดปุ่มจนจบ) — ไม่งั้นบอทจะเงียบตลอดไปเพราะข้อความอื่นไม่ถูกจับเลย
+    if (text === LEAVE_TRIGGER) {
       await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '' })
       return replyMessage(replyToken, [typeQuickReplyMessage()])
     }
