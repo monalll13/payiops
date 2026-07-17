@@ -65,6 +65,7 @@ export default function HRMobile() {
   const [filterStatus, setFilterStatus] = useState('')
 
   const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+  const isSwap = form.leave_type === 'สลับวันหยุด'
 
   const load = async () => {
     setLoading(true); setError('')
@@ -247,23 +248,23 @@ export default function HRMobile() {
                 </div>
               )}
 
-              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>วันที่ลา
+              <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>{isSwap ? 'จากวันที่ (วันหยุดเดิม)' : 'วันที่ลา'}
                 <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value, end_date: form.half_day ? e.target.value : form.end_date })} style={inputStyle} required />
               </label>
-              {!form.half_day && <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>ถึงวันที่
-                <input type="date" value={form.end_date} min={form.start_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} style={inputStyle} required />
+              {(!form.half_day || isSwap) && <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>{isSwap ? 'เป็นวันที่ (วันหยุดใหม่)' : 'ถึงวันที่'}
+                <input type="date" value={form.end_date} min={isSwap ? undefined : form.start_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} style={inputStyle} required />
               </label>}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: C.text, cursor: 'pointer' }}>
+              {!isSwap && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: C.text, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.half_day} onChange={(e) => setForm({ ...form, half_day: e.target.checked, end_date: e.target.checked ? form.start_date : form.end_date })} />
                 ลาครึ่งวัน
-              </label>
+              </label>}
 
-              <div style={{ fontSize: 12, color: C.muted }}>จำนวน : <b style={{ color: C.blue }}>{form.half_day ? 0.5 : Math.max(1, Math.round((new Date(`${form.end_date}T00:00:00`) - new Date(`${form.start_date}T00:00:00`)) / 86400000) + 1)} วัน</b></div>
+              {!isSwap && <div style={{ fontSize: 12, color: C.muted }}>จำนวน : <b style={{ color: C.blue }}>{form.half_day ? 0.5 : Math.max(1, Math.round((new Date(`${form.end_date}T00:00:00`) - new Date(`${form.start_date}T00:00:00`)) / 86400000) + 1)} วัน</b></div>}
 
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 8 }}>ประเภทการลา</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {LEAVE_TYPES.map((t) => <button type="button" key={t} onClick={() => setForm({ ...form, leave_type: t })} style={pillBtn(form.leave_type === t)}>{t}</button>)}
+                  {LEAVE_TYPES.map((t) => <button type="button" key={t} onClick={() => setForm({ ...form, leave_type: t, half_day: false })} style={pillBtn(form.leave_type === t)}>{t}</button>)}
                 </div>
               </div>
 

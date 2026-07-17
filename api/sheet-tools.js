@@ -33,7 +33,7 @@ const OT_APPROVAL_HISTORY_HEADERS = ['id', 'month', 'employee', 'before_minutes'
 const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note']
 const SCHEDULE_HEADERS = ['id', 'date', 'username', 'employee_name', 'shift_start', 'shift_end', 'role_note', 'created_at', 'created_by']
 const LINE_LINK_HEADERS = ['username', 'line_user_id', 'updated_at']
-const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'updated_at']
+const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'date2', 'updated_at']
 const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
@@ -63,7 +63,9 @@ async function getAdminLineTargets() {
   return users.filter((u) => (u.role || 'staff') === 'admin' && linkByUsername[u.username]).map((u) => ({ username: u.username, line_user_id: linkByUsername[u.username] }))
 }
 
-const leaveSummaryText = (l) => `${l.employee_name} ขอลา${l.leave_type}\n${l.start_date}${Number(l.days) === 0.5 ? ' (ครึ่งวัน)' : l.end_date !== l.start_date ? ` – ${l.end_date}` : ''} · ${l.days} วัน${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
+const leaveSummaryText = (l) => l.leave_type === 'สลับวันหยุด'
+  ? `${l.employee_name} ขอสลับวันหยุด จาก ${l.start_date} เป็น ${l.end_date}${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
+  : `${l.employee_name} ขอลา${l.leave_type}\n${l.start_date}${Number(l.days) === 0.5 ? ' (ครึ่งวัน)' : l.end_date !== l.start_date ? ` – ${l.end_date}` : ''} · ${l.days} วัน${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
 
 // แจ้งเตือน admin ที่ผูก LINE ไว้ทุกคน พร้อมปุ่มอนุมัติ/ปฏิเสธ — best-effort ล้วนๆ ห้ามทำให้คำขอลาพัง แม้ LINE ล่ม
 async function notifyNewLeaveRequest(record) {
@@ -371,10 +373,11 @@ async function opHrInner(req, res) {
     const forSomeoneElse = action === 'request-leave-for'
     if (forSomeoneElse && !requireAdmin(req, res)) return
     if (!body.start_date || !body.leave_type) return res.status(400).json({ success: false, error: 'กรุณาระบุประเภทการลาและวันที่' })
-    const halfDay = Boolean(body.half_day)
+    const isSwap = body.leave_type === 'สลับวันหยุด' // "จาก...เป็น..." ไม่ใช่ช่วงต่อเนื่อง วันที่ 2 มาก่อนวันที่ 1 ได้ ไม่ใช่ error
+    const halfDay = Boolean(body.half_day) && !isSwap
     const endDate = halfDay ? body.start_date : body.end_date
-    if (!halfDay && !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุวันสิ้นสุด' })
-    if (!halfDay && endDate < body.start_date) return res.status(400).json({ success: false, error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่ม' })
+    if (!halfDay && !endDate) return res.status(400).json({ success: false, error: isSwap ? 'กรุณาระบุวันหยุดใหม่' : 'กรุณาระบุวันสิ้นสุด' })
+    if (!halfDay && !isSwap && endDate < body.start_date) return res.status(400).json({ success: false, error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่ม' })
 
     let username, employeeName
     if (forSomeoneElse) {
@@ -394,7 +397,7 @@ async function opHrInner(req, res) {
       id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       username, employee_name: employeeName, leave_type: body.leave_type,
       start_date: body.start_date, end_date: endDate,
-      days: halfDay ? 0.5 : daysBetween(body.start_date, endDate),
+      days: isSwap ? 1 : halfDay ? 0.5 : daysBetween(body.start_date, endDate),
       reason: body.reason || '', status: 'pending',
       requested_by: actorName(), requested_at: now,
       decided_by: '', decided_at: '', decision_note: '',
@@ -680,16 +683,32 @@ const thaiDateLabel = (dateStr) => { const [, m, d] = dateStr.split('-'); return
 
 // เลือกประเภทการลา — ใช้ quick reply (ไม่ใช่ buttons template) เพราะ buttons template จำกัดแค่ 4 ปุ่ม แต่ตอนนี้มี 5 ประเภทแล้ว
 const typeQuickReplyMessage = () => ({ type: 'text', text: 'ลาประเภทไหนครับ?', quickReply: { items: LEAVE_TYPES_LINE.map((t) => ({ type: 'action', action: { type: 'postback', label: t, data: `hr-wiz-type:${t}`, displayText: t } })) } })
-// ปฏิทินจริงของ LINE (datetimepicker) กันพิมพ์วันที่ผิด — แทนที่การให้พิมพ์วันที่เองแบบข้อความ
-const dateButtonsMessage = () => ({ type: 'template', altText: 'เลือกวันที่ลา', template: { type: 'buttons', text: 'ลาวันไหนครับ?', actions: [
+// ปฏิทินจริงของ LINE (datetimepicker) กันพิมพ์วันที่ผิด — ใช้แทนการพิมพ์วันที่เองทั้งหมด
+const dtPicker = (label, data, min) => ({ type: 'datetimepicker', label, data, mode: 'date', initial: min || todayStr(), min: min || todayStr() })
+// ประเภทลาทั่วไป: วันเดียว (วันนี้/พรุ่งนี้) หรือเลือกช่วงวันที่เอง (ลาหลายวัน/หยุดยาว)
+const dateChoiceMessage = () => ({ type: 'template', altText: 'เลือกวันที่ลา', template: { type: 'buttons', text: 'ลาวันไหนครับ?', actions: [
   { type: 'postback', label: 'วันนี้', data: 'hr-wiz-date:today', displayText: 'วันนี้' },
   { type: 'postback', label: 'พรุ่งนี้', data: 'hr-wiz-date:tomorrow', displayText: 'พรุ่งนี้' },
-  { type: 'datetimepicker', label: 'เลือกจากปฏิทิน', data: 'hr-wiz-date:pick', mode: 'date', initial: todayStr(), min: todayStr() },
+  { type: 'postback', label: 'เลือกวัน/ช่วงวันที่', data: 'hr-wiz-date:range', displayText: 'เลือกวัน/ช่วงวันที่' },
 ] } })
-const confirmMessage = (session) => ({ type: 'template', altText: 'ยืนยันคำขอลา', template: { type: 'buttons', text: `ยืนยัน${session.leave_type === 'สลับวันหยุด' ? 'ขอสลับวันหยุดเป็น' : `ลา${session.leave_type}`} วันที่ ${thaiDateLabel(session.date)}${session.leave_type === 'สลับวันหยุด' ? '' : ' 1 วัน'} ใช่ไหมครับ?`, actions: [
-  { type: 'postback', label: 'ยืนยัน', data: 'hr-wiz-confirm:yes', displayText: 'ยืนยัน' },
-  { type: 'postback', label: 'ยกเลิก', data: 'hr-wiz-confirm:no', displayText: 'ยกเลิก' },
-] } })
+const rangeStartMessage = () => ({ type: 'template', altText: 'เลือกวันเริ่มลา', template: { type: 'buttons', text: 'เริ่มลาวันไหนครับ?', actions: [dtPicker('เลือกวันที่', 'hr-wiz-range-start:pick')] } })
+const rangeEndMessage = (minDate) => ({ type: 'template', altText: 'เลือกวันสิ้นสุด', template: { type: 'buttons', text: 'ถึงวันไหนครับ? (เลือกวันเดียวกันถ้าลาวันเดียว)', actions: [dtPicker('เลือกวันที่', 'hr-wiz-range-end:pick', minDate)] } })
+// สลับวันหยุด: ต้องมี 2 วันแยกกัน (วันหยุดเดิม -> วันหยุดใหม่) ไม่ใช่ช่วงต่อเนื่อง
+const swapFromMessage = () => ({ type: 'template', altText: 'เลือกวันหยุดเดิม', template: { type: 'buttons', text: 'จากวันไหนครับ (วันหยุดเดิม)?', actions: [dtPicker('เลือกวันที่', 'hr-wiz-swap-from:pick')] } })
+const swapToMessage = () => ({ type: 'template', altText: 'เลือกวันหยุดใหม่', template: { type: 'buttons', text: 'เป็นวันไหนครับ (วันหยุดใหม่)?', actions: [dtPicker('เลือกวันที่', 'hr-wiz-swap-to:pick')] } })
+const confirmMessage = (session) => {
+  const isSwap = session.leave_type === 'สลับวันหยุด'
+  const isRange = !isSwap && session.date2 && session.date2 !== session.date
+  const text = isSwap
+    ? `ยืนยันขอสลับวันหยุด จาก ${thaiDateLabel(session.date)} เป็น ${thaiDateLabel(session.date2)} ใช่ไหมครับ?`
+    : isRange
+      ? `ยืนยันลา${session.leave_type} วันที่ ${thaiDateLabel(session.date)} – ${thaiDateLabel(session.date2)} ใช่ไหมครับ?`
+      : `ยืนยันลา${session.leave_type} วันที่ ${thaiDateLabel(session.date)} 1 วัน ใช่ไหมครับ?`
+  return { type: 'template', altText: 'ยืนยันคำขอลา', template: { type: 'buttons', text, actions: [
+    { type: 'postback', label: 'ยืนยัน', data: 'hr-wiz-confirm:yes', displayText: 'ยืนยัน' },
+    { type: 'postback', label: 'ยกเลิก', data: 'hr-wiz-confirm:no', displayText: 'ยกเลิก' },
+  ] } }
+}
 
 const getLineSessions = () => getSheet('hr_line_sessions')
 async function upsertSession(lineUserId, patch) {
@@ -730,7 +749,7 @@ async function handleLeaveWizard(event, staffLink) {
 
     // พิมพ์ "ลา" เริ่มใหม่ได้เสมอ แม้มี session ค้างจากรอบก่อน (เช่น กดออกจากแชทกลางคัน ไม่กดปุ่มจนจบ) — ไม่งั้นบอทจะเงียบตลอดไปเพราะข้อความอื่นไม่ถูกจับเลย
     if (text === LEAVE_TRIGGER) {
-      await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '' })
+      await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '', date2: '' })
       return replyMessage(replyToken, [typeQuickReplyMessage()])
     }
     return // ข้อความอื่นที่ไม่เข้าเงื่อนไข ไม่ตอบ กันสแปมแชท
@@ -739,28 +758,64 @@ async function handleLeaveWizard(event, staffLink) {
   if (event.type === 'postback') {
     const data = String(event.postback?.data || '')
     const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
+    const pickedDate = event.postback?.params?.date // มาจากปฏิทินจริงของ LINE (datetimepicker) เท่านั้น ไม่มีทางพิมพ์ผิด
 
     if (data.startsWith('hr-wiz-type:')) {
       if (session?.step !== 'await_type') return invalid()
-      await upsertSession(lineUserId, { leave_type: data.slice('hr-wiz-type:'.length), step: 'await_date' })
-      return replyMessage(replyToken, [dateButtonsMessage()])
+      const leaveType = data.slice('hr-wiz-type:'.length)
+      if (leaveType === 'สลับวันหยุด') {
+        await upsertSession(lineUserId, { leave_type: leaveType, step: 'await_swap_from' })
+        return replyMessage(replyToken, [swapFromMessage()])
+      }
+      await upsertSession(lineUserId, { leave_type: leaveType, step: 'await_date' })
+      return replyMessage(replyToken, [dateChoiceMessage()])
     }
+
+    // ── ประเภทลาทั่วไป: วันเดียว (วันนี้/พรุ่งนี้) หรือเลือกช่วงวันที่เอง (ลาหลายวัน/หยุดยาว) ──
     if (data.startsWith('hr-wiz-date:')) {
       if (session?.step !== 'await_date') return invalid()
       const choice = data.slice('hr-wiz-date:'.length)
-      // choice === 'pick' มาจากปฏิทินจริงของ LINE (datetimepicker) — วันที่อยู่ใน event.postback.params.date เสมอ ไม่มีทางพิมพ์ผิด
-      const date = choice === 'today' ? todayStr() : choice === 'tomorrow' ? addDaysStr(todayStr(), 1) : event.postback?.params?.date
-      if (!date) return invalid()
-      const next = await upsertSession(lineUserId, { date, step: 'await_confirm' })
+      if (choice === 'range') {
+        await upsertSession(lineUserId, { step: 'await_range_start' })
+        return replyMessage(replyToken, [rangeStartMessage()])
+      }
+      const date = choice === 'today' ? todayStr() : addDaysStr(todayStr(), 1)
+      const next = await upsertSession(lineUserId, { date, date2: date, step: 'await_confirm' })
       return replyMessage(replyToken, [confirmMessage(next)])
     }
+    if (data === 'hr-wiz-range-start:pick') {
+      if (session?.step !== 'await_range_start' || !pickedDate) return invalid()
+      await upsertSession(lineUserId, { date: pickedDate, step: 'await_range_end' })
+      return replyMessage(replyToken, [rangeEndMessage(pickedDate)])
+    }
+    if (data === 'hr-wiz-range-end:pick') {
+      if (session?.step !== 'await_range_end' || !pickedDate) return invalid()
+      if (pickedDate < session.date) return replyMessage(replyToken, [{ type: 'text', text: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มครับ ลองเลือกใหม่' }, rangeEndMessage(session.date)])
+      const next = await upsertSession(lineUserId, { date2: pickedDate, step: 'await_confirm' })
+      return replyMessage(replyToken, [confirmMessage(next)])
+    }
+
+    // ── สลับวันหยุด: จาก (วันหยุดเดิม) -> เป็น (วันหยุดใหม่) ──
+    if (data === 'hr-wiz-swap-from:pick') {
+      if (session?.step !== 'await_swap_from' || !pickedDate) return invalid()
+      await upsertSession(lineUserId, { date: pickedDate, step: 'await_swap_to' })
+      return replyMessage(replyToken, [swapToMessage()])
+    }
+    if (data === 'hr-wiz-swap-to:pick') {
+      if (session?.step !== 'await_swap_to' || !pickedDate) return invalid()
+      const next = await upsertSession(lineUserId, { date2: pickedDate, step: 'await_confirm' })
+      return replyMessage(replyToken, [confirmMessage(next)])
+    }
+
     if (data === 'hr-wiz-confirm:yes') {
       if (session?.step !== 'await_confirm' || !staffLink) return invalid()
+      const isSwap = session.leave_type === 'สลับวันหยุด'
       const now = new Date().toISOString()
       const record = {
         id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         username: staffLink.username, employee_name: staffLink.name, leave_type: session.leave_type,
-        start_date: session.date, end_date: session.date, days: 1,
+        start_date: session.date, end_date: session.date2 || session.date,
+        days: isSwap ? 1 : daysBetween(session.date, session.date2 || session.date),
         reason: '', status: 'pending',
         requested_by: staffLink.name, requested_at: now,
         decided_by: '', decided_at: '', decision_note: '',

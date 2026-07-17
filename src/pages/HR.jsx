@@ -45,6 +45,7 @@ export default function HR() {
 
   const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
   const [schedForm, setSchedForm] = useState({ date: today(), username: '', shift_start: '09:00', shift_end: '17:00', role_note: '' })
+  const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
 
   const load = async () => {
     setLoading(true); setError('')
@@ -149,24 +150,24 @@ export default function HR() {
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ประเภทการลา
-              <select className="payi-select" value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}>
+              <select className="payi-select" value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value, half_day: false })}>
                 {LEAVE_TYPES.map((t) => <option key={t}>{t}</option>)}
               </select>
             </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>วันเริ่ม
+            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>{isSwap ? 'จากวันที่ (วันหยุดเดิม)' : 'วันเริ่ม'}
               <input className="payi-date-input" type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value })} required />
             </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>วันสิ้นสุด
-              <input className="payi-date-input" type="date" value={leaveForm.half_day ? leaveForm.start_date : leaveForm.end_date} min={leaveForm.start_date} disabled={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required />
+            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>{isSwap ? 'เป็นวันที่ (วันหยุดใหม่)' : 'วันสิ้นสุด'}
+              <input className="payi-date-input" type="date" value={leaveForm.half_day ? leaveForm.start_date : leaveForm.end_date} min={isSwap ? undefined : leaveForm.start_date} disabled={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required />
             </label>
             <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>เหตุผล
               <input className="payi-input" value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder="ไม่จำเป็นต้องกรอก" />
             </label>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)', cursor: 'pointer' }}>
+          {!isSwap && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)', cursor: 'pointer' }}>
             <input type="checkbox" checked={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, half_day: e.target.checked, end_date: e.target.checked ? leaveForm.start_date : leaveForm.end_date })} />
             ลาครึ่งวัน (0.5 วัน)
-          </label>
+          </label>}
           <button disabled={saving} className="payi-btn-primary" style={{ justifySelf: 'start', padding: '11px 20px', opacity: saving ? 0.6 : 1 }}>{saving ? 'กำลังบันทึก…' : 'ส่งคำขอลา'}</button>
         </form>
 
