@@ -126,6 +126,26 @@ async function getPersonMap() {
   return map
 }
 
+// กลุ่มออฟฟิศ (พื้นเหลืองในไฟล์ SKJ) — จงใจไม่ใส่ใน workforce_people เพราะไม่ต้องการให้ขึ้นปฏิทิน Manpower & OT เดิม
+// แต่ระบบลา/LINE ต้องเห็นคนกลุ่มนี้ด้วย จึงใช้ personMap แยกต่างหากเฉพาะตอนอ่านไฟล์ manpower สำหรับ op=hr เท่านั้น (cache คนละก้อนกับ getManpowerSource ของ Workforce OT กันชนกัน)
+const HR_EXTRA_PEOPLE = { TOON: ['ตูน', 'ออฟฟิศ'], KED: ['เกด', 'ออฟฟิศ'], MO: ['โม', 'ออฟฟิศ'] }
+// คนหนึ่งคนสำหรับระบบลา/LINE — เช็ค workforce_people ก่อน (บ้านล่าง) แล้วค่อย fallback ไป HR_EXTRA_PEOPLE (ออฟฟิศ)
+async function findHrPerson(code) {
+  const fromSheet = (await getSheet('workforce_people')).find((p) => p.code === code)
+  if (fromSheet) return { code, name: fromSheet.name }
+  const extra = HR_EXTRA_PEOPLE[code]
+  return extra ? { code, name: extra[0] } : null
+}
+let hrManpowerSourceCache = { at: 0, data: null }
+async function getHrManpowerSource() {
+  if (!process.env.MANPOWER_FILE_ID) return []
+  if (hrManpowerSourceCache.data && Date.now() - hrManpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return hrManpowerSourceCache.data
+  const personMap = { ...(await getPersonMap()), ...HR_EXTRA_PEOPLE }
+  const data = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap)
+  hrManpowerSourceCache = { at: Date.now(), data }
+  return data
+}
+
 export function parseManpowerWorkbook(buffer, personMap = {}) {
   const wb = XLSX.read(buffer, { type: 'buffer' }); const result = []; const warnings = []
   for (const sheetName of wb.SheetNames) {
@@ -326,15 +346,19 @@ async function opHrInner(req, res) {
   if (req.method === 'GET') {
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(hrCache.data)
     const [leaveRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
-    // เดือนที่แต่ละคนมีงานจริง (จากไฟล์ manpower บน Drive) — ใช้กรอง dropdown "ยื่นแทนพนักงาน" ไม่ให้โชว์คนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น
+    // เดือนที่แต่ละคนมีงานจริง (จากไฟล์ manpower บน Drive) — ใช้กรอง dropdown "ยื่นแทนพนักงาน"/"ผูก LINE" ไม่ให้โชว์คนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น
+    // ใช้ getHrManpowerSource (personMap รวมกลุ่มออฟฟิศ HR_EXTRA_PEOPLE) ไม่ใช่ getManpowerSource ของ Workforce OT — กันคนกลุ่มนี้หลุดเข้าปฏิทิน OT
     let activeMonths = {}
     try {
-      const personMap = await getPersonMap()
-      const manpowerRows = await getManpowerSource(personMap)
+      const manpowerRows = await getHrManpowerSource()
       for (const r of manpowerRows) (activeMonths[r.code] ||= new Set()).add(String(r.date).slice(0, 7))
       activeMonths = Object.fromEntries(Object.entries(activeMonths).map(([code, set]) => [code, [...set]]))
     } catch (e) { console.error('activeMonths:', e.message) } // ไฟล์ manpower โหลดไม่ได้ก็ไม่ให้ทั้งหน้า HR พัง — แค่ไม่กรองเดือน
-    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: rowsToObjects(peopleRange.values || []), activeMonths }
+    const peopleFromSheet = rowsToObjects(peopleRange.values || [])
+    const extraPeople = Object.entries(HR_EXTRA_PEOPLE)
+      .filter(([code]) => !peopleFromSheet.some((p) => String(p.code).toUpperCase() === code))
+      .map(([code, [name, group]]) => ({ code, name, group }))
+    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: [...peopleFromSheet, ...extraPeople], activeMonths }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
     hrCache = { at: Date.now(), data }
     return res.status(200).json(data)
@@ -354,9 +378,9 @@ async function opHrInner(req, res) {
 
     let username, employeeName
     if (forSomeoneElse) {
-      // ยื่นแทนพนักงานที่ไม่มีบัญชี login — ระบุตัวตนจากตาราง manpower (workforce_people) ไม่ใช่ users
+      // ยื่นแทนพนักงานที่ไม่มีบัญชี login — ระบุตัวตนจากตาราง manpower (workforce_people + กลุ่มออฟฟิศ) ไม่ใช่ users
       const code = String(body.employee_code || '').trim()
-      const person = (await getSheet('workforce_people')).find((p) => p.code === code)
+      const person = code ? await findHrPerson(code) : null
       if (!code || !person) return res.status(400).json({ success: false, error: 'ไม่พบพนักงานในตาราง manpower' })
       username = `mp:${code}`
       employeeName = person.name
@@ -700,7 +724,7 @@ async function findStaffLink(lineUserId) {
   const link = links.find((l) => l.line_user_id === lineUserId && String(l.username || '').startsWith('mp:'))
   if (!link) return null
   const code = link.username.slice(3)
-  const person = (await getSheet('workforce_people')).find((p) => p.code === code)
+  const person = await findHrPerson(code)
   if (!person) return null
   return { username: link.username, code, name: person.name }
 }
