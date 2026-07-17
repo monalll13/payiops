@@ -7,6 +7,7 @@ import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const isReturned = (s = '') => s.toLowerCase().includes('return')
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
 const round2 = (n) => Math.round(n * 100) / 100
@@ -49,7 +50,7 @@ export default async function handler(req, res) {
       for (let j = 1; j < rows.length; j++) {
         const r = rows[j] || []
         const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, status = r[4]
-        if (isCancelled(status)) continue
+        if (isCancelled(status) || isReturned(status)) continue
         const { key } = deriveGroup(name, masterSku, overrideMap)
         units.set(key, (units.get(key) || 0) + qty)
       }

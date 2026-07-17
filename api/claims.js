@@ -11,6 +11,7 @@ const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const truthy = (v) => v === '1' || v === 1 || v === true || String(v).toLowerCase() === 'true'
 const round2 = (n) => Math.round(n * 100) / 100
 const isCancelled = (s = '') => String(s).includes('ยกเลิก') || String(s).toLowerCase().includes('cancel')
+const isReturned = (s = '') => String(s).toLowerCase().includes('return')
 // เคลมบางแถวไม่ได้ติ๊กประเภทไหนเลย (เสีย/ส่งไม่ครบ/ส่งผิด) — ถ้าไม่นับแยกไว้ ยอดรวม 3 ประเภทจะน้อยกว่ายอดเคลมทั้งหมดโดยไม่มีอะไรเตือน
 const noneFlagged = (r) => !truthy(r.is_damaged) && !truthy(r.is_incomplete) && !truthy(r.is_wrong_item)
 // เคลมบางแถวมีแต่ product_name (display_name/master_sku ว่าง) — ไม่ fallback จะรวมเป็น "(ไม่ระบุ)" กลุ่มเดียวทั้งที่เป็นคนละสินค้า
@@ -169,7 +170,7 @@ export default async function handler(req, res) {
           const monthIndex = parseInt(monthTabs[i].slice(-2), 10) - 1
           if (monthIndex < 0 || monthIndex > 11) continue
           for (const row of (orderRanges[i].values || []).slice(1)) {
-            if (!isCancelled(row[4])) outgoingByMonth[monthIndex] += parseInt(row[2], 10) || 0
+            if (!isCancelled(row[4]) && !isReturned(row[4])) outgoingByMonth[monthIndex] += parseInt(row[2], 10) || 0
           }
         }
       }
@@ -338,7 +339,7 @@ export default async function handler(req, res) {
         const left = orderData[i * 2].values || [], right = orderData[i * 2 + 1].values || []
         for (let j = 1; j < Math.max(left.length, right.length); j++) {
           const l = left[j] || [], r = right[j] || []
-          if (!inDate(String(l[2] || '')) || !keepBiz(l[4] || '') || isCancelled(r[4])) continue
+          if (!inDate(String(l[2] || '')) || !keepBiz(l[4] || '') || isCancelled(r[4]) || isReturned(r[4])) continue
           const { key } = deriveGroup(r[1], r[0], overrideMap)
           unitsByProduct.set(key, (unitsByProduct.get(key) || 0) + (parseInt(r[2], 10) || 0))
         }

@@ -43,6 +43,7 @@ const STATUS_LABELS = {
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '')) || 0
 const round2 = (n) => Math.round(n * 100) / 100
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
+const isReturned = (s = '') => s.toLowerCase().includes('return')
 const dayMs = 86400000
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const day10 = (v) => String(v ?? '').slice(0, 10) // กันกรณีค่ามี timestamp ปน (เช่น "2026-05-01T..") ไม่ให้ Date พัง
@@ -98,7 +99,7 @@ async function readOrderRows() {
       const qty = parseInt(r[2], 10) || 0
       const revenue = num(r[3])
       const status = r[4]
-      if (!date || isCancelled(status)) continue
+      if (!date || isCancelled(status) || isReturned(status)) continue
 
       const group = deriveGroup(displayName, masterSku, overrideMap)
       rows.push({
