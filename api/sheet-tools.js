@@ -33,7 +33,8 @@ const OT_APPROVAL_HISTORY_HEADERS = ['id', 'month', 'employee', 'before_minutes'
 const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note']
 const SCHEDULE_HEADERS = ['id', 'date', 'username', 'employee_name', 'shift_start', 'shift_end', 'role_note', 'created_at', 'created_by']
 const LINE_LINK_HEADERS = ['username', 'line_user_id', 'updated_at']
-const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS]]
+const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'updated_at']
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
 const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
@@ -399,8 +400,16 @@ async function opHrInner(req, res) {
     clearHrCache()
     return res.status(200).json({ success: true })
   }
-  if (action === 'set-line-id') {
-    const username = actorUsername() || 'boss'
+  if (action === 'set-line-id' || action === 'set-line-id-for') {
+    let username
+    if (action === 'set-line-id-for') {
+      if (!requireAdmin(req, res)) return
+      const code = String(body.employee_code || '').trim()
+      if (!code) return res.status(400).json({ success: false, error: 'กรุณาระบุพนักงาน' })
+      username = `mp:${code}`
+    } else {
+      username = actorUsername() || 'boss'
+    }
     const lineUserId = String(body.line_user_id || '').trim()
     const current = await getSheet('hr_line_links')
     const now = new Date().toISOString()
@@ -637,23 +646,157 @@ async function opPlanner(req, res) {
 }
 
 // ── op=line-webhook: LINE เรียกเข้ามาตอนกดปุ่มอนุมัติ/ปฏิเสธในแชท — ไม่มี x-api-token ต้องตรวจลายเซ็นแทน ──
+// ── ตัวช่วยขั้นตอนยื่นลาผ่านแชท LINE (พนักงานที่ไม่มีบัญชี login กดเมนูสำเร็จรูปแทนเข้าเว็บ) ──
+const LEAVE_TRIGGER = 'ลา'
+const LEAVE_TYPES_LINE = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน']
+const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+const addDaysStr = (dateStr, n) => { const d = new Date(`${dateStr}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
+const thaiDateLabel = (dateStr) => { const [, m, d] = dateStr.split('-'); return `${Number(d)} ${THAI_MONTH_ABBR[Number(m) - 1]}` }
+
+function parseCustomDate(text) {
+  const m = String(text).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/)
+  if (!m) return null
+  const d = Number(m[1]); const mo = Number(m[2])
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null
+  let year = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : Number(todayStr().slice(0, 4))
+  if (year >= 2400) year -= 543 // พ.ศ. -> ค.ศ.
+  const candidate = `${year}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  const dt = new Date(`${candidate}T00:00:00`)
+  if (Number.isNaN(dt.getTime()) || dt.getDate() !== d || dt.getMonth() + 1 !== mo) return null // กัน 31/2 ฯลฯ
+  return candidate
+}
+
+const typeButtonsMessage = () => ({ type: 'template', altText: 'เลือกประเภทการลา', template: { type: 'buttons', text: 'ลาประเภทไหนครับ?', actions: LEAVE_TYPES_LINE.map((t) => ({ type: 'postback', label: t, data: `hr-wiz-type:${t}`, displayText: t })) } })
+const dateButtonsMessage = () => ({ type: 'template', altText: 'เลือกวันที่ลา', template: { type: 'buttons', text: 'ลาวันไหนครับ?', actions: [
+  { type: 'postback', label: 'วันนี้', data: 'hr-wiz-date:today', displayText: 'วันนี้' },
+  { type: 'postback', label: 'พรุ่งนี้', data: 'hr-wiz-date:tomorrow', displayText: 'พรุ่งนี้' },
+  { type: 'postback', label: 'พิมพ์วันที่เอง', data: 'hr-wiz-date:custom', displayText: 'พิมพ์วันที่เอง' },
+] } })
+const confirmMessage = (session) => ({ type: 'template', altText: 'ยืนยันคำขอลา', template: { type: 'buttons', text: `ยืนยันลา${session.leave_type} วันที่ ${thaiDateLabel(session.date)} 1 วัน ใช่ไหมครับ?`, actions: [
+  { type: 'postback', label: 'ยืนยัน', data: 'hr-wiz-confirm:yes', displayText: 'ยืนยัน' },
+  { type: 'postback', label: 'ยกเลิก', data: 'hr-wiz-confirm:no', displayText: 'ยกเลิก' },
+] } })
+
+const getLineSessions = () => getSheet('hr_line_sessions')
+async function upsertSession(lineUserId, patch) {
+  const current = await getLineSessions()
+  const existing = current.find((r) => r.line_user_id === lineUserId) || { line_user_id: lineUserId, step: '', leave_type: '', date: '' }
+  const next = { ...existing, ...patch, updated_at: new Date().toISOString() }
+  const rows = current.filter((r) => r.line_user_id !== lineUserId).map((r) => LINE_SESSION_HEADERS.map((h) => r[h] ?? ''))
+  rows.push(LINE_SESSION_HEADERS.map((h) => next[h] ?? ''))
+  await overwriteSheet('hr_line_sessions', LINE_SESSION_HEADERS, rows)
+  return next
+}
+async function clearSession(lineUserId) {
+  const current = await getLineSessions()
+  const rows = current.filter((r) => r.line_user_id !== lineUserId).map((r) => LINE_SESSION_HEADERS.map((h) => r[h] ?? ''))
+  await overwriteSheet('hr_line_sessions', LINE_SESSION_HEADERS, rows)
+}
+
+// พนักงาน manpower ที่ผูก LINE ไว้แล้ว (username เก็บเป็น mp:<code> เหมือน request-leave-for) — ไม่พบ = ยังไม่ได้ผูก ใช้เมนูลาไม่ได้
+async function findStaffLink(lineUserId) {
+  const links = await getSheet('hr_line_links')
+  const link = links.find((l) => l.line_user_id === lineUserId && String(l.username || '').startsWith('mp:'))
+  if (!link) return null
+  const code = link.username.slice(3)
+  const person = (await getSheet('workforce_people')).find((p) => p.code === code)
+  if (!person) return null
+  return { username: link.username, code, name: person.name }
+}
+
+async function handleLeaveWizard(event, staffLink) {
+  const lineUserId = event.source?.userId
+  const replyToken = event.replyToken
+  if (!replyToken) return
+  const invalid = () => replyMessage(replyToken, [{ type: 'text', text: 'เริ่มใหม่โดยพิมพ์ "ลา" ครับ' }])
+
+  if (event.type === 'message' && event.message?.type === 'text') {
+    const text = String(event.message.text || '').trim()
+    const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
+
+    if (session?.step === 'await_date_text') {
+      const parsed = parseCustomDate(text)
+      if (!parsed) return replyMessage(replyToken, [{ type: 'text', text: 'ไม่เข้าใจวันที่ครับ ลองพิมพ์แบบ 17/7 หรือ 17/7/2026 อีกครั้งนะครับ' }])
+      const next = await upsertSession(lineUserId, { date: parsed, step: 'await_confirm' })
+      return replyMessage(replyToken, [confirmMessage(next)])
+    }
+    if (!session && text === LEAVE_TRIGGER) {
+      await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '' })
+      return replyMessage(replyToken, [typeButtonsMessage()])
+    }
+    return // ข้อความอื่นที่ไม่เข้าเงื่อนไข ไม่ตอบ กันสแปมแชท
+  }
+
+  if (event.type === 'postback') {
+    const data = String(event.postback?.data || '')
+    const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
+
+    if (data.startsWith('hr-wiz-type:')) {
+      if (session?.step !== 'await_type') return invalid()
+      await upsertSession(lineUserId, { leave_type: data.slice('hr-wiz-type:'.length), step: 'await_date' })
+      return replyMessage(replyToken, [dateButtonsMessage()])
+    }
+    if (data.startsWith('hr-wiz-date:')) {
+      if (session?.step !== 'await_date') return invalid()
+      const choice = data.slice('hr-wiz-date:'.length)
+      if (choice === 'custom') {
+        await upsertSession(lineUserId, { step: 'await_date_text' })
+        return replyMessage(replyToken, [{ type: 'text', text: 'พิมพ์วันที่ลาครับ เช่น 17/7 หรือ 17/7/2026' }])
+      }
+      const date = choice === 'today' ? todayStr() : addDaysStr(todayStr(), 1)
+      const next = await upsertSession(lineUserId, { date, step: 'await_confirm' })
+      return replyMessage(replyToken, [confirmMessage(next)])
+    }
+    if (data === 'hr-wiz-confirm:yes') {
+      if (session?.step !== 'await_confirm' || !staffLink) return invalid()
+      const now = new Date().toISOString()
+      const record = {
+        id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        username: staffLink.username, employee_name: staffLink.name, leave_type: session.leave_type,
+        start_date: session.date, end_date: session.date, days: 1,
+        reason: '', status: 'pending',
+        requested_by: staffLink.name, requested_at: now,
+        decided_by: '', decided_at: '', decision_note: '',
+      }
+      await appendRows('hr_leave', [LEAVE_HEADERS.map((h) => record[h] ?? '')])
+      clearHrCache()
+      await clearSession(lineUserId)
+      notifyNewLeaveRequest(record).catch((e) => console.error('notifyNewLeaveRequest:', e.message))
+      return replyMessage(replyToken, [{ type: 'text', text: 'ส่งคำขอแล้วครับ รอหัวหน้าอนุมัติ' }])
+    }
+    if (data === 'hr-wiz-confirm:no') {
+      await clearSession(lineUserId)
+      return replyMessage(replyToken, [{ type: 'text', text: 'ยกเลิกแล้วครับ' }])
+    }
+  }
+}
+
 async function opLineWebhook(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
   if (!verifySignature(req.rawBody, req.headers['x-line-signature'])) return res.status(401).end()
   const events = Array.isArray(req.body?.events) ? req.body.events : []
   for (const event of events) {
     try {
-      // ทักแชทมาเฉยๆ (ไม่ใช่กดปุ่ม) — ตอบ userId กลับไปให้ก็อปไปผูกในหน้า Settings ได้เลย ไม่ต้องเปิด log
-      if (event.type === 'message' && event.replyToken) {
-        await replyMessage(event.replyToken, [{ type: 'text', text: `LINE userId ของคุณคือ:\n${event.source?.userId || '(ไม่พบ)'}\n\nเอาไปวางที่เว็บ Payi Ops > Settings > แจ้งเตือนผ่าน LINE` }])
+      const lineUserId = event.source?.userId
+      const staffLink = lineUserId ? await findStaffLink(lineUserId) : null
+
+      if (event.type === 'message' && event.message?.type === 'text') {
+        if (staffLink) { await handleLeaveWizard(event, staffLink); continue }
+        // ยังไม่ผูกเป็นพนักงาน (หรือเป็น admin) — ตอบ userId กลับไปให้ก็อปไปผูกในหน้า Settings ได้เลย ไม่ต้องเปิด log
+        if (event.replyToken) await replyMessage(event.replyToken, [{ type: 'text', text: `LINE userId ของคุณคือ:\n${lineUserId || '(ไม่พบ)'}\n\nเอาไปวางที่เว็บ Payi Ops > Settings > แจ้งเตือนผ่าน LINE` }])
         continue
       }
+
       if (event.type !== 'postback') continue
-      const [, kind, id] = String(event.postback?.data || '').match(/^hr-(approve|reject):(.+)$/) || []
+      const data = String(event.postback?.data || '')
+      if (data.startsWith('hr-wiz-')) { await handleLeaveWizard(event, staffLink); continue }
+
+      const [, kind, id] = data.match(/^hr-(approve|reject):(.+)$/) || []
       if (!kind || !id) continue
       const decision = kind === 'approve' ? 'approved' : 'rejected'
       const links = await getSheet('hr_line_links')
-      const link = links.find((l) => l.line_user_id === event.source?.userId)
+      const link = links.find((l) => l.line_user_id === lineUserId)
       let decidedBy = 'LINE'
       if (link) {
         const user = (await getSheet('users')).find((u) => u.username === link.username)

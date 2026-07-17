@@ -13,6 +13,7 @@ export default function Settings() {
     <div style={{ width: '100%', display: 'grid', gap: 20, maxWidth: 720 }}>
       <ChangePasswordCard me={me} />
       <LineLinkCard me={me} />
+      {isAdmin && <StaffLineLinkCard />}
       {isAdmin && <UserManagementCard me={me} />}
     </div>
   )
@@ -71,6 +72,84 @@ function LineLinkCard({ me }) {
             {busy ? <Loader2 size={14} className="payi-spin" /> : <MessageCircle size={14} />} บันทึก
           </button>
         </form>
+      )}
+    </Card>
+  )
+}
+
+function StaffLineLinkCard() {
+  const [people, setPeople] = useState([])
+  const [links, setLinks] = useState({}) // { [code]: line_user_id }
+  const [drafts, setDrafts] = useState({}) // { [code]: input value }
+  const [loading, setLoading] = useState(true)
+  const [busyCode, setBusyCode] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    fetch('/api/sheet-tools?op=hr').then((r) => r.json()).then((d) => {
+      const linkMap = {}
+      for (const l of d.lineLinks || []) {
+        if (String(l.username || '').startsWith('mp:')) linkMap[l.username.slice(3)] = l.line_user_id
+      }
+      setPeople(d.people || [])
+      setLinks(linkMap)
+      setDrafts((prev) => ({ ...linkMap, ...prev }))
+    }).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async (code) => {
+    setBusyCode(code); setMsg(null)
+    try {
+      const res = await fetch('/api/sheet-tools?op=hr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-line-id-for', employee_code: code, line_user_id: drafts[code] || '' }),
+      })
+      const d = await res.json()
+      if (!d.success) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
+      setLinks((prev) => ({ ...prev, [code]: drafts[code] || '' }))
+      setMsg({ ok: true, text: `บันทึก LINE ของ${people.find((p) => p.code === code)?.name || code} แล้ว` })
+    } catch (err) {
+      setMsg({ ok: false, text: err.message })
+    } finally {
+      setBusyCode(null)
+    }
+  }
+
+  return (
+    <Card icon={MessageCircle} title="ผูก LINE พนักงาน (manpower)" sub="ให้พนักงานทักแชทเข้า OA 1 ครั้ง (บอทจะตอบ userId กลับมา) แล้วเอามาวางที่นี่ให้แต่ละคน — เชื่อมแล้วยื่นลาผ่านไลน์ได้เลย พิมพ์ &quot;ลา&quot; ในแชท">
+      {loading ? (
+        <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>กำลังโหลด...</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {msg && (
+            <div style={{ fontSize: 12.5, padding: '8px 10px', borderRadius: 8, color: msg.ok ? 'var(--payi-success)' : 'var(--payi-danger)', background: msg.ok ? 'var(--payi-success-bg)' : 'var(--payi-danger-bg)' }}>
+              {msg.text}
+            </div>
+          )}
+          {people.map((p) => (
+            <div key={p.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 110, flexShrink: 0, fontSize: 13, fontWeight: 700, color: 'var(--payi-text-strong)' }}>{p.name}{links[p.code] && <span title="ผูกแล้ว" style={{ color: 'var(--payi-success)', marginLeft: 4 }}>●</span>}</div>
+              <input
+                value={drafts[p.code] ?? ''}
+                onChange={(e) => setDrafts((prev) => ({ ...prev, [p.code]: e.target.value }))}
+                placeholder="LINE userId"
+                style={{ ...inputStyle, flex: 1 }}
+                autoCapitalize="none"
+              />
+              <button
+                onClick={() => save(p.code)}
+                disabled={busyCode === p.code || (drafts[p.code] ?? '') === (links[p.code] ?? '')}
+                style={{ ...primaryBtn, padding: '7px 12px', opacity: busyCode === p.code || (drafts[p.code] ?? '') === (links[p.code] ?? '') ? 0.5 : 1 }}
+              >
+                {busyCode === p.code ? <Loader2 size={13} className="payi-spin" /> : 'บันทึก'}
+              </button>
+            </div>
+          ))}
+          {!people.length && <div style={{ fontSize: 13, color: 'var(--payi-text-faint)' }}>ไม่มีข้อมูลพนักงานในตาราง manpower</div>}
+        </div>
       )}
     </Card>
   )
