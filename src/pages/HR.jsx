@@ -38,6 +38,7 @@ export default function HR() {
   const [schedule, setSchedule] = useState([])
   const [users, setUsers] = useState([])
   const [people, setPeople] = useState([])
+  const [activeMonths, setActiveMonths] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -50,8 +51,16 @@ export default function HR() {
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setSchedule(d.schedule || []); setPeople(d.people || [])
+      setLeave(d.leave || []); setSchedule(d.schedule || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {})
     } catch (e) { setError(e.message) } finally { setLoading(false) }
+  }
+
+  // กรองคนในตาราง manpower ให้เหลือแค่คนที่มีงานจริงเดือนที่เลือก (ตัดคนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น)
+  // ถ้าไม่มีข้อมูลเดือนเลย (ไฟล์ manpower โหลดไม่ได้/ยังไม่มี) โชว์ทุกคนไว้ก่อน กันไม่ให้ dropdown ว่างเปล่า
+  const peopleForMonth = (month) => {
+    const hasData = Object.keys(activeMonths).length > 0
+    if (!hasData) return people
+    return people.filter((p) => (activeMonths[p.code] || []).includes(month))
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
   useEffect(() => {
@@ -131,10 +140,10 @@ export default function HR() {
         <form onSubmit={submitLeave} style={{ ...card, padding: 20, display: 'grid', gap: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>ส่งคำขอลา</div>
           {isBoss && people.length > 0 && (
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ยื่นแทนพนักงาน (จากตาราง manpower)
+            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ยื่นแทนพนักงาน (จากตาราง manpower เดือน{leaveForm.start_date.slice(0, 7)})
               <select className="payi-select" value={leaveForm.employee_code} onChange={(e) => setLeaveForm({ ...leaveForm, employee_code: e.target.value })}>
                 <option value="">— ตัวเอง —</option>
-                {people.map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
+                {peopleForMonth(leaveForm.start_date.slice(0, 7)).map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
               </select>
             </label>
           )}

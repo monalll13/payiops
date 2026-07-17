@@ -325,7 +325,15 @@ async function opHrInner(req, res) {
   if (req.method === 'GET') {
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(hrCache.data)
     const [leaveRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
-    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: rowsToObjects(peopleRange.values || []) }
+    // เดือนที่แต่ละคนมีงานจริง (จากไฟล์ manpower บน Drive) — ใช้กรอง dropdown "ยื่นแทนพนักงาน" ไม่ให้โชว์คนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น
+    let activeMonths = {}
+    try {
+      const personMap = await getPersonMap()
+      const manpowerRows = await getManpowerSource(personMap)
+      for (const r of manpowerRows) (activeMonths[r.code] ||= new Set()).add(String(r.date).slice(0, 7))
+      activeMonths = Object.fromEntries(Object.entries(activeMonths).map(([code, set]) => [code, [...set]]))
+    } catch (e) { console.error('activeMonths:', e.message) } // ไฟล์ manpower โหลดไม่ได้ก็ไม่ให้ทั้งหน้า HR พัง — แค่ไม่กรองเดือน
+    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: rowsToObjects(peopleRange.values || []), activeMonths }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
     hrCache = { at: Date.now(), data }
     return res.status(200).json(data)

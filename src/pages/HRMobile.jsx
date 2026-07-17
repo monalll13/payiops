@@ -55,6 +55,7 @@ export default function HRMobile() {
   const [leave, setLeave] = useState([])
   const [users, setUsers] = useState([])
   const [people, setPeople] = useState([])
+  const [activeMonths, setActiveMonths] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -70,8 +71,15 @@ export default function HRMobile() {
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setPeople(d.people || [])
+      setLeave(d.leave || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {})
     } catch (e) { setError(e.message) } finally { setLoading(false) }
+  }
+
+  // กรองคนในตาราง manpower ให้เหลือแค่คนที่มีงานจริงเดือนที่เลือก (ตัดคนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น) — ถ้าไม่มีข้อมูลเลยโชว์ทุกคนไว้ก่อน
+  const peopleForMonth = (month) => {
+    const hasData = Object.keys(activeMonths).length > 0
+    if (!hasData) return people
+    return people.filter((p) => (activeMonths[p.code] || []).includes(month))
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
   useEffect(() => {
@@ -226,10 +234,10 @@ export default function HRMobile() {
 
             <form onSubmit={submitLeave} style={{ background: C.card, border: `1px solid ${C.blueLine}`, borderRadius: 16, padding: 18, display: 'grid', gap: 14 }}>
               {isBoss && people.length > 0 ? (
-                <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>ยื่นแทนพนักงาน (จากตาราง manpower)
+                <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>ยื่นแทนพนักงาน (จากตาราง manpower เดือน{form.start_date.slice(0, 7)})
                   <select value={form.employee_code} onChange={(e) => setForm({ ...form, employee_code: e.target.value })} style={inputStyle}>
                     <option value="">— ตัวเอง ({myName}) —</option>
-                    {people.map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
+                    {peopleForMonth(form.start_date.slice(0, 7)).map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
                   </select>
                 </label>
               ) : (
