@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell, ChevronLeft, Check, CalendarClock, User, ListChecks, MoreHorizontal } from 'lucide-react'
 
 const API = '/api/sheet-tools?op=hr'
-const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน']
+const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 const THAI_MONTH_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
 const monthFullLabel = (ym) => { const [y, m] = String(ym).split('-'); return `${THAI_MONTH_FULL[parseInt(m, 10) - 1] || m} ${y}` }

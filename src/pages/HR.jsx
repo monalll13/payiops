@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
 
 const API = '/api/sheet-tools?op=hr'
-const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน']
+const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
 const card = { background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, boxShadow: 'var(--payi-shadow)' }

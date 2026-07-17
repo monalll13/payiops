@@ -672,32 +672,21 @@ async function opPlanner(req, res) {
 // ── op=line-webhook: LINE เรียกเข้ามาตอนกดปุ่มอนุมัติ/ปฏิเสธในแชท — ไม่มี x-api-token ต้องตรวจลายเซ็นแทน ──
 // ── ตัวช่วยขั้นตอนยื่นลาผ่านแชท LINE (พนักงานที่ไม่มีบัญชี login กดเมนูสำเร็จรูปแทนเข้าเว็บ) ──
 const LEAVE_TRIGGER = 'ลา'
-const LEAVE_TYPES_LINE = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน']
+const LEAVE_TYPES_LINE = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 const addDaysStr = (dateStr, n) => { const d = new Date(`${dateStr}T00:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
 const thaiDateLabel = (dateStr) => { const [, m, d] = dateStr.split('-'); return `${Number(d)} ${THAI_MONTH_ABBR[Number(m) - 1]}` }
 
-function parseCustomDate(text) {
-  const m = String(text).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/)
-  if (!m) return null
-  const d = Number(m[1]); const mo = Number(m[2])
-  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null
-  let year = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : Number(todayStr().slice(0, 4))
-  if (year >= 2400) year -= 543 // พ.ศ. -> ค.ศ.
-  const candidate = `${year}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-  const dt = new Date(`${candidate}T00:00:00`)
-  if (Number.isNaN(dt.getTime()) || dt.getDate() !== d || dt.getMonth() + 1 !== mo) return null // กัน 31/2 ฯลฯ
-  return candidate
-}
-
-const typeButtonsMessage = () => ({ type: 'template', altText: 'เลือกประเภทการลา', template: { type: 'buttons', text: 'ลาประเภทไหนครับ?', actions: LEAVE_TYPES_LINE.map((t) => ({ type: 'postback', label: t, data: `hr-wiz-type:${t}`, displayText: t })) } })
+// เลือกประเภทการลา — ใช้ quick reply (ไม่ใช่ buttons template) เพราะ buttons template จำกัดแค่ 4 ปุ่ม แต่ตอนนี้มี 5 ประเภทแล้ว
+const typeQuickReplyMessage = () => ({ type: 'text', text: 'ลาประเภทไหนครับ?', quickReply: { items: LEAVE_TYPES_LINE.map((t) => ({ type: 'action', action: { type: 'postback', label: t, data: `hr-wiz-type:${t}`, displayText: t } })) } })
+// ปฏิทินจริงของ LINE (datetimepicker) กันพิมพ์วันที่ผิด — แทนที่การให้พิมพ์วันที่เองแบบข้อความ
 const dateButtonsMessage = () => ({ type: 'template', altText: 'เลือกวันที่ลา', template: { type: 'buttons', text: 'ลาวันไหนครับ?', actions: [
   { type: 'postback', label: 'วันนี้', data: 'hr-wiz-date:today', displayText: 'วันนี้' },
   { type: 'postback', label: 'พรุ่งนี้', data: 'hr-wiz-date:tomorrow', displayText: 'พรุ่งนี้' },
-  { type: 'postback', label: 'พิมพ์วันที่เอง', data: 'hr-wiz-date:custom', displayText: 'พิมพ์วันที่เอง' },
+  { type: 'datetimepicker', label: 'เลือกจากปฏิทิน', data: 'hr-wiz-date:pick', mode: 'date', initial: todayStr(), min: todayStr() },
 ] } })
-const confirmMessage = (session) => ({ type: 'template', altText: 'ยืนยันคำขอลา', template: { type: 'buttons', text: `ยืนยันลา${session.leave_type} วันที่ ${thaiDateLabel(session.date)} 1 วัน ใช่ไหมครับ?`, actions: [
+const confirmMessage = (session) => ({ type: 'template', altText: 'ยืนยันคำขอลา', template: { type: 'buttons', text: `ยืนยัน${session.leave_type === 'สลับวันหยุด' ? 'ขอสลับวันหยุดเป็น' : `ลา${session.leave_type}`} วันที่ ${thaiDateLabel(session.date)}${session.leave_type === 'สลับวันหยุด' ? '' : ' 1 วัน'} ใช่ไหมครับ?`, actions: [
   { type: 'postback', label: 'ยืนยัน', data: 'hr-wiz-confirm:yes', displayText: 'ยืนยัน' },
   { type: 'postback', label: 'ยกเลิก', data: 'hr-wiz-confirm:no', displayText: 'ยกเลิก' },
 ] } })
@@ -739,15 +728,9 @@ async function handleLeaveWizard(event, staffLink) {
     const text = String(event.message.text || '').trim()
     const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
 
-    if (session?.step === 'await_date_text') {
-      const parsed = parseCustomDate(text)
-      if (!parsed) return replyMessage(replyToken, [{ type: 'text', text: 'ไม่เข้าใจวันที่ครับ ลองพิมพ์แบบ 17/7 หรือ 17/7/2026 อีกครั้งนะครับ' }])
-      const next = await upsertSession(lineUserId, { date: parsed, step: 'await_confirm' })
-      return replyMessage(replyToken, [confirmMessage(next)])
-    }
     if (!session && text === LEAVE_TRIGGER) {
       await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '' })
-      return replyMessage(replyToken, [typeButtonsMessage()])
+      return replyMessage(replyToken, [typeQuickReplyMessage()])
     }
     return // ข้อความอื่นที่ไม่เข้าเงื่อนไข ไม่ตอบ กันสแปมแชท
   }
@@ -764,11 +747,9 @@ async function handleLeaveWizard(event, staffLink) {
     if (data.startsWith('hr-wiz-date:')) {
       if (session?.step !== 'await_date') return invalid()
       const choice = data.slice('hr-wiz-date:'.length)
-      if (choice === 'custom') {
-        await upsertSession(lineUserId, { step: 'await_date_text' })
-        return replyMessage(replyToken, [{ type: 'text', text: 'พิมพ์วันที่ลาครับ เช่น 17/7 หรือ 17/7/2026' }])
-      }
-      const date = choice === 'today' ? todayStr() : addDaysStr(todayStr(), 1)
+      // choice === 'pick' มาจากปฏิทินจริงของ LINE (datetimepicker) — วันที่อยู่ใน event.postback.params.date เสมอ ไม่มีทางพิมพ์ผิด
+      const date = choice === 'today' ? todayStr() : choice === 'tomorrow' ? addDaysStr(todayStr(), 1) : event.postback?.params?.date
+      if (!date) return invalid()
       const next = await upsertSession(lineUserId, { date, step: 'await_confirm' })
       return replyMessage(replyToken, [confirmMessage(next)])
     }
