@@ -50,7 +50,7 @@ async function readApiResponse(response) {
   }
 }
 
-function MapProductModal({ productName, business, platform, onClose, onMapped }) {
+function MapProductModal({ productName, variation, business, platform, onClose, onMapped }) {
   const [options, setOptions] = useState([])
   const [mode, setMode] = useState('existing') // 'existing' | 'new'
   const [masterSku, setMasterSku] = useState('')
@@ -74,11 +74,11 @@ function MapProductModal({ productName, business, platform, onClose, onMapped })
       const r = await fetch(`${API}/import-orders?view=map-product`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productName, masterSku: sku, displayName: mode === 'new' ? newName : undefined, business, platform }),
+        body: JSON.stringify({ productName, variation, masterSku: sku, displayName: mode === 'new' ? newName : undefined, business, platform }),
       })
       const d = await readApiResponse(r)
       if (!r.ok || !d.success) { setError(d.error || 'จับคู่ไม่สำเร็จ'); return }
-      onMapped(productName)
+      onMapped(productName, variation)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -93,7 +93,11 @@ function MapProductModal({ productName, business, platform, onClose, onMapped })
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--payi-text-strong)' }}>จับคู่สินค้า</div>
           <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--payi-text-muted)' }}><X size={16} /></button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--payi-text-muted)', marginBottom: 16 }}>"{productName}"</div>
+        <div style={{ fontSize: 12, color: 'var(--payi-text-muted)', marginBottom: 16 }}>
+          "{productName}"
+          {variation && <div style={{ marginTop: 4, fontWeight: 700, color: 'var(--payi-text-strong)' }}>ตัวเลือก/ไซส์: {variation}</div>}
+          {!variation && <div style={{ marginTop: 4, color: 'var(--payi-warning)' }}>ไม่มีตัวเลือก/ไซส์ระบุมาในไฟล์</div>}
+        </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {[['existing', 'สินค้าที่มีอยู่แล้ว'], ['new', 'สร้างสินค้าใหม่']].map(([m, label]) => (
@@ -294,7 +298,10 @@ export default function Upload() {
         skipped += d.skipped || 0
         skippedInvalid += d.skippedInvalid || 0
         for (const t of d.tabs || []) tabs.add(t)
-        for (const name of (d.unmappedSamples || [])) if (unmappedSamples.length < 20 && !unmappedSamples.includes(name)) unmappedSamples.push(name)
+        for (const s of (d.unmappedSamples || [])) {
+          const dupeKey = `${s.productName}|${s.variation}`
+          if (unmappedSamples.length < 20 && !unmappedSamples.some((x) => `${x.productName}|${x.variation}` === dupeKey)) unmappedSamples.push(s)
+        }
       }
 
       setResult({ success: true, imported, mapped, skipped, skippedInvalid, unmappedSamples, tabs: [...tabs] })
@@ -453,10 +460,10 @@ export default function Upload() {
               <div style={{ marginTop: 8, color: '#92400e' }}>
                 สินค้าที่ยังไม่จับคู่ SKU:
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                  {result.unmappedSamples.map((name) => (
-                    <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb', fontSize: 12 }}>
-                      {name}
-                      <button onClick={() => setMapTarget(name)} style={{ border: 'none', background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 7px', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>+ Map</button>
+                  {result.unmappedSamples.map((s, i) => (
+                    <span key={`${s.productName}|${s.variation}|${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb', fontSize: 12 }}>
+                      {s.productName}{s.variation ? ` (${s.variation})` : ' (ไม่มีตัวเลือก/ไซส์)'}
+                      <button onClick={() => setMapTarget(s)} style={{ border: 'none', background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 7px', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>+ Map</button>
                     </span>
                   ))}
                 </div>
@@ -504,12 +511,13 @@ export default function Upload() {
 
       {mapTarget && (
         <MapProductModal
-          productName={mapTarget}
+          productName={mapTarget.productName}
+          variation={mapTarget.variation}
           business={business}
           platform={platform === 'auto' ? '' : platform}
           onClose={() => setMapTarget(null)}
-          onMapped={(name) => {
-            setResult((r) => r ? { ...r, unmappedSamples: (r.unmappedSamples || []).filter((n) => n !== name) } : r)
+          onMapped={(name, variation) => {
+            setResult((r) => r ? { ...r, unmappedSamples: (r.unmappedSamples || []).filter((s) => !(s.productName === name && s.variation === variation)) } : r)
             setMapTarget(null)
           }}
         />

@@ -131,6 +131,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST' && req.query.view === 'map-product') {
       const productName = String(req.body?.productName || '').trim()
+      const variation = String(req.body?.variation || '').trim()
       const masterSku = String(req.body?.masterSku || '').trim()
       const newDisplayName = String(req.body?.displayName || '').trim()
       const bizIn = String(req.body?.business || '').trim()
@@ -140,12 +141,20 @@ export default async function handler(req, res) {
       const aliases = await getSheet('product_aliases')
       const target = aliases.find((a) => String(a.master_sku).trim() === masterSku)
       const displayName = target?.display_name || newDisplayName || masterSku
-      if (!aliases.some((a) => String(a.alias_product_name).trim() === productName && String(a.master_sku).trim() === masterSku)) {
+      // รวม variation เข้า alias_key ด้วยเสมอ — ชื่อสินค้าเดียวกันอาจมีหลายไซส์/สี ที่ต้องแมป
+      // ไปคนละ SKU กัน (เช่น "2in1 Gel Socks" ไซส์ M → PY006, ไซส์ L → PY007) ถ้าไม่ใส่ variation
+      // จะไปจับคู่แบบชื่อกว้างๆ (aliasByName) ที่ไม่สนไซส์ ทำให้ไซส์อื่นถูกแมปผิด SKU ไปด้วย
+      const alreadyExists = aliases.some((a) =>
+        String(a.alias_product_name).trim() === productName &&
+        String(a.alias_variation || '').trim() === variation &&
+        String(a.master_sku).trim() === masterSku
+      )
+      if (!alreadyExists) {
         const vr = await batchGetValues(['product_aliases!A1:Z1'])
         const headers = vr[0]?.values?.[0] || ['master_sku', 'display_name', 'business', 'platform', 'alias_product_name', 'alias_variation', 'alias_key', 'created_at']
         const values = {
           master_sku: masterSku, display_name: displayName, business: bizIn || target?.business || '', platform: platIn || target?.platform || '',
-          alias_product_name: productName, alias_variation: '', alias_key: `${productName}|`, created_at: new Date().toISOString(),
+          alias_product_name: productName, alias_variation: variation, alias_key: `${productName}|${variation}`, created_at: new Date().toISOString(),
         }
         await appendRows('product_aliases', [headers.map((h) => values[h] || '')])
       }
@@ -258,7 +267,14 @@ export default async function handler(req, res) {
       const aliasKey = `${normalize(productName)}|${normalize(variation)}`
       const alias = aliasByKey.get(aliasKey) || aliasByName.get(normalize(productName))
       if (alias) mapped++
-      else if (productName && unmappedSamples.length < 20 && !unmappedSamples.includes(productName)) unmappedSamples.push(productName)
+      else if (productName) {
+        // เก็บคู่ชื่อ+variation แยกกัน ไม่ใช่แค่ชื่อ — ชื่อเดียวกันแต่คนละไซส์ต้องโชว์แยก ไม่งั้นผู้ใช้
+        // ไม่มีทางรู้ว่าแถวที่ยังไม่จับคู่นี้เป็นไซส์ไหน จะเลือก SKU ปลายทางถูกได้ยังไง
+        const dupeKey = `${productName}|${variation}`
+        if (unmappedSamples.length < 20 && !unmappedSamples.some((s) => `${s.productName}|${s.variation}` === dupeKey)) {
+          unmappedSamples.push({ productName, variation })
+        }
+      }
 
       const tab = `raw_orders_${date.slice(0, 4)}_${date.slice(5, 7)}`
       if (!byMonth.has(tab)) byMonth.set(tab, [])
