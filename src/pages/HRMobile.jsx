@@ -64,8 +64,22 @@ export default function HRMobile() {
   const [filterEmployee, setFilterEmployee] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
 
-  const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+  const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
   const isSwap = form.leave_type === 'สลับวันหยุด'
+  const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
+  const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
+
+  // เช็คว่าช่วงที่เลือกทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำไหม — เช็คเฉพาะตอนยื่นแทนพนักงาน (มี employee_code)
+  useEffect(() => {
+    if (!form.employee_code) { setLeaveLock({ locked: false, lockedDates: [] }); return }
+    const timer = setTimeout(() => {
+      fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', ...form }) })
+        .then((r) => r.json())
+        .then((d) => { if (d.success) setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [] }) })
+        .catch(() => {})
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [form.employee_code, form.leave_type, form.start_date, form.end_date, form.half_day])
 
   const load = async () => {
     setLoading(true); setError('')
@@ -104,12 +118,15 @@ export default function HRMobile() {
   const openDetail = (id) => { setSelectedId(id); setView('detail') }
 
   const submitLeave = async (e) => {
-    e.preventDefault(); setSaving(true); setError('')
+    e.preventDefault()
+    if (leaveLock.locked && !form.backup_office) { setError('ต้องเลือกคนออฟฟิศมาทดแทนก่อน (บ้านล่างเหลือคนน้อยกว่าขั้นต่ำวันนี้)'); return }
+    setSaving(true); setError('')
     try {
       const action = form.employee_code ? 'request-leave-for' : 'request-leave'
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...form }) })
       const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ส่งคำขอไม่สำเร็จ')
-      setForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '' })
+      setForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
+      setLeaveLock({ locked: false, lockedDates: [] })
       await load(); setView('list')
     } catch (e2) { setError(e2.message) } finally { setSaving(false) }
   }
@@ -271,6 +288,18 @@ export default function HRMobile() {
               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>หมายเหตุ
                 <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle} />
               </label>
+
+              {leaveLock.locked && (
+                <div style={{ display: 'grid', gap: 8, padding: 12, background: C.amberSoft, border: `1px solid ${C.amber}`, borderRadius: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.amber }}>
+                    วันที่ {leaveLock.lockedDates.join(', ')} บ้านล่างจะเหลือคนน้อยกว่า 3 คน — ต้องเลือกคนออฟฟิศมาทดแทนก่อนส่งคำขอ
+                  </div>
+                  <select value={form.backup_office} onChange={(e) => setForm({ ...form, backup_office: e.target.value })} style={inputStyle} required>
+                    <option value="">— เลือกคนออฟฟิศทดแทน —</option>
+                    {officePeople.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button type="button" onClick={() => setView('list')} style={{ flex: 1, border: `1px solid ${C.blueLine}`, background: '#fff', color: C.muted, borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer' }}>ย้อนกลับ</button>

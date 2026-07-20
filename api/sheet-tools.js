@@ -27,19 +27,26 @@ const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time'
 const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date']
 const OT_HISTORY_HEADERS = ['id', 'plan_id', 'date', 'employee', 'before_start', 'before_end', 'after_start', 'after_end', 'before_note', 'after_note', 'changed_at', 'changed_by']
 const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'approved_at', 'approved_by']
-const PEOPLE_HEADERS = ['code', 'name', 'group']
+const PEOPLE_HEADERS = ['code', 'name', 'group', 'active']
 const OT_LIMIT_HEADERS = ['employee', 'limit_hours', 'updated_at', 'updated_by']
 const OT_APPROVAL_HISTORY_HEADERS = ['id', 'month', 'employee', 'before_minutes', 'after_minutes', 'changed_at', 'changed_by']
-const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note']
+const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note', 'backup_office']
 const SCHEDULE_HEADERS = ['id', 'date', 'username', 'employee_name', 'shift_start', 'shift_end', 'role_note', 'created_at', 'created_by']
 const LINE_LINK_HEADERS = ['username', 'line_user_id', 'updated_at']
-const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'date2', 'updated_at']
-const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS]]
+const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'date2', 'backup_office', 'updated_at']
+// โควตาวันลาพักร้อนต่อคนต่อปี — แยกชีตต่างหาก (ไม่ยุ่งกับ workforce_people) เพราะครอบคุมทั้งบ้านล่างและออฟฟิศ แก้ค่าตรงในชีตได้เลย ไม่ต้องแก้โค้ด
+const QUOTA_HEADERS = ['code', 'quota', 'updated_at']
+const DEFAULT_VACATION_QUOTA = 6
+// รายชื่อออฟฟิศ — ย้ายจาก object hardcode มาเป็นชีต (เหมือน workforce_people) เพื่อให้เพิ่ม/ลบคนได้จากหน้าเว็บ ไม่ต้องแก้โค้ด
+const OFFICE_HEADERS = ['code', 'name', 'active']
+const DEFAULT_OFFICE_ROWS = [['TOON', 'ตูน', '1'], ['KED', 'เกด', '1'], ['MO', 'โม', '1']]
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
 const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
 const clearHrCache = () => { hrCache = { at: 0, data: null } }
 const daysBetween = (start, end) => Math.round((new Date(`${end}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1
+const currentYearBKK = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 4)
 
 // ใช้ร่วมกันทั้งจาก action decide-leave (กดในเว็บ) และ webhook LINE (กดปุ่มในแชท)
 async function applyLeaveDecision(id, decision, decidedBy, decisionNote = '') {
@@ -53,7 +60,22 @@ async function applyLeaveDecision(id, decision, decidedBy, decisionNote = '') {
   const next = current.map((r) => String(r.id) === String(id) ? record : r)
   await overwriteSheet('hr_leave', LEAVE_HEADERS, next.map((r) => LEAVE_HEADERS.map((h) => r[h] ?? '')))
   clearHrCache()
+  notifyLeaveDecision(record).catch((e) => console.error('notifyLeaveDecision:', e.message))
   return { record }
+}
+
+// แจ้งคนลากลับหลังถูกพิจารณา — คนละข้อความจาก notifyNewLeaveRequest (ที่ยิงหา admin) best-effort เหมือนกัน ห้ามทำให้การอนุมัติพัง
+async function notifyLeaveDecision(record) {
+  const links = await getSheet('hr_line_links')
+  const link = links.find((l) => l.username === record.username && l.line_user_id)
+  if (!link) return
+  const verdict = record.status === 'approved' ? 'อนุมัติแล้วครับ ✅' : 'ไม่อนุมัติครับ ❌'
+  let balanceLine = ''
+  if (record.status === 'approved' && record.leave_type === 'พักร้อน' && String(record.username || '').startsWith('mp:')) {
+    try { const b = await vacationBalanceFor(record.username.slice(3)); balanceLine = `\nเหลือวันลาพักร้อน ${b.remaining} วัน (ใช้ไปแล้ว ${b.used}/${b.quota} วัน)` } catch (e) { console.error('vacationBalanceFor:', e.message) }
+  }
+  const text = `คำขอลาของคุณ ${verdict}\n${leaveSummaryText(record, await getOfficePeopleMap())}${record.decision_note ? `\nหมายเหตุ: ${record.decision_note}` : ''}${balanceLine}`
+  await pushMessage(link.line_user_id, [{ type: 'text', text }])
 }
 
 // รายชื่อ admin ที่ผูก LINE ไว้แล้ว (username, line_user_id) — ใช้ตอนแจ้งเตือนคำขอลาใหม่
@@ -63,18 +85,20 @@ async function getAdminLineTargets() {
   return users.filter((u) => (u.role || 'staff') === 'admin' && linkByUsername[u.username]).map((u) => ({ username: u.username, line_user_id: linkByUsername[u.username] }))
 }
 
-const leaveSummaryText = (l) => l.leave_type === 'สลับวันหยุด'
-  ? `${l.employee_name} ขอสลับวันหยุด จาก ${l.start_date} เป็น ${l.end_date}${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
-  : `${l.employee_name} ขอลา${l.leave_type}\n${l.start_date}${Number(l.days) === 0.5 ? ' (ครึ่งวัน)' : l.end_date !== l.start_date ? ` – ${l.end_date}` : ''} · ${l.days} วัน${l.reason ? `\nเหตุผล: ${l.reason}` : ''}`
+const backupOfficeLine = (l, officeMap) => l.backup_office && officeMap[l.backup_office] ? `\nคนออฟฟิศทดแทน: ${officeMap[l.backup_office][0]}` : ''
+const leaveSummaryText = (l, officeMap = {}) => l.leave_type === 'สลับวันหยุด'
+  ? `${l.employee_name} ขอสลับวันหยุด จาก ${l.start_date} เป็น ${l.end_date}${l.reason ? `\nเหตุผล: ${l.reason}` : ''}${backupOfficeLine(l, officeMap)}`
+  : `${l.employee_name} ขอลา${l.leave_type}\n${l.start_date}${Number(l.days) === 0.5 ? ' (ครึ่งวัน)' : l.end_date !== l.start_date ? ` – ${l.end_date}` : ''} · ${l.days} วัน${l.reason ? `\nเหตุผล: ${l.reason}` : ''}${backupOfficeLine(l, officeMap)}`
 
 // แจ้งเตือน admin ที่ผูก LINE ไว้ทุกคน พร้อมปุ่มอนุมัติ/ปฏิเสธ — best-effort ล้วนๆ ห้ามทำให้คำขอลาพัง แม้ LINE ล่ม
 async function notifyNewLeaveRequest(record) {
   const targets = await getAdminLineTargets()
   if (!targets.length) return
+  const officeMap = await getOfficePeopleMap()
   const message = {
-    type: 'template', altText: `คำขอลาใหม่: ${leaveSummaryText(record)}`,
+    type: 'template', altText: `คำขอลาใหม่: ${leaveSummaryText(record, officeMap)}`,
     template: {
-      type: 'buttons', text: leaveSummaryText(record).slice(0, 160),
+      type: 'buttons', text: leaveSummaryText(record, officeMap).slice(0, 160),
       actions: [
         { type: 'postback', label: 'อนุมัติ', data: `hr-approve:${record.id}`, displayText: 'อนุมัติคำขอลา' },
         { type: 'postback', label: 'ปฏิเสธ', data: `hr-reject:${record.id}`, displayText: 'ปฏิเสธคำขอลา' },
@@ -94,7 +118,7 @@ let workforceCache = { at: 0, data: null }
 const ensureWorkforceSheets = () => workforceEnsurePromise ||= Promise.all(WORKFORCE_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
 // กลุ่มพื้นเหลืองในไฟล์ต้นฉบับ (TOON/KED/MO) เป็นอีกหน่วยงาน (ออฟฟิศ) ไม่ใช่บ้านล่าง — ไม่ต้องเพิ่มแถวใน workforce_people ให้กลุ่มนั้น จึงไม่ถูกดึงเข้าปฏิทินนี้
 // รายชื่อบ้านล่างตอนเริ่มระบบ ใช้ seed แท็บ workforce_people ครั้งแรกเท่านั้น — หลังจากนี้แก้/เพิ่มคนได้ตรงในชีตเลย ไม่ต้องแก้โค้ด
-const DEFAULT_PEOPLE_ROWS = [['TANG', 'แตง', 'คนแพ็ก'], ['PANG', 'แป้ง', 'คนแพ็ก'], ['FAH', 'ฟ้า', 'คนแพ็ก'], ['MII', 'มี่', 'คนแพ็ก'], ['PANID', 'ป้านิด', 'คนฟีด'], ['MOM', 'แม่', 'คนฟีด'], ['MAPRANG', 'มะปราง', 'พาร์ทไทม์'], ['ATOM', 'อะตอม', 'อื่น ๆ'], ['BAS', 'บาส', 'อื่น ๆ'], ['NEOY', 'เนย', 'อื่น ๆ']]
+const DEFAULT_PEOPLE_ROWS = [['TANG', 'แตง', 'คนแพ็ก', '1'], ['PANG', 'แป้ง', 'คนแพ็ก', '1'], ['FAH', 'ฟ้า', 'คนแพ็ก', '1'], ['MII', 'มี่', 'คนแพ็ก', '1'], ['PANID', 'ป้านิด', 'คนฟีด', '1'], ['MOM', 'แม่', 'คนฟีด', '1'], ['MAPRANG', 'มะปราง', 'พาร์ทไทม์', '1'], ['ATOM', 'อะตอม', 'อื่น ๆ', '1'], ['BAS', 'บาส', 'อื่น ๆ', '1'], ['NEOY', 'เนย', 'อื่น ๆ', '1']]
 const MONTH_BY_TAB = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
 const rowsToObjects = (values = []) => { const [headers, ...rows] = values; return headers ? rows.map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))) : [] }
 // workforce_ot_approvals/workforce_ot_limits เป็น append-only log (ไม่ overwrite แถวเดิม) — กัน race condition ตอนแก้พร้อมกันหลายเครื่อง
@@ -104,7 +128,7 @@ const requireAdmin = (req, res) => { if (authEnabled() && req.user?.role !== 'ad
 const clearWorkforceCache = () => { workforceCache = { at: 0, data: null } }
 
 // ดาวน์โหลด + parse ไฟล์ manpower จาก Drive เป็นส่วนที่ช้าที่สุดของหน้านี้ (ไฟล์ใหญ่ + ต้อง auth ใหม่ทุกครั้ง)
-// ตารางคนทำงานเปลี่ยนไม่บ่อย จึง cache แยกจาก workforceCache ด้วย TTL ยาวกว่ามาก (5 นาที) ลดเวลาโหลดที่ผู้ใช้เจอ
+// ตารางคนทำงานเปลี่ยนไม่บ่อย จึง cache แยกจาก workforceCache ด้วย TTL ยาวกว่ามาก (15 นาที) ลดเวลาโหลดที่ผู้ใช้เจอ
 let manpowerSourceCache = { at: 0, data: null }
 const MANPOWER_SOURCE_CACHE_MS = 900000
 async function getManpowerSource(personMap) {
@@ -122,27 +146,157 @@ async function getPersonMap() {
   for (const p of people) {
     if (!p.code) continue
     const code = String(p.code).toUpperCase()
+    if (String(p.active) === '0') { delete map[code]; continue } // ลบออกแล้ว (soft-delete จากปุ่มในหน้าเว็บ) — ตัดออกจาก roster ทุกที่
     const forcedName = code === 'PANID' ? 'ป้านิด' : code === 'MOM' ? 'แม่' : ''
     map[code] = [forcedName || p.name || map[code]?.[0] || code, ['PANID', 'MOM'].includes(code) ? 'คนฟีด' : (p.group || 'อื่น ๆ')]
   }
   return map
 }
 
-// กลุ่มออฟฟิศ (พื้นเหลืองในไฟล์ SKJ) — จงใจไม่ใส่ใน workforce_people เพราะไม่ต้องการให้ขึ้นปฏิทิน Manpower & OT เดิม
-// แต่ระบบลา/LINE ต้องเห็นคนกลุ่มนี้ด้วย จึงใช้ personMap แยกต่างหากเฉพาะตอนอ่านไฟล์ manpower สำหรับ op=hr เท่านั้น (cache คนละก้อนกับ getManpowerSource ของ Workforce OT กันชนกัน)
-const HR_EXTRA_PEOPLE = { TOON: ['ตูน', 'ออฟฟิศ'], KED: ['เกด', 'ออฟฟิศ'], MO: ['โม', 'ออฟฟิศ'] }
-// คนหนึ่งคนสำหรับระบบลา/LINE — เช็ค workforce_people ก่อน (บ้านล่าง) แล้วค่อย fallback ไป HR_EXTRA_PEOPLE (ออฟฟิศ)
+// กลุ่มออฟฟิศ — ชีตแยกจาก workforce_people (จงใจไม่รวม เพราะไม่ต้องการให้ขึ้นปฏิทิน Manpower & OT/ นับ headcount บ้านล่าง)
+// เพิ่ม/ลบคนได้จากปุ่มในหน้าเว็บ (action add-employee/remove-employee, group='ออฟฟิศ') — ลบ = ตั้ง active='0' ไม่ลบแถวทิ้งจริง กันประวัติ leave หาย
+async function getOfficePeopleMap() {
+  const rows = await getSheet('hr_office_people')
+  if (!rows.length) { await appendRows('hr_office_people', DEFAULT_OFFICE_ROWS); return getOfficePeopleMap() }
+  const map = {}
+  for (const r of rows) {
+    if (!r.code) continue
+    if (String(r.active) === '0') continue
+    map[String(r.code).toUpperCase()] = [r.name || r.code, 'ออฟฟิศ']
+  }
+  return map
+}
+// คนหนึ่งคนสำหรับระบบลา/LINE — เช็ค workforce_people ก่อน (บ้านล่าง) แล้วค่อย fallback ไปกลุ่มออฟฟิศ
 async function findHrPerson(code) {
-  const fromSheet = (await getSheet('workforce_people')).find((p) => p.code === code)
+  const fromSheet = (await getSheet('workforce_people')).find((p) => p.code === code && String(p.active) !== '0')
   if (fromSheet) return { code, name: fromSheet.name }
-  const extra = HR_EXTRA_PEOPLE[code]
+  const officeMap = await getOfficePeopleMap()
+  const extra = officeMap[code]
   return extra ? { code, name: extra[0] } : null
+}
+
+// ── โควตาวันลาพักร้อน ──
+async function getQuotaMap() {
+  const rows = await getSheet('hr_leave_quota')
+  return Object.fromEntries(rows.filter((r) => r.code).map((r) => [String(r.code).toUpperCase(), Number(r.quota) || DEFAULT_VACATION_QUOTA]))
+}
+// เหลือกี่วันพักร้อนของคนนี้ปีนี้ — นับจาก hr_leave ที่ status=approved, leave_type=พักร้อน, ปีปฏิทินเดียวกัน (ตาม start_date)
+async function vacationBalanceFor(code) {
+  const [leaveRows, quotaMap] = await Promise.all([getSheet('hr_leave'), getQuotaMap()])
+  const year = currentYearBKK()
+  const used = leaveRows
+    .filter((l) => l.status === 'approved' && l.leave_type === 'พักร้อน' && l.username === `mp:${code}` && String(l.start_date || '').slice(0, 4) === year)
+    .reduce((s, l) => s + (Number(l.days) || 0), 0)
+  const quota = quotaMap[code] ?? DEFAULT_VACATION_QUOTA
+  return { quota, used, remaining: Math.max(0, quota - used) }
+}
+// สรุปโควตาพักร้อนทุกคน — includeOffice=false ตัดกลุ่มออฟฟิศออก (ผจก.บ้านล่างไม่ต้องเห็น)
+async function computeLeaveBalances(leaveRows, includeOffice) {
+  const [personMap, quotaMap, officeMap] = await Promise.all([getPersonMap(), getQuotaMap(), includeOffice ? getOfficePeopleMap() : {}])
+  const year = currentYearBKK()
+  const roster = [
+    ...Object.entries(personMap).map(([code, [name, group]]) => ({ code, name, group })),
+    ...(includeOffice ? Object.entries(officeMap).map(([code, [name, group]]) => ({ code, name, group })) : []),
+  ]
+  return roster.map((p) => {
+    const used = leaveRows
+      .filter((l) => l.status === 'approved' && l.leave_type === 'พักร้อน' && l.username === `mp:${p.code}` && String(l.start_date || '').slice(0, 4) === year)
+      .reduce((s, l) => s + (Number(l.days) || 0), 0)
+    const quota = quotaMap[p.code] ?? DEFAULT_VACATION_QUOTA
+    return { code: p.code, name: p.name, group: p.group, quota, used, remaining: Math.max(0, quota - used) }
+  })
+}
+
+// ── เช็คคนเหลือบ้านล่างต่อวัน — เขียนกลับจาก hr_leave เอง ไม่พึ่งไฟล์ SKJ อีกต่อไป (แยกเป็น source of truth คนละก้อน) ──
+const LOWER_HOUSE_MIN_HEADCOUNT = 3
+async function isValidOfficeCode(code) { return Boolean((await getOfficePeopleMap())[String(code || '').toUpperCase()]) }
+// วันที่ที่ "หาย" จากบ้านล่างจริง — สลับวันหยุดหายแค่วันใหม่ (end_date) วันเดิม (start_date) มาทำงานตามปกติ ไม่หาย
+function leaveAbsenceDates(l) {
+  if (l.leave_type === 'สลับวันหยุด') return l.end_date ? [l.end_date] : []
+  const start = l.start_date; const end = l.end_date || l.start_date
+  if (!start) return []
+  const dates = []
+  for (let d = start; d <= end && dates.length <= 366; d = addDaysStr(d, 1)) dates.push(d)
+  return dates
+}
+// เหลือกี่คนบ้านล่างวันนั้น หลังหักคนลา (pending+approved จาก hr_leave) + extraAbsentCode (คนที่กำลังจะลาแต่ยังไม่ append)
+async function lowerHouseRemaining(date, { extraAbsentCode } = {}) {
+  const [personMap, leaveRows] = await Promise.all([getPersonMap(), getSheet('hr_leave')])
+  const roster = Object.keys(personMap)
+  const absentCodes = new Set(extraAbsentCode ? [extraAbsentCode] : [])
+  for (const l of leaveRows) {
+    if (!['pending', 'approved'].includes(l.status)) continue
+    if (!String(l.username || '').startsWith('mp:')) continue
+    const code = l.username.slice(3)
+    if (!roster.includes(code)) continue
+    if (leaveAbsenceDates(l).includes(date)) absentCodes.add(code)
+  }
+  return roster.length - absentCodes.size
+}
+// คืนวันไหนบ้างที่จะเหลือคนน้อยกว่าขั้นต่ำ ถ้าคนบ้านล่างคนนี้ลาช่วงนี้จริง — เช็คเฉพาะ username แบบ mp:<code> ที่อยู่ใน roster บ้านล่างเท่านั้น (office/login user ไม่กระทบ)
+async function findLockedDates(username, absenceDates) {
+  if (!String(username || '').startsWith('mp:')) return []
+  const code = username.slice(3)
+  const personMap = await getPersonMap()
+  if (!(code in personMap)) return []
+  const locked = []
+  for (const date of absenceDates) {
+    const remaining = await lowerHouseRemaining(date, { extraAbsentCode: code })
+    if (remaining < LOWER_HOUSE_MIN_HEADCOUNT) locked.push(date)
+  }
+  return locked
+}
+// ถ้าล็อค ต้องมี backup_office ที่ถูกต้อง (คนออฟฟิศ) ก่อนถึงจะให้ลาผ่าน — ใช้ร่วมกันทั้งเว็บ (opHrInner) และ LINE wizard
+async function resolveBackupOffice(username, absenceDates, backupOfficeCode) {
+  const lockedDates = await findLockedDates(username, absenceDates)
+  if (!lockedDates.length) return { ok: true, lockedDates: [], backupOffice: '' }
+  const code = String(backupOfficeCode || '').trim().toUpperCase()
+  if (!(await isValidOfficeCode(code))) return { ok: false, lockedDates, error: `วันที่ ${lockedDates.join(', ')} บ้านล่างเหลือคนน้อยกว่า ${LOWER_HOUSE_MIN_HEADCOUNT} คน ต้องเลือกคนออฟฟิศมาทดแทนก่อนครับ` }
+  return { ok: true, lockedDates, backupOffice: code }
+}
+
+// ปฏิทินบ้านล่าง — เดิมพึ่งไฟล์ SKJ (Excel บน Drive) ตอนนี้เลิกพึ่งแล้ว คำนวณเองจาก roster (workforce_people) หัก hr_leave ที่ approved
+// สมมติว่าทุกคนมาทำงานทุกวัน ยกเว้นวันที่มีคำขอลาอนุมัติแล้ว — ครอบคลุมช่วง -90 ถึง +180 วันจากวันนี้ (พอสำหรับเลื่อนดูปฏิทินย้อนหน้า/ล่วงหน้า)
+// code (บ้านล่าง, mp:<code>) -> Set(วันที่ลาอนุมัติแล้ว) — ใช้ทั้ง fallback generator ด้านล่างและ override ทับ SKJ
+function buildLeaveAbsenceMap(leaveRows) {
+  const absenceByCode = {}
+  for (const l of leaveRows) {
+    if (l.status !== 'approved') continue
+    if (!String(l.username || '').startsWith('mp:')) continue
+    const code = l.username.slice(3)
+    for (const date of leaveAbsenceDates(l)) (absenceByCode[code] ||= new Set()).add(date)
+  }
+  return absenceByCode
+}
+// fallback เมื่อไม่มีไฟล์ SKJ เลย (เช่น dev local ไม่ได้ตั้ง MANPOWER_FILE_ID) — สมมติทุกคนมาทำงานทุกวัน ยกเว้นวันที่มีคำขอลาอนุมัติแล้ว
+function generateCalendarPresence(personMap, leaveRows) {
+  const absenceByCode = buildLeaveAbsenceMap(leaveRows)
+  const roster = Object.entries(personMap).map(([code, [name, group]]) => ({ code, name, group }))
+  const start = new Date(`${todayStr()}T00:00:00`); start.setDate(start.getDate() - 90)
+  const end = new Date(`${todayStr()}T00:00:00`); end.setDate(end.getDate() + 180)
+  const result = []
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    for (const p of roster) {
+      if (absenceByCode[p.code]?.has(date)) continue
+      result.push({ id: `internal-${date}-${p.code}`, date, employee: p.name, code: p.code, group: p.group, fraction: 1, source: 'internal' })
+    }
+  }
+  return result
+}
+// ปฏิทินบ้านล่าง — ยืนพื้นด้วยไฟล์ SKJ (คนตั้งตารางไว้ล่วงหน้าถึงสิ้นปีในไฟล์ Excel) แต่ถ้ามีคำขอลาอนุมัติผ่านระบบ (hr_leave) หลังจากนั้น
+// ให้ยึด hr_leave แทน (ตัดคนออกจากวันนั้น แม้ SKJ จะยังเขียนว่ามาทำงาน) — SKJ ไม่อัปเดตเรียลไทม์ hr_leave คือของจริงล่าสุดเสมอ
+async function getCalendarPresence(personMap) {
+  const [skjRows, leaveRows] = await Promise.all([getManpowerSource(personMap), getSheet('hr_leave')])
+  if (!skjRows.length) return generateCalendarPresence(personMap, leaveRows) // ไม่มีไฟล์ SKJ เลย — fallback คำนวณเอง
+  const absenceByCode = buildLeaveAbsenceMap(leaveRows)
+  return skjRows.filter((r) => !absenceByCode[r.code]?.has(r.date))
 }
 let hrManpowerSourceCache = { at: 0, data: null }
 async function getHrManpowerSource() {
   if (!process.env.MANPOWER_FILE_ID) return []
   if (hrManpowerSourceCache.data && Date.now() - hrManpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return hrManpowerSourceCache.data
-  const personMap = { ...(await getPersonMap()), ...HR_EXTRA_PEOPLE }
+  const personMap = { ...(await getPersonMap()), ...(await getOfficePeopleMap()) }
   const data = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap)
   hrManpowerSourceCache = { at: Date.now(), data }
   return data
@@ -205,8 +359,8 @@ async function opWorkforceInner(req, res) {
     try {
       await ensureWorkforceSheets()
       const personMap = await getPersonMap()
-      const sourceManpower = await getManpowerSource(personMap)
-      return res.status(200).json({ success: true, sourceManpower, sourceWarnings: sourceManpower.warnings || [], sourceUpdatedAt: new Date().toISOString() })
+      const sourceManpower = await getCalendarPresence(personMap)
+      return res.status(200).json({ success: true, sourceManpower, sourceWarnings: [], sourceUpdatedAt: new Date().toISOString() })
     } catch (e) { return res.status(500).json({ success: false, error: e.message }) }
   }
   await ensureWorkforceSheets()
@@ -217,12 +371,24 @@ async function opWorkforceInner(req, res) {
     const [rows, manpower, events, history, rawApprovals, people, rawLimits, approvalHistory] = values.map((range) => rowsToObjects(range.values || []))
     const approvals = latestByKey(rawApprovals, (r) => `${r.month}|${r.employee}`, 'approved_at')
     const limits = latestByKey(rawLimits, (r) => r.employee, 'updated_at')
-    const personMap = {}; for (const p of people) { if (p.code) personMap[String(p.code).toUpperCase()] = [p.name, p.group || 'อื่น ๆ'] }
+    const personMap = await getPersonMap() // ต้องผ่าน getPersonMap() ไม่ใช่ build จาก people ตรงๆ — เผื่อชีตยังไม่มีแถวของบางคน (เช่น MOM/PANID) ต้อง fallback ไป DEFAULT_PEOPLE_ROWS ไม่งั้นหายจากปฏิทิน
     const otLimits = Object.fromEntries(limits.filter((l) => l.employee).map((l) => [l.employee, l.limit_hours]))
     let sourceManpower = []; let sourceWarnings = []
-    try { sourceManpower = await getManpowerSource(personMap); sourceWarnings = sourceManpower.warnings || [] } catch (e) { console.error('manpower source:', e.message) }
+    let officePeople = []; let officeAbsences = []
+    try {
+      sourceManpower = await getCalendarPresence(personMap)
+      const [leaveRows, officeMap] = await Promise.all([getSheet('hr_leave'), getOfficePeopleMap()])
+      officePeople = Object.entries(officeMap).map(([code, [name]]) => ({ code, name }))
+      for (const l of leaveRows) {
+        if (!['pending', 'approved'].includes(l.status)) continue
+        if (!String(l.username || '').startsWith('mp:')) continue
+        const code = l.username.slice(3)
+        if (!officeMap[code]) continue
+        for (const date of leaveAbsenceDates(l)) officeAbsences.push({ code, date })
+      }
+    } catch (e) { console.error('office presence:', e.message) }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
-    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, sourceWarnings, events, history, approvals, approvalHistory, otLimits, people, sourceUpdatedAt: new Date().toISOString() }
+    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, sourceWarnings, events, history, approvals, approvalHistory, otLimits, people, officePeople, officeAbsences, sourceUpdatedAt: new Date().toISOString() }
     workforceCache = { at: Date.now(), data }
     return res.status(200).json(data)
   }
@@ -233,16 +399,14 @@ async function opWorkforceInner(req, res) {
     const employees = Array.isArray(body.employees) ? body.employees.filter(Boolean) : []
     if (!body.date || !employees.length || !body.planned_start || !body.planned_end) return res.status(400).json({ error: 'กรุณาระบุวันที่ รายชื่อ และเวลา OT' })
     if (!validTime(body.planned_start) || !validTime(body.planned_end) || clockMinutes(body.planned_end) <= clockMinutes(body.planned_start)) return res.status(400).json({ error: 'เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน' })
-    if (process.env.MANPOWER_FILE_ID) {
-      try {
-        const personMap = await getPersonMap()
-        const dayManpower = (await getManpowerSource(personMap)).filter((r) => r.date === body.date)
-        if (dayManpower.length) {
-          const absent = employees.filter((employee) => !dayManpower.some((r) => manpowerNameMatches(employee, r.employee)))
-          if (absent.length) return res.status(400).json({ error: `ไม่มีรายชื่อใน Manpower วันที่เลือก: ${absent.join(', ')}` })
-        }
-      } catch (e) { return res.status(503).json({ error: `ตรวจสอบ Manpower ไม่สำเร็จ กรุณาลองใหม่: ${e.message}` }) }
-    }
+    try {
+      const personMap = await getPersonMap()
+      const dayManpower = (await getCalendarPresence(personMap)).filter((r) => r.date === body.date)
+      if (dayManpower.length) {
+        const absent = employees.filter((employee) => !dayManpower.some((r) => manpowerNameMatches(employee, r.employee)))
+        if (absent.length) return res.status(400).json({ error: `วันนี้ลาอยู่ (หรือไม่มีในรายชื่อ): ${absent.join(', ')}` })
+      }
+    } catch (e) { return res.status(503).json({ error: `ตรวจสอบ Manpower ไม่สำเร็จ กรุณาลองใหม่: ${e.message}` }) }
     const current = await getSheet('workforce_ot')
     const conflicts = employees.filter((employee) => current.some((r) => r.date === body.date && r.employee === employee && r.status !== 'cancelled' && overlaps(body.planned_start, body.planned_end, r.planned_start, r.planned_end)))
     if (conflicts.length) return res.status(409).json({ error: `แผน OT ซ้ำหรือเวลาชนกัน: ${conflicts.join(', ')}` })
@@ -346,28 +510,93 @@ async function opHrInner(req, res) {
   await ensureHrSheets()
 
   if (req.method === 'GET') {
-    if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(hrCache.data)
+    // ผจก. (ไม่ใช่ admin) เห็นแค่โควตาบ้านล่าง ไม่เห็นออฟฟิศ — เช็คทุกครั้งแม้ตอน cache hit เพราะ hrCache ใช้ร่วมกันข้าม request/role
+    const isAdminViewer = !authEnabled() || req.user?.role === 'admin'
+    const withRoleFilter = (data) => ({ ...data, leaveBalances: isAdminViewer ? data.leaveBalancesFull : data.leaveBalancesFull.filter((b) => b.group !== 'ออฟฟิศ') })
+    if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(withRoleFilter(hrCache.data))
     const [leaveRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
     // เดือนที่แต่ละคนมีงานจริง (จากไฟล์ manpower บน Drive) — ใช้กรอง dropdown "ยื่นแทนพนักงาน"/"ผูก LINE" ไม่ให้โชว์คนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น
-    // ใช้ getHrManpowerSource (personMap รวมกลุ่มออฟฟิศ HR_EXTRA_PEOPLE) ไม่ใช่ getManpowerSource ของ Workforce OT — กันคนกลุ่มนี้หลุดเข้าปฏิทิน OT
+    // ใช้ getHrManpowerSource (personMap รวมกลุ่มออฟฟิศ) ไม่ใช่ getManpowerSource ของ Workforce OT — กันคนกลุ่มนี้หลุดเข้าปฏิทิน OT
     let activeMonths = {}
     try {
       const manpowerRows = await getHrManpowerSource()
       for (const r of manpowerRows) (activeMonths[r.code] ||= new Set()).add(String(r.date).slice(0, 7))
       activeMonths = Object.fromEntries(Object.entries(activeMonths).map(([code, set]) => [code, [...set]]))
     } catch (e) { console.error('activeMonths:', e.message) } // ไฟล์ manpower โหลดไม่ได้ก็ไม่ให้ทั้งหน้า HR พัง — แค่ไม่กรองเดือน
-    const peopleFromSheet = rowsToObjects(peopleRange.values || [])
-    const extraPeople = Object.entries(HR_EXTRA_PEOPLE)
-      .filter(([code]) => !peopleFromSheet.some((p) => String(p.code).toUpperCase() === code))
-      .map(([code, [name, group]]) => ({ code, name, group }))
-    const data = { success: true, leave: rowsToObjects(leaveRange.values || []), schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: [...peopleFromSheet, ...extraPeople], activeMonths }
+    const peopleFromSheet = rowsToObjects(peopleRange.values || []).filter((p) => String(p.active) !== '0')
+    const officeMapForList = await getOfficePeopleMap()
+    const extraPeople = Object.entries(officeMapForList).map(([code, [name, group]]) => ({ code, name, group }))
+    const leaveRows = rowsToObjects(leaveRange.values || [])
+    const leaveBalancesFull = await computeLeaveBalances(leaveRows, true)
+    const data = { success: true, leave: leaveRows, schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: [...peopleFromSheet, ...extraPeople], activeMonths, leaveBalancesFull }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
     hrCache = { at: Date.now(), data }
-    return res.status(200).json(data)
+    return res.status(200).json(withRoleFilter(data))
   }
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
   const body = req.body || {}
   const action = String(body.action || '').trim().toLowerCase()
+
+  if (action === 'check-leave-lock') {
+    const code = String(body.employee_code || '').trim()
+    if (!code) return res.status(200).json({ success: true, locked: false, lockedDates: [] })
+    const isSwap = body.leave_type === 'สลับวันหยุด'
+    const halfDay = Boolean(body.half_day) && !isSwap
+    const endDate = halfDay ? body.start_date : body.end_date
+    const absenceDates = leaveAbsenceDates({ leave_type: body.leave_type, start_date: body.start_date, end_date: endDate })
+    const lockedDates = await findLockedDates(`mp:${code}`, absenceDates)
+    return res.status(200).json({ success: true, locked: lockedDates.length > 0, lockedDates })
+  }
+
+  if (action === 'add-employee') {
+    if (!requireAdmin(req, res)) return
+    const code = String(body.code || '').trim().toUpperCase()
+    const name = String(body.name || '').trim()
+    const group = String(body.group || '').trim() || 'อื่น ๆ'
+    if (!code || !name) return res.status(400).json({ success: false, error: 'กรุณาระบุรหัสและชื่อ' })
+    if (group === 'ออฟฟิศ') {
+      const current = await getSheet('hr_office_people')
+      const existing = current.find((r) => String(r.code).toUpperCase() === code)
+      if (existing && String(existing.active) !== '0') return res.status(400).json({ success: false, error: 'มีรหัสนี้อยู่แล้ว' })
+      if (existing) {
+        const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, name, active: '1' } : r)
+        await overwriteSheet('hr_office_people', OFFICE_HEADERS, next.map((r) => OFFICE_HEADERS.map((h) => r[h] ?? '')))
+      } else {
+        await appendRows('hr_office_people', [[code, name, '1']])
+      }
+    } else {
+      const current = await getSheet('workforce_people')
+      const existing = current.find((r) => String(r.code).toUpperCase() === code)
+      if (existing && String(existing.active) !== '0') return res.status(400).json({ success: false, error: 'มีรหัสนี้อยู่แล้ว' })
+      if (existing) {
+        const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, name, group, active: '1' } : r)
+        await overwriteSheet('workforce_people', PEOPLE_HEADERS, next.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
+      } else {
+        await appendRows('workforce_people', [[code, name, group, '1']])
+      }
+    }
+    clearHrCache(); clearWorkforceCache()
+    return res.status(200).json({ success: true })
+  }
+  if (action === 'remove-employee') {
+    if (!requireAdmin(req, res)) return
+    const code = String(body.code || '').trim().toUpperCase()
+    const group = String(body.group || '').trim()
+    if (!code) return res.status(400).json({ success: false, error: 'กรุณาระบุรหัส' })
+    if (group === 'ออฟฟิศ') {
+      const current = await getSheet('hr_office_people')
+      if (!current.some((r) => String(r.code).toUpperCase() === code)) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้' })
+      const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, active: '0' } : r)
+      await overwriteSheet('hr_office_people', OFFICE_HEADERS, next.map((r) => OFFICE_HEADERS.map((h) => r[h] ?? '')))
+    } else {
+      const current = await getSheet('workforce_people')
+      if (!current.some((r) => String(r.code).toUpperCase() === code)) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้' })
+      const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, active: '0' } : r)
+      await overwriteSheet('workforce_people', PEOPLE_HEADERS, next.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
+    }
+    clearHrCache(); clearWorkforceCache()
+    return res.status(200).json({ success: true })
+  }
 
   if (action === 'request-leave' || action === 'request-leave-for') {
     const forSomeoneElse = action === 'request-leave-for'
@@ -392,6 +621,10 @@ async function opHrInner(req, res) {
       employeeName = actorName()
     }
 
+    const absenceDates = leaveAbsenceDates({ leave_type: body.leave_type, start_date: body.start_date, end_date: endDate })
+    const backupCheck = await resolveBackupOffice(username, absenceDates, body.backup_office)
+    if (!backupCheck.ok) return res.status(400).json({ success: false, error: backupCheck.error, lockedDates: backupCheck.lockedDates, needBackupOffice: true })
+
     const now = new Date().toISOString()
     const record = {
       id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -401,6 +634,7 @@ async function opHrInner(req, res) {
       reason: body.reason || '', status: 'pending',
       requested_by: actorName(), requested_at: now,
       decided_by: '', decided_at: '', decision_note: '',
+      backup_office: backupCheck.backupOffice || '',
     }
     await appendRows('hr_leave', [LEAVE_HEADERS.map((h) => record[h] ?? '')])
     clearHrCache()
@@ -709,6 +943,11 @@ const confirmMessage = (session) => {
     { type: 'postback', label: 'ยกเลิก', data: 'hr-wiz-confirm:no', displayText: 'ยกเลิก' },
   ] } }
 }
+// วันที่เลือกไว้ทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำ — บังคับเลือกคนออฟฟิศมาทดแทนก่อนยืนยันได้
+const officeBackupMessage = (lockedDates, officeMap) => ({ type: 'template', altText: 'เลือกคนออฟฟิศมาทดแทน', template: { type: 'buttons',
+  text: `วันที่ ${lockedDates.map(thaiDateLabel).join(', ')} บ้านล่างเหลือคนน้อยกว่า ${LOWER_HOUSE_MIN_HEADCOUNT} คนครับ ต้องดึงคนออฟฟิศมาทดแทนก่อน เลือกได้เลยครับ`,
+  actions: Object.entries(officeMap).map(([code, [name]]) => ({ type: 'postback', label: name, data: `hr-wiz-office:${code}`, displayText: name })),
+} })
 
 const getLineSessions = () => getSheet('hr_line_sessions')
 async function upsertSession(lineUserId, patch) {
@@ -768,6 +1007,10 @@ async function handleLeaveWizard(event, staffLink) {
         return replyMessage(replyToken, [swapFromMessage()])
       }
       await upsertSession(lineUserId, { leave_type: leaveType, step: 'await_date' })
+      if (leaveType === 'พักร้อน' && staffLink) {
+        const balance = await vacationBalanceFor(staffLink.code)
+        return replyMessage(replyToken, [{ type: 'text', text: `ตอนนี้เหลือวันลาพักร้อน ${balance.remaining} วันครับ (ใช้ไปแล้ว ${balance.used}/${balance.quota} วัน)` }, dateChoiceMessage()])
+      }
       return replyMessage(replyToken, [dateChoiceMessage()])
     }
 
@@ -807,18 +1050,34 @@ async function handleLeaveWizard(event, staffLink) {
       return replyMessage(replyToken, [confirmMessage(next)])
     }
 
+    // เลือกคนออฟฟิศมาทดแทนวันที่ล็อค (ถูกส่งมาก็ต่อเมื่อ hr-wiz-confirm:yes เจอวันล็อคด้านล่าง)
+    if (data.startsWith('hr-wiz-office:')) {
+      if (session?.step !== 'await_office_backup') return invalid()
+      const code = data.slice('hr-wiz-office:'.length)
+      const next = await upsertSession(lineUserId, { backup_office: code, step: 'await_confirm' })
+      return replyMessage(replyToken, [confirmMessage(next)])
+    }
+
     if (data === 'hr-wiz-confirm:yes') {
       if (session?.step !== 'await_confirm' || !staffLink) return invalid()
       const isSwap = session.leave_type === 'สลับวันหยุด'
+      const endDate = session.date2 || session.date
+      const absenceDates = leaveAbsenceDates({ leave_type: session.leave_type, start_date: session.date, end_date: endDate })
+      const backupCheck = await resolveBackupOffice(staffLink.username, absenceDates, session.backup_office)
+      if (!backupCheck.ok) {
+        await upsertSession(lineUserId, { step: 'await_office_backup' })
+        return replyMessage(replyToken, [officeBackupMessage(backupCheck.lockedDates, await getOfficePeopleMap())])
+      }
       const now = new Date().toISOString()
       const record = {
         id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         username: staffLink.username, employee_name: staffLink.name, leave_type: session.leave_type,
-        start_date: session.date, end_date: session.date2 || session.date,
-        days: isSwap ? 1 : daysBetween(session.date, session.date2 || session.date),
+        start_date: session.date, end_date: endDate,
+        days: isSwap ? 1 : daysBetween(session.date, endDate),
         reason: '', status: 'pending',
         requested_by: staffLink.name, requested_at: now,
         decided_by: '', decided_at: '', decision_note: '',
+        backup_office: backupCheck.backupOffice || '',
       }
       await appendRows('hr_leave', [LEAVE_HEADERS.map((h) => record[h] ?? '')])
       clearHrCache()
@@ -864,7 +1123,7 @@ async function opLineWebhook(req, res) {
         decidedBy = user?.display_name || link.username
       }
       const { record, error } = await applyLeaveDecision(id, decision, decidedBy)
-      const text = error ? `ทำรายการไม่สำเร็จ: ${error}` : `${decision === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติแล้ว'}\n${leaveSummaryText(record)}`
+      const text = error ? `ทำรายการไม่สำเร็จ: ${error}` : `${decision === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติแล้ว'}\n${leaveSummaryText(record, await getOfficePeopleMap())}`
       if (event.replyToken) await replyMessage(event.replyToken, [{ type: 'text', text }])
     } catch (e) { console.error('opLineWebhook event:', e.message) }
   }
