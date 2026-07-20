@@ -358,6 +358,7 @@ export default function Upload() {
               <select className="payi-select" value={business} onChange={(e) => setBusiness(e.target.value)} style={{ padding: '8px 12px', fontSize: 13 }}>
                 <option value="">ไม่ระบุ</option>
                 <option value="Payi">Payi</option>
+                <option value="Payi Outlet">Payi Outlet</option>
                 <option value="กรอบรูป">กรอบรูป</option>
               </select>
             </div>
