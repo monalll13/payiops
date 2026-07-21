@@ -150,7 +150,9 @@ async function getPersonMap() {
     const code = String(p.code).toUpperCase()
     if (String(p.active) === '0') { delete map[code]; continue } // ลบออกแล้ว (soft-delete จากปุ่มในหน้าเว็บ) — ตัดออกจาก roster ทุกที่
     const forcedName = code === 'PANID' ? 'ป้านิด' : code === 'MOM' ? 'แม่' : ''
-    map[code] = [forcedName || p.name || map[code]?.[0] || code, ['PANID', 'MOM'].includes(code) ? 'คนฟีด' : (p.group || 'อื่น ๆ')]
+    // เดิมล็อกกลุ่มของ PANID/MOM ให้เป็น "คนฟีด" เสมอ แก้ในชีตไม่มีผล — ทำให้เปลี่ยนเป็นพาร์ทไทม์ (ตัดออกจากโควตาพักร้อน) ไม่ได้เลย
+    // เลิกล็อก ให้กลุ่มตามชีตจริง — ปฏิทิน OT ยังจับ PANID/MOM เป็นคนฟีดถูกต้องอยู่ดี เพราะเช็คจาก code ตรงๆ ด้วย ไม่ได้เช็คแค่ group (ดู WorkforceOT.jsx feedManpower)
+    map[code] = [forcedName || p.name || map[code]?.[0] || code, p.group || 'อื่น ๆ']
   }
   return map
 }
@@ -591,6 +593,18 @@ async function opHrInner(req, res) {
         await appendRows('workforce_people', [[code, name, group, '1']])
       }
     }
+    clearHrCache(); clearWorkforceCache()
+    return res.status(200).json({ success: true })
+  }
+  if (action === 'edit-employee-group') {
+    if (!requireAdmin(req, res)) return
+    const code = String(body.code || '').trim().toUpperCase()
+    const group = String(body.group || '').trim()
+    if (!code || !group) return res.status(400).json({ success: false, error: 'กรุณาระบุรหัสและกลุ่ม' })
+    const current = await getSheet('workforce_people')
+    if (!current.some((r) => String(r.code).toUpperCase() === code)) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้ (แก้กลุ่มได้เฉพาะบ้านล่าง)' })
+    const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, group } : r)
+    await overwriteSheet('workforce_people', PEOPLE_HEADERS, next.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
     clearHrCache(); clearWorkforceCache()
     return res.status(200).json({ success: true })
   }

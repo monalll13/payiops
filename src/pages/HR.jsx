@@ -100,6 +100,15 @@ export default function HR() {
     } catch (e2) { setError(e2.message) } finally { setSaving(false) }
   }
 
+  const editEmployeeGroup = async (code, group) => {
+    setSaving(true); setError('')
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'edit-employee-group', code, group }) })
+      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'แก้กลุ่มไม่สำเร็จ')
+      await load()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
   const removeEmployee = async (code, group, name) => {
     if (!window.confirm(`ลบ ${name} ออกจากรายชื่อพนักงานใช่ไหม? (ประวัติการลาเดิมยังอยู่)`)) return
     setSaving(true); setError('')
@@ -220,6 +229,11 @@ export default function HR() {
                     {isBoss && editEmployees && <button onClick={() => removeEmployee(b.code, b.group, b.name)} aria-label={`ลบ ${b.name}`} title="ลบพนักงาน" style={{ position: 'absolute', top: 4, right: 4, border: 0, background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', borderRadius: 999, width: 18, height: 18, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
                     <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--payi-text-strong)' }}>{b.name}</div>
                     <div style={{ fontSize: 12, color: b.remaining <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-muted)' }}>เหลือ <b>{b.remaining}</b> / {b.quota} วัน</div>
+                    {isBoss && editEmployees && b.group !== 'ออฟฟิศ' && (
+                      <select className="payi-select" value={b.group} onChange={(e) => editEmployeeGroup(b.code, e.target.value)} style={{ marginTop: 6, fontSize: 11, padding: '3px 5px' }}>
+                        {EMPLOYEE_GROUPS.filter((g) => g !== 'ออฟฟิศ').map((g) => <option key={g}>{g}</option>)}
+                      </select>
+                    )}
                   </div>
                 ))}
               </div>
