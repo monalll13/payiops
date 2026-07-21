@@ -4,7 +4,7 @@ import {
   Bell, Search, UserCircle2, DollarSign, ShoppingBag, Package, TrendingUp,
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
   LayoutDashboard, UploadCloud, Store, Radar, Megaphone, CalendarClock, Boxes,
-  ArrowLeftRight, PackageCheck, Users, ShieldAlert, ListChecks, BookOpen, Link2,
+  ArrowLeftRight, Users, ShieldAlert, BookOpen, Link2,
   Code2, Brain, Settings as SettingsIcon, CalendarCheck,
 } from 'lucide-react'
 import {
@@ -14,7 +14,6 @@ import {
 
 const Upload = lazy(() => import('./pages/Upload'))
 const LinksHub = lazy(() => import('./pages/LinksHub'))
-const PackingView = lazy(() => import('./pages/PackingView'))
 const DevHub = lazy(() => import('./pages/DevHub'))
 const ClaimView = lazy(() => import('./pages/ClaimView'))
 const SalesView = lazy(() => import('./pages/SalesView'))
@@ -85,11 +84,9 @@ const Icons = {
   PlannerControl: CalendarClock,
   Inventory: Boxes,
   StockMovement: ArrowLeftRight,
-  Packing: PackageCheck,
   WorkforceOT: Users,
   HR: CalendarCheck,
   Claims: ShieldAlert,
-  Tasks: ListChecks,
   SOPs: BookOpen,
   LinksHub: Link2,
   DevHub: Code2,
@@ -121,11 +118,9 @@ const menuGroups = [
       { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.PlannerControl, dotColor: '#8b5cf6', group: ['Planner Control', 'FeedProducts'] },
       { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
       { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
-      { id: 'Packing', label: 'Packing', renderIcon: Icons.Packing },
       { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.WorkforceOT, dotColor: '#7dd3fc' },
       { id: 'HR', label: 'พนักงาน (ลา)', renderIcon: Icons.HR, dotColor: '#a78bfa' },
-      { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims },
-      { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' }
+      { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims }
     ]
   },
   {
@@ -1243,8 +1238,6 @@ export default function App() {
             <MarketingRadar />
         ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
             <SalesView />
-        ) : activeTab === 'Packing' ? (
-            <PackingView />
         ) : activeTab === 'Planner Control' ? (
             <PlannerControl onNavigate={setActiveTab} />
         ) : activeTab === 'Workforce OT' ? (
