@@ -134,6 +134,36 @@
 .hr-progress span { display: block; height: 100%; border-radius: inherit; background: var(--hr-mint); }
 .hr-balance-card.is-empty .hr-progress span { background: var(--hr-red); }
 .hr-balance-card select { min-height: 34px; padding: 0 7px; font-size: 10px; }
+.hr-balance-edit { display: flex; align-items: center; gap: 6px; }
+.hr-balance-edit input { width: 68px; min-height: 36px; padding: 0 8px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hr-balance-edit button { min-width: 44px; min-height: 36px; border: 0; border-radius: 9px; background: var(--hr-navy); color: #fff; cursor: pointer; }
+
+.hr-edit-overlay { --hr-navy: #17345f; --hr-blue: #2f6fe0; --hr-blue-soft: #eaf2ff; --hr-ink: #17243b; --hr-muted: #66758d; --hr-line: #e3eaf2; --hr-red: #c94747; position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(18, 42, 70, .34); backdrop-filter: blur(5px); }
+.hr-edit-dialog { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(20, 47, 79, .24); }
+.hr-edit-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--hr-line); background: rgba(255,255,255,.96); }
+.hr-edit-title span { color: var(--hr-blue); font-size: 11px; font-weight: 800; }
+.hr-edit-title h2 { display: flex; align-items: center; gap: 7px; margin: 3px 0 0; color: var(--hr-navy); font-size: 18px; }
+.hr-edit-title > button { width: 44px; height: 44px; border: 0; border-radius: 13px; background: var(--hr-blue-soft); color: var(--hr-navy); cursor: pointer; }
+.hr-edit-form { display: grid; gap: 13px; padding: 18px 20px 20px; }
+.hr-edit-form label { display: grid; gap: 6px; color: var(--hr-muted); font-size: 11px; font-weight: 700; }
+.hr-edit-form input, .hr-edit-form select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--hr-line); border-radius: 12px; background: #fff; color: var(--hr-ink); font: inherit; }
+.hr-edit-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hr-edit-person { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--hr-blue-soft); color: var(--hr-navy); font-size: 13px; font-weight: 800; }
+.hr-edit-person span { color: var(--hr-muted); font-size: 11px; font-weight: 600; }
+.hr-edit-coverage { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 12px; border-radius: 14px; background: #fff8e8; color: #8a5b00; }
+.hr-edit-coverage.is-blocked { background: #fff0f0; color: var(--hr-red); }
+.hr-edit-coverage strong { font-size: 12px; }
+.hr-edit-coverage p { margin: 2px 0 9px; font-size: 11px; }
+.hr-edit-coverage label + label { margin-top: 8px; }
+.hr-edit-error { padding: 10px 12px; border-radius: 12px; background: #fff0f0; color: var(--hr-red); font-size: 12px; font-weight: 700; }
+.hr-edit-help { margin: 0; color: var(--hr-muted); font-size: 11px; }
+.hr-edit-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; padding-top: 3px; }
+.hr-edit-actions button { min-height: 46px; border: 1px solid var(--hr-line); border-radius: 13px; background: #fff; color: var(--hr-muted); font-weight: 800; cursor: pointer; }
+.hr-edit-actions button[type="submit"] { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-color: var(--hr-navy); background: var(--hr-navy); color: #fff; }
+.hr-edit-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.hr-history-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.hr-history-edit { min-width: 44px; min-height: 36px; border: 0; border-radius: 10px; background: var(--hr-blue-soft); color: var(--hr-navy); cursor: pointer; }
+.hr-edit-request-pill { display: inline-flex; align-items: center; width: fit-content; margin-top: 4px; padding: 3px 7px; border-radius: 999px; background: #fff4d8; color: #876000; font-size: 10px; font-weight: 800; }
 
 @media (hover: hover) and (pointer: fine) {
   .hr-icon-button:hover { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(23, 52, 95, .1); }
@@ -167,6 +197,9 @@
   .hr-toolbar .hr-button { flex: 1; }
   .hr-add-employee { grid-template-columns: 1fr; }
   .hr-balance-card { width: calc(50% - 4px); flex-basis: calc(50% - 4px); }
+  .hr-edit-overlay { align-items: end; padding: 0; }
+  .hr-edit-dialog { width: 100%; max-height: 92vh; border-radius: 22px 22px 0 0; }
+  .hr-edit-columns { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 430px) {

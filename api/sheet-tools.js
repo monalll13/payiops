@@ -29,11 +29,12 @@ const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'appro
 const PEOPLE_HEADERS = ['code', 'name', 'group', 'active']
 const OT_LIMIT_HEADERS = ['employee', 'limit_hours', 'updated_at', 'updated_by']
 const OT_APPROVAL_HISTORY_HEADERS = ['id', 'month', 'employee', 'before_minutes', 'after_minutes', 'changed_at', 'changed_by']
-const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note', 'backup_office', 'leave_period']
+const LEAVE_HEADERS = ['id', 'username', 'employee_name', 'leave_type', 'start_date', 'end_date', 'days', 'reason', 'status', 'requested_by', 'requested_at', 'decided_by', 'decided_at', 'decision_note', 'backup_office', 'leave_period', 'edit_pending', 'edit_payload', 'edit_requested_at', 'edit_requested_by']
 const BACKUP_HEADERS = ['leave_id', 'date', 'period', 'office_code', 'created_at']
+const LEAVE_EDIT_HEADERS = ['leave_id', 'mode', 'before_json', 'after_json', 'changed_at', 'changed_by']
 const SCHEDULE_HEADERS = ['id', 'date', 'username', 'employee_name', 'shift_start', 'shift_end', 'role_note', 'created_at', 'created_by']
 const LINE_LINK_HEADERS = ['username', 'line_user_id', 'updated_at']
-const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'date2', 'backup_office', 'updated_at', 'leave_period', 'backup_assignments', 'backup_needs', 'backup_cursor']
+const LINE_SESSION_HEADERS = ['line_user_id', 'step', 'leave_type', 'date', 'date2', 'backup_office', 'updated_at', 'leave_period', 'backup_assignments', 'backup_needs', 'backup_cursor', 'edit_leave_id']
 // โควตาวันลาพักร้อนต่อคนต่อปี — แยกชีตต่างหาก (ไม่ยุ่งกับ workforce_people) เพราะครอบคุมทั้งบ้านล่างและออฟฟิศ แก้ค่าตรงในชีตได้เลย ไม่ต้องแก้โค้ด
 const QUOTA_HEADERS = ['code', 'quota', 'updated_at']
 const DEFAULT_VACATION_QUOTA = 6
@@ -42,13 +43,19 @@ const hasVacationBenefit = (group) => !NO_VACATION_GROUPS.has(String(group || ''
 // รายชื่อออฟฟิศ — ย้ายจาก object hardcode มาเป็นชีต (เหมือน workforce_people) เพื่อให้เพิ่ม/ลบคนได้จากหน้าเว็บ ไม่ต้องแก้โค้ด
 const OFFICE_HEADERS = ['code', 'name', 'active']
 const DEFAULT_OFFICE_ROWS = [['TOON', 'ตูน', '1'], ['KED', 'เกด', '1'], ['MO', 'โม', '1']]
-const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_leave_backups', BACKUP_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_leave_backups', BACKUP_HEADERS], ['hr_leave_edits', LEAVE_EDIT_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
 const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
 const clearHrCache = () => { hrCache = { at: 0, data: null } }
 const daysBetween = (start, end) => Math.round((new Date(`${end}T00:00:00`) - new Date(`${start}T00:00:00`)) / 86400000) + 1
 const currentYearBKK = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 4)
+const parseJsonObject = (value) => { try { const parsed = JSON.parse(value || '{}'); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {} } catch { return {} } }
+const leaveEditPayload = (record) => parseJsonObject(record?.edit_payload)
+const pendingLeaveView = (record) => record?.edit_pending === '1' ? { ...record, ...leaveEditPayload(record), is_edit_request: true } : record
+async function appendLeaveAudit(leaveId, mode, before, after, changedBy) {
+  await appendRows('hr_leave_edits', [[leaveId, mode, JSON.stringify(before || {}), JSON.stringify(after || {}), new Date().toISOString(), changedBy]])
+}
 
 // ใช้ร่วมกันทั้งจาก action decide-leave (กดในเว็บ) และ webhook LINE (กดปุ่มในแชท)
 async function applyLeaveDecision(id, decision, decidedBy, decisionNote = '') {
@@ -56,8 +63,39 @@ async function applyLeaveDecision(id, decision, decidedBy, decisionNote = '') {
   const [current, backupRows] = await Promise.all([getSheet('hr_leave'), getSheet('hr_leave_backups')])
   const target = current.find((r) => String(r.id) === String(id))
   if (!target) return { error: 'ไม่พบคำขอลานี้' }
-  if (target.status !== 'pending') return { error: 'คำขอนี้ถูกพิจารณาไปแล้ว', target }
   const now = new Date().toISOString()
+  if (target.edit_pending === '1') {
+    const payload = leaveEditPayload(target)
+    const proposed = { ...target, ...payload, backup_assignments: payload.backup_assignments || [] }
+    let record
+    let notificationRecord
+    if (decision === 'approved') {
+      const coverage = await resolveLeaveCoverage(target.username, proposed, proposed.backup_assignments, target.id)
+      if (!coverage.ok) return { error: coverage.error, target }
+      record = {
+        ...target, ...payload,
+        status: target.status === 'pending' ? 'approved' : target.status,
+        backup_office: coverage.assignments?.[0]?.office_code || '',
+        edit_pending: '', edit_payload: '', edit_requested_at: '', edit_requested_by: '',
+        decided_by: decidedBy, decided_at: now, decision_note: decisionNote,
+      }
+      const keptBackups = backupRows.filter((row) => String(row.leave_id) !== String(id))
+      const replacementRows = (coverage.assignments || []).map((assignment) => ({ leave_id: id, ...assignment, created_at: now }))
+      await overwriteSheet('hr_leave_backups', BACKUP_HEADERS, [...keptBackups, ...replacementRows].map((row) => BACKUP_HEADERS.map((header) => row[header] ?? '')))
+      await appendLeaveAudit(id, 'edit-approved', target, record, decidedBy)
+      notificationRecord = { ...record, status: 'approved', backup_assignments: coverage.assignments || [] }
+    } else {
+      record = { ...target, edit_pending: '', edit_payload: '', edit_requested_at: '', edit_requested_by: '', decided_by: decidedBy, decided_at: now, decision_note: decisionNote }
+      await appendLeaveAudit(id, 'edit-rejected', proposed, target, decidedBy)
+      notificationRecord = { ...proposed, status: 'rejected', decision_note: decisionNote }
+    }
+    const next = current.map((row) => String(row.id) === String(id) ? record : row)
+    await overwriteSheet('hr_leave', LEAVE_HEADERS, next.map((row) => LEAVE_HEADERS.map((header) => row[header] ?? '')))
+    clearHrCache()
+    try { await notifyLeaveDecision(notificationRecord) } catch (e) { console.error('notifyLeaveDecision:', e.message) }
+    return { record }
+  }
+  if (target.status !== 'pending') return { error: 'คำขอนี้ถูกพิจารณาไปแล้ว', target }
   const record = { ...target, status: decision, decided_by: decidedBy, decided_at: now, decision_note: decisionNote, backup_assignments: backupRows.filter((row) => String(row.leave_id) === String(id)) }
   const next = current.map((r) => String(r.id) === String(id) ? record : r)
   await overwriteSheet('hr_leave', LEAVE_HEADERS, next.map((r) => LEAVE_HEADERS.map((h) => r[h] ?? '')))
@@ -75,7 +113,8 @@ async function notifyLeaveDecision(record) {
   if (record.status === 'approved' && record.leave_type === 'พักร้อน' && String(record.username || '').startsWith('mp:')) {
     try { balance = await vacationBalanceFor(record.username.slice(3)) } catch (e) { console.error('vacationBalanceFor:', e.message) }
   }
-  await pushMessage(link.line_user_id, [leaveFlexMessage(record, record.status, await getOfficePeopleMap(), { balance })])
+  const variant = record.status === 'pending' ? 'submitted' : record.status
+  await pushMessage(link.line_user_id, [leaveFlexMessage(record, variant, await getOfficePeopleMap(), { balance })])
 }
 
 // รายชื่อ admin ที่ผูก LINE ไว้แล้ว (username, line_user_id) — ใช้ตอนแจ้งเตือนคำขอลาใหม่
@@ -111,6 +150,7 @@ const LINE_LEAVE_THEME = {
   submitted: { title: 'ยังรออนุมัติอยู่นะคะ', status: 'รอหัวหน้าอนุมัติ', icon: '⏰' },
   approved: { title: 'คำขอลาได้รับการอนุมัติ', status: 'อนุมัติแล้ว', icon: '✅' },
   rejected: { title: 'คำขอลายังไม่ผ่าน', status: 'ไม่อนุมัติ', icon: '✕' },
+  cancelled: { title: 'ยกเลิกรายการลาแล้ว', status: 'ยกเลิกแล้ว', icon: '↩️' },
 }
 const LINE_CARD = {
   sky: '#DDF3FF', skySoft: '#EFF9FF', skyStrong: '#C7EAFE', glass: '#FFFFFFCC',
@@ -157,6 +197,7 @@ const lineCardButton = (action, primary = false) => ({
 // การ์ดเดียวกันทั้งแจ้ง admin และแจ้งผลกลับหาพนักงาน เพื่อให้สถานะอ่านได้เหมือนกันทุกจุด
 const leaveFlexMessage = (record, variant = 'pending', officeMap = {}, { balance = null } = {}) => {
   const theme = LINE_LEAVE_THEME[variant] || LINE_LEAVE_THEME.pending
+  const cardTitle = record.is_edit_request ? 'คำขอแก้ไขวันลา' : theme.title
   const isSwap = record.leave_type === 'สลับวันหยุด'
   const facts = [factRow(isSwap ? 'วันหยุดเดิม → ใหม่' : 'วันที่ลา', isSwap ? `${lineDate(record.start_date)} → ${lineDate(record.end_date)}` : lineDateRange(record))]
   if (!isSwap) facts.push(factRow('ช่วงเวลา', leavePeriodLabel(normalizeLeavePeriod(record.leave_period, record.days))))
@@ -167,7 +208,7 @@ const leaveFlexMessage = (record, variant = 'pending', officeMap = {}, { balance
 
   const bubble = {
     type: 'bubble', size: 'kilo',
-    header: lineCardHeader(theme.title, record.employee_name || 'พนักงาน', theme.icon, theme.status),
+    header: lineCardHeader(cardTitle, record.employee_name || 'พนักงาน', theme.icon, record.is_edit_request ? 'รอ HR ยืนยันการแก้ไข' : theme.status),
     body: { type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'md', backgroundColor: '#FBFEFF', contents: [
       { type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
         summaryTile('ประเภท', `${leaveTypeIcon(record.leave_type)} ${record.leave_type}`, LINE_CARD.skySoft, LINE_CARD.blueDark),
@@ -180,6 +221,9 @@ const leaveFlexMessage = (record, variant = 'pending', officeMap = {}, { balance
   if (variant === 'pending') bubble.footer = { type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '12px', backgroundColor: LINE_CARD.skySoft, contents: [
     lineCardButton({ type: 'postback', label: 'ไม่อนุมัติ', data: `hr-reject:${record.id}`, displayText: 'ไม่อนุมัติคำขอลา' }),
     lineCardButton({ type: 'postback', label: 'อนุมัติ', data: `hr-approve:${record.id}`, displayText: 'อนุมัติคำขอลา' }, true),
+  ] }
+  if (['submitted', 'approved'].includes(variant) && !record.is_edit_request) bubble.footer = { type: 'box', layout: 'vertical', paddingAll: '12px', backgroundColor: LINE_CARD.skySoft, contents: [
+    lineCardButton({ type: 'postback', label: 'แก้ไขคำขอนี้', data: `hr-wiz-edit-direct:${record.id}`, displayText: 'แก้ไขคำขอลา' }),
   ] }
   return { type: 'flex', altText: `${theme.title}: ${leaveSummaryText(record, officeMap)}`.slice(0, 400), contents: bubble }
 }
@@ -257,7 +301,10 @@ async function findHrPerson(code) {
 // ── โควตาวันลาพักร้อน ──
 async function getQuotaMap() {
   const rows = await getSheet('hr_leave_quota')
-  return Object.fromEntries(rows.filter((r) => r.code).map((r) => [String(r.code).toUpperCase(), Number(r.quota) || DEFAULT_VACATION_QUOTA]))
+  return Object.fromEntries(rows.filter((r) => r.code).map((r) => {
+    const quota = Number(r.quota)
+    return [String(r.code).toUpperCase(), Number.isFinite(quota) && quota >= 0 ? quota : DEFAULT_VACATION_QUOTA]
+  }))
 }
 // เหลือกี่วันพักร้อนของคนนี้ปีนี้ — นับจาก hr_leave ที่ status=approved, leave_type=พักร้อน, ปีปฏิทินเดียวกัน (ตาม start_date)
 async function vacationBalanceFor(code) {
@@ -295,12 +342,14 @@ const decorateBackupNeeds = (needs, officeMap) => needs.map((need) => ({
   candidates: need.candidates.map((code) => ({ code, name: officeMap[code]?.[0] || code })),
 }))
 
-async function inspectLeaveCoverage(username, proposedLeave) {
+async function inspectLeaveCoverage(username, proposedLeave, excludeLeaveId = '') {
   if (!String(username || '').startsWith('mp:')) return { ok: true, needs: [], assignments: [] }
   const code = username.slice(3).toUpperCase()
-  const [personMap, officeMap, scheduleRows, leaveRows, backupRows] = await Promise.all([
+  const [personMap, officeMap, scheduleRows, allLeaveRows, allBackupRows] = await Promise.all([
     getPersonMap(), getOfficePeopleMap(), getSheet('workforce_schedule_snapshot'), getSheet('hr_leave'), getSheet('hr_leave_backups'),
   ])
+  const leaveRows = allLeaveRows.filter((row) => String(row.id) !== String(excludeLeaveId || ''))
+  const backupRows = allBackupRows.filter((row) => String(row.leave_id) !== String(excludeLeaveId || ''))
   if (officeMap[code]) {
     const conflicts = officeLeaveConflicts({ officeCode: code, proposedLeave, leaveRows, backupRows })
     if (conflicts.length) {
@@ -327,14 +376,32 @@ async function inspectLeaveCoverage(username, proposedLeave) {
   return { ok: true, blocked: false, needs, rawNeeds: plan.needs }
 }
 
-async function resolveLeaveCoverage(username, proposedLeave, submittedAssignments = []) {
-  const inspection = await inspectLeaveCoverage(username, proposedLeave)
+async function resolveLeaveCoverage(username, proposedLeave, submittedAssignments = [], excludeLeaveId = '') {
+  const inspection = await inspectLeaveCoverage(username, proposedLeave, excludeLeaveId)
   if (!inspection.ok) return inspection
   const validation = validateBackupSelections(inspection.rawNeeds || [], Array.isArray(submittedAssignments) ? submittedAssignments : [])
   if (!validation.ok) {
     return { ok: false, blocked: false, needs: inspection.needs, error: 'ต้องเลือกคนออฟฟิศที่ว่างให้ครบทุกช่วงเวลาก่อนส่งคำขอค่ะ' }
   }
   return { ok: true, blocked: false, needs: inspection.needs, assignments: validation.assignments }
+}
+
+function normalizeEditableLeave(body, fallback = {}) {
+  const leaveType = String(body.leave_type || fallback.leave_type || '').trim()
+  const startDate = String(body.start_date || fallback.start_date || '')
+  const isSwap = leaveType === 'สลับวันหยุด'
+  const leavePeriod = isSwap ? 'full' : normalizeLeavePeriod(body.leave_period || fallback.leave_period, fallback.days)
+  const halfDay = ['am', 'pm'].includes(leavePeriod) && !isSwap
+  const endDate = halfDay ? startDate : String(body.end_date || fallback.end_date || '')
+  if (!leaveType || !startDate || !endDate) return { error: 'กรุณาระบุประเภทและวันที่ลาให้ครบค่ะ' }
+  if (!isSwap && endDate < startDate) return { error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มค่ะ' }
+  return {
+    draft: {
+      leave_type: leaveType, start_date: startDate, end_date: endDate,
+      leave_period: leavePeriod, days: isSwap ? 1 : halfDay ? 0.5 : daysBetween(startDate, endDate),
+      reason: String(body.reason ?? fallback.reason ?? '').trim(),
+    },
+  }
 }
 
 // code -> date -> Set(am/pm) เพื่อให้ปฏิทินแสดงลาครึ่งวันเป็นกำลังคน 0.5 แทนการหายทั้งวัน
@@ -578,7 +645,11 @@ async function opHrInner(req, res) {
     const officeMapForList = await getOfficePeopleMap()
     const extraPeople = Object.entries(officeMapForList).map(([code, [name, group]]) => ({ code, name, group }))
     const backupRows = rowsToObjects(backupRange.values || [])
-    const leaveRows = rowsToObjects(leaveRange.values || []).map((leave) => ({ ...leave, backup_assignments: backupRows.filter((row) => String(row.leave_id) === String(leave.id)) }))
+    const leaveRows = rowsToObjects(leaveRange.values || []).map((leave) => ({
+      ...leave,
+      backup_assignments: backupRows.filter((row) => String(row.leave_id) === String(leave.id)),
+      edit_proposal: leave.edit_pending === '1' ? pendingLeaveView(leave) : null,
+    }))
     const leaveBalancesFull = await computeLeaveBalances(leaveRows, true)
     const data = { success: true, leave: leaveRows, schedule: rowsToObjects(scheduleRange.values || []), lineLinks: rowsToObjects(lineLinkRange.values || []), people: [...peopleFromSheet, ...extraPeople], activeMonths, leaveBalancesFull }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
@@ -597,7 +668,7 @@ async function opHrInner(req, res) {
     const halfDay = ['am', 'pm'].includes(leavePeriod) && !isSwap
     const endDate = halfDay ? body.start_date : body.end_date
     const draft = { leave_type: body.leave_type, start_date: body.start_date, end_date: endDate, leave_period: leavePeriod, days: halfDay ? 0.5 : undefined }
-    const coverage = await inspectLeaveCoverage(`mp:${code}`, draft)
+    const coverage = await inspectLeaveCoverage(`mp:${code}`, draft, body.exclude_leave_id)
     const lockedDates = [...new Set([...(coverage.needs || []).map((need) => need.date), ...(coverage.lockedDates || [])])]
     return res.status(200).json({ success: true, locked: lockedDates.length > 0 || !!coverage.blocked, lockedDates, backupNeeds: coverage.needs || [], blocked: !!coverage.blocked, coverageError: coverage.error || '' })
   }
@@ -662,6 +733,82 @@ async function opHrInner(req, res) {
     }
     clearHrCache(); clearWorkforceCache()
     return res.status(200).json({ success: true })
+  }
+
+  if (action === 'set-leave-balance') {
+    if (!requireAdmin(req, res)) return
+    const code = String(body.code || '').trim().toUpperCase()
+    const remaining = Number(body.remaining)
+    const person = code ? await findHrPerson(code) : null
+    if (!person) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้' })
+    if (!hasVacationBenefit(person.group)) return res.status(400).json({ success: false, error: `${person.group}ไม่มีสิทธิ์วันลาพักร้อน` })
+    if (!Number.isFinite(remaining) || remaining < 0 || remaining > 365 || Math.round(remaining * 2) !== remaining * 2) {
+      return res.status(400).json({ success: false, error: 'ยอดคงเหลือต้องเป็น 0–365 วัน และเพิ่มทีละครึ่งวันได้ค่ะ' })
+    }
+    const balance = await vacationBalanceFor(code)
+    const quota = balance.used + remaining
+    const current = await getSheet('hr_leave_quota')
+    const existing = current.find((row) => String(row.code).toUpperCase() === code)
+    const now = new Date().toISOString()
+    const next = existing
+      ? current.map((row) => String(row.code).toUpperCase() === code ? { ...row, quota, updated_at: now } : row)
+      : [...current, { code, quota, updated_at: now }]
+    await overwriteSheet('hr_leave_quota', QUOTA_HEADERS, next.map((row) => QUOTA_HEADERS.map((header) => row[header] ?? '')))
+    await appendLeaveAudit(`quota:${code}`, 'balance-adjusted', balance, { ...balance, quota, remaining }, actorName())
+    clearHrCache()
+    return res.status(200).json({ success: true, balance: { ...balance, quota, remaining } })
+  }
+
+  if (action === 'request-leave-edit' || action === 'admin-update-leave') {
+    const isAdminEdit = action === 'admin-update-leave'
+    if (isAdminEdit && !requireAdmin(req, res)) return
+    const current = await getSheet('hr_leave')
+    const target = current.find((row) => String(row.id) === String(body.id || ''))
+    if (!target) return res.status(404).json({ success: false, error: 'ไม่พบรายการลานี้' })
+    const isOwner = target.username === actorUsername()
+    const isAdmin = !authEnabled() || req.user?.role === 'admin'
+    if (!isAdminEdit && !isOwner && !isAdmin) return res.status(403).json({ success: false, error: 'แก้ไขได้เฉพาะคำขอของตัวเองค่ะ' })
+    if (!isAdminEdit && ['rejected', 'cancelled'].includes(target.status)) return res.status(400).json({ success: false, error: 'รายการนี้สิ้นสุดแล้ว กรุณาส่งคำขอใหม่ค่ะ' })
+    const { draft, error: draftError } = normalizeEditableLeave(body, target)
+    if (draftError) return res.status(400).json({ success: false, error: draftError })
+    const code = String(target.username || '').startsWith('mp:') ? target.username.slice(3) : ''
+    const person = code ? await findHrPerson(code) : null
+    if (draft.leave_type === 'พักร้อน' && person && !hasVacationBenefit(person.group)) return res.status(400).json({ success: false, error: `${person.group}ไม่มีสิทธิ์วันลาพักร้อน` })
+    const nextStatus = isAdminEdit ? String(body.status || target.status) : target.status
+    if (isAdminEdit && !['pending', 'approved', 'rejected', 'cancelled'].includes(nextStatus)) return res.status(400).json({ success: false, error: 'สถานะไม่ถูกต้อง' })
+    let coverage = { ok: true, assignments: [] }
+    if (!['rejected', 'cancelled'].includes(nextStatus)) {
+      coverage = await resolveLeaveCoverage(target.username, draft, body.backup_assignments, target.id)
+      if (!coverage.ok) return res.status(400).json({ success: false, error: coverage.error, backupNeeds: coverage.needs || [], blocked: !!coverage.blocked })
+    }
+    const now = new Date().toISOString()
+    const payload = { ...draft, backup_office: coverage.assignments?.[0]?.office_code || '', backup_assignments: coverage.assignments || [] }
+    if (!isAdminEdit) {
+      const record = { ...target, edit_pending: '1', edit_payload: JSON.stringify(payload), edit_requested_at: now, edit_requested_by: actorName() }
+      const next = current.map((row) => String(row.id) === String(target.id) ? record : row)
+      await overwriteSheet('hr_leave', LEAVE_HEADERS, next.map((row) => LEAVE_HEADERS.map((header) => row[header] ?? '')))
+      await appendLeaveAudit(target.id, 'edit-requested', target, payload, actorName())
+      clearHrCache()
+      await notifyNewLeaveRequestSafely({ ...target, ...payload, status: 'pending', is_edit_request: true })
+      return res.status(200).json({ success: true, leave: record })
+    }
+    const record = {
+      ...target, ...draft, status: nextStatus,
+      backup_office: payload.backup_office,
+      edit_pending: '', edit_payload: '', edit_requested_at: '', edit_requested_by: '',
+      decided_by: actorName(), decided_at: now, decision_note: String(body.decision_note || target.decision_note || ''),
+    }
+    const backupRows = await getSheet('hr_leave_backups')
+    const keptBackups = backupRows.filter((row) => String(row.leave_id) !== String(target.id))
+    const replacementRows = (coverage.assignments || []).map((assignment) => ({ leave_id: target.id, ...assignment, created_at: now }))
+    await Promise.all([
+      overwriteSheet('hr_leave', LEAVE_HEADERS, current.map((row) => String(row.id) === String(target.id) ? record : row).map((row) => LEAVE_HEADERS.map((header) => row[header] ?? ''))),
+      overwriteSheet('hr_leave_backups', BACKUP_HEADERS, [...keptBackups, ...replacementRows].map((row) => BACKUP_HEADERS.map((header) => row[header] ?? ''))),
+      appendLeaveAudit(target.id, 'admin-updated', target, { ...record, backup_assignments: coverage.assignments || [] }, actorName()),
+    ])
+    clearHrCache()
+    try { await notifyLeaveDecision({ ...record, backup_assignments: coverage.assignments || [] }) } catch (e) { console.error('notifyLeaveDecision:', e.message) }
+    return res.status(200).json({ success: true, leave: record })
   }
 
   if (action === 'request-leave' || action === 'request-leave-for') {
@@ -968,6 +1115,7 @@ async function opPlanner(req, res) {
 // ── op=line-webhook: LINE เรียกเข้ามาตอนกดปุ่มอนุมัติ/ปฏิเสธในแชท — ไม่มี x-api-token ต้องตรวจลายเซ็นแทน ──
 // ── ตัวช่วยขั้นตอนยื่นลาผ่านแชท LINE (พนักงานที่ไม่มีบัญชี login กดเมนูสำเร็จรูปแทนเข้าเว็บ) ──
 const LEAVE_TRIGGER = 'ลา'
+const LEAVE_EDIT_TRIGGER = 'แก้ไขลา'
 const LEAVE_TYPES_LINE = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const THAI_MONTH_ABBR = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
@@ -979,6 +1127,10 @@ const typeQuickReplyMessage = (staffLink) => {
   const leaveTypes = staffLink && !hasVacationBenefit(staffLink.group) ? LEAVE_TYPES_LINE.filter((type) => type !== 'พักร้อน') : LEAVE_TYPES_LINE
   return { type: 'text', text: 'ลาประเภทไหนคะ?', quickReply: { items: leaveTypes.map((type) => ({ type: 'action', action: { type: 'postback', label: type, data: `hr-wiz-type:${type}`, displayText: type } })) } }
 }
+const editLeaveChoiceMessage = (leaves) => ({
+  type: 'text', text: 'เลือกคำขอที่ต้องการแก้ไขค่ะ',
+  quickReply: { items: leaves.slice(0, 10).map((leave) => ({ type: 'action', action: { type: 'postback', label: `${thaiDateLabel(leave.start_date)} · ${leave.leave_type}`.slice(0, 20), data: `hr-wiz-edit:${leave.id}`, displayText: `แก้ไข ${thaiDateLabel(leave.start_date)}` } })) },
+})
 // ปฏิทินจริงของ LINE (datetimepicker) กันพิมพ์วันที่ผิด — ใช้แทนการพิมพ์วันที่เองทั้งหมด
 const dtPicker = (label, data, min) => ({ type: 'datetimepicker', label, data, mode: 'date', initial: min || todayStr(), min: min || todayStr() })
 const choiceCard = ({ altText, title, subtitle, icon = '💭', actions = [], primaryLast = false }) => ({
@@ -1083,8 +1235,14 @@ async function handleLeaveWizard(event, staffLink) {
 
     // พิมพ์ "ลา" เริ่มใหม่ได้เสมอ แม้มี session ค้างจากรอบก่อน (เช่น กดออกจากแชทกลางคัน ไม่กดปุ่มจนจบ) — ไม่งั้นบอทจะเงียบตลอดไปเพราะข้อความอื่นไม่ถูกจับเลย
     if (text === LEAVE_TRIGGER) {
-      await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '', date2: '', leave_period: '', backup_assignments: '', backup_needs: '', backup_cursor: '' })
+      await upsertSession(lineUserId, { step: 'await_type', leave_type: '', date: '', date2: '', leave_period: '', backup_assignments: '', backup_needs: '', backup_cursor: '', edit_leave_id: '' })
       return replyMessage(replyToken, [typeQuickReplyMessage(staffLink)])
+    }
+    if (text === LEAVE_EDIT_TRIGGER && staffLink) {
+      const leaves = (await getSheet('hr_leave')).filter((leave) => leave.username === staffLink.username && ['pending', 'approved'].includes(leave.status) && leave.edit_pending !== '1').sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
+      if (!leaves.length) return replyMessage(replyToken, [{ type: 'text', text: 'ตอนนี้ไม่มีรายการลาที่แก้ไขได้ค่ะ หากต้องการลาใหม่พิมพ์ “ลา” ได้เลยนะคะ' }])
+      await upsertSession(lineUserId, { step: 'await_edit_pick', edit_leave_id: '', backup_assignments: '', backup_needs: '', backup_cursor: '' })
+      return replyMessage(replyToken, [editLeaveChoiceMessage(leaves)])
     }
     return // ข้อความอื่นที่ไม่เข้าเงื่อนไข ไม่ตอบ กันสแปมแชท
   }
@@ -1093,6 +1251,16 @@ async function handleLeaveWizard(event, staffLink) {
     const data = String(event.postback?.data || '')
     const session = (await getLineSessions()).find((s) => s.line_user_id === lineUserId)
     const pickedDate = event.postback?.params?.date // มาจากปฏิทินจริงของ LINE (datetimepicker) เท่านั้น ไม่มีทางพิมพ์ผิด
+
+    if (data.startsWith('hr-wiz-edit:') || data.startsWith('hr-wiz-edit-direct:')) {
+      const direct = data.startsWith('hr-wiz-edit-direct:')
+      if ((!direct && session?.step !== 'await_edit_pick') || !staffLink) return invalid()
+      const editLeaveId = data.slice((direct ? 'hr-wiz-edit-direct:' : 'hr-wiz-edit:').length)
+      const target = (await getSheet('hr_leave')).find((leave) => String(leave.id) === editLeaveId && leave.username === staffLink.username && ['pending', 'approved'].includes(leave.status) && leave.edit_pending !== '1')
+      if (!target) return replyMessage(replyToken, [{ type: 'text', text: 'รายการนี้แก้ไขไม่ได้แล้วค่ะ ลองพิมพ์ “แก้ไขลา” ใหม่อีกครั้งนะคะ' }])
+      await upsertSession(lineUserId, { step: 'await_type', edit_leave_id: editLeaveId, leave_type: '', date: '', date2: '', leave_period: '', backup_assignments: '', backup_needs: '', backup_cursor: '' })
+      return replyMessage(replyToken, [{ type: 'text', text: 'เลือกข้อมูลใหม่ได้เลยค่ะ รายการเดิมจะยังมีผลจนกว่า HR จะยืนยันการแก้ไขนะคะ' }, typeQuickReplyMessage(staffLink)])
+    }
 
     if (data.startsWith('hr-wiz-type:')) {
       if (session?.step !== 'await_type') return invalid()
@@ -1194,7 +1362,7 @@ async function handleLeaveWizard(event, staffLink) {
       const endDate = session.date2 || session.date
       const leavePeriod = isSwap ? 'full' : normalizeLeavePeriod(session.leave_period)
       const draft = { leave_type: session.leave_type, start_date: session.date, end_date: endDate, leave_period: leavePeriod, days: leavePeriod === 'full' ? undefined : 0.5 }
-      const coverage = await resolveLeaveCoverage(staffLink.username, draft, parseSessionJson(session.backup_assignments))
+      const coverage = await resolveLeaveCoverage(staffLink.username, draft, parseSessionJson(session.backup_assignments), session.edit_leave_id)
       if (!coverage.ok) {
         if (coverage.blocked) return replyMessage(replyToken, [{ type: 'text', text: `${coverage.error}\nลองเลือกวันอื่นโดยพิมพ์ “ลา” อีกครั้งนะคะ` }])
         const steps = expandBackupNeeds(coverage.needs || [])
@@ -1203,6 +1371,24 @@ async function handleLeaveWizard(event, staffLink) {
         return replyMessage(replyToken, [officeBackupMessage(steps[0])])
       }
       const now = new Date().toISOString()
+      if (session.edit_leave_id) {
+        const current = await getSheet('hr_leave')
+        const target = current.find((leave) => String(leave.id) === String(session.edit_leave_id) && leave.username === staffLink.username)
+        if (!target || !['pending', 'approved'].includes(target.status) || target.edit_pending === '1') return replyMessage(replyToken, [{ type: 'text', text: 'รายการนี้แก้ไขไม่ได้แล้วค่ะ ลองพิมพ์ “แก้ไขลา” ใหม่อีกครั้งนะคะ' }])
+        const payload = {
+          ...draft,
+          days: isSwap ? 1 : leavePeriod === 'full' ? daysBetween(session.date, endDate) : 0.5,
+          reason: target.reason || '', backup_office: coverage.assignments?.[0]?.office_code || '', backup_assignments: coverage.assignments || [],
+        }
+        const record = { ...target, edit_pending: '1', edit_payload: JSON.stringify(payload), edit_requested_at: now, edit_requested_by: staffLink.name }
+        await overwriteSheet('hr_leave', LEAVE_HEADERS, current.map((leave) => String(leave.id) === String(target.id) ? record : leave).map((leave) => LEAVE_HEADERS.map((header) => leave[header] ?? '')))
+        await appendLeaveAudit(target.id, 'edit-requested', target, payload, staffLink.name)
+        clearHrCache()
+        await clearSession(lineUserId)
+        const proposed = { ...target, ...payload, status: 'pending', is_edit_request: true }
+        await Promise.all([notifyNewLeaveRequestSafely(proposed), replyMessage(replyToken, [leaveFlexMessage(proposed, 'submitted', await getOfficePeopleMap())])])
+        return
+      }
       const record = {
         id: `leave-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         username: staffLink.username, employee_name: staffLink.name, leave_type: session.leave_type,

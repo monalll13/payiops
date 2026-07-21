@@ -1,7 +1,9 @@
 // โหมดพนักงาน/หัวหน้า (มือถือ) — หน้าจัดการวันลา · ธีม TREASURE ขาว-ฟ้า (เหมือน ManagerClaimsPrototype.jsx)
 // เปิดดูที่ /?hr · แยกจากแอปหลัก ไม่กระทบ control-room เดสก์ท็อป · ใช้ API เดียวกับหน้า HR เดสก์ท็อป (/api/sheet-tools?op=hr)
 import { useEffect, useRef, useState } from 'react'
-import { Bell, ChevronLeft, Check, CalendarClock, User, ListChecks, MoreHorizontal } from 'lucide-react'
+import { Bell, ChevronLeft, Check, CalendarClock, User, ListChecks, MoreHorizontal, Pencil } from 'lucide-react'
+import LeaveEditPanel from '../components/LeaveEditPanel'
+import './HR.css'
 
 const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
@@ -19,6 +21,7 @@ const STATUS = {
   pending: { dot: C.amber, text: C.amber, label: 'รอพิจารณา' },
   approved: { dot: C.green, text: C.green, label: 'อนุมัติแล้ว' },
   rejected: { dot: C.red, text: C.red, label: 'ไม่อนุมัติ' },
+  cancelled: { dot: C.muted, text: C.muted, label: 'ยกเลิกแล้ว' },
 }
 const AVATAR_COLORS = ['#2F6FE0', '#1AA179', '#E8930C', '#E24B4A', '#8B5CF6', '#0EA5E9']
 const initials = (name = '') => name.trim().slice(0, 1).toUpperCase() || '?'
@@ -71,6 +74,7 @@ export default function HRMobile() {
   const isSwap = form.leave_type === 'สลับวันหยุด'
   const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' })
   const [backupSelections, setBackupSelections] = useState({})
+  const [editingLeave, setEditingLeave] = useState(null)
 
   // เช็คว่าช่วงที่เลือกทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำไหม — เช็คเฉพาะตอนยื่นแทนพนักงาน (มี employee_code)
   useEffect(() => {
@@ -203,7 +207,7 @@ export default function HRMobile() {
             {monthKeys.map((mk) => <div key={mk}>
               <div style={{ fontSize: 12, fontWeight: 800, color: C.muted, margin: '4px 0 8px' }}>{monthFullLabel(mk)}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {grouped[mk].map((l) => { const st = STATUS[l.status] || STATUS.pending; return (
+                {grouped[mk].map((l) => { const st = STATUS[l.edit_pending === '1' ? 'pending' : l.status] || STATUS.pending; return (
                   <button key={l.id} onClick={() => openDetail(l.id)} style={{ textAlign: 'left', border: `1px solid ${C.blueLine}`, background: C.card, borderRadius: 14, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                     <Avatar name={l.employee_name} size={36} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -212,7 +216,7 @@ export default function HRMobile() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.dot }} />
-                      <span style={{ fontSize: 11, color: st.text, fontWeight: 700 }}>{st.label}</span>
+                      <span style={{ fontSize: 11, color: st.text, fontWeight: 700 }}>{l.edit_pending === '1' ? 'รอยืนยันแก้ไข' : st.label}</span>
                     </div>
                   </button>
                 )})}
@@ -220,10 +224,10 @@ export default function HRMobile() {
             </div>)}
           </>}
 
-          {view === 'detail' && selected && (() => { const st = STATUS[selected.status] || STATUS.pending; const canDecide = isBoss && selected.status === 'pending'; const canCancel = selected.status === 'pending' && (selected.username === currentUser?.u || isBoss); return <>
+          {view === 'detail' && selected && (() => { const shown = selected.edit_proposal || selected; const st = STATUS[selected.edit_pending === '1' ? 'pending' : selected.status] || STATUS.pending; const canDecide = isBoss && (selected.status === 'pending' || selected.edit_pending === '1'); const canCancel = selected.status === 'pending' && (selected.username === currentUser?.u || isBoss); const canEdit = isBoss || (selected.username === currentUser?.u && !['rejected', 'cancelled'].includes(selected.status)); return <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button onClick={() => setView('list')} style={{ border: 0, background: 'transparent', color: C.text, cursor: 'pointer', display: 'flex' }}><ChevronLeft size={22} /></button>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C.text, flex: 1 }}>{selected.leave_type}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.text, flex: 1 }}>{shown.leave_type}</div>
               {selected.status === 'approved' && <div style={{ width: 34, height: 34, borderRadius: '50%', background: C.green, color: '#fff', display: 'grid', placeItems: 'center' }}><Check size={19} /></div>}
             </div>
 
@@ -232,10 +236,11 @@ export default function HRMobile() {
                 <Avatar name={selected.employee_name} size={46} />
                 <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{selected.employee_name}</div>
               </div>
-              <Row label="วันที่ลา" value={Number(selected.days) === 0.5 ? new Date(`${selected.start_date}T00:00:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : `${selected.start_date} – ${selected.end_date}`} />
-              <Row label="จำนวน" value={`${selected.days} วัน · ${periodLabel(selected.leave_period, selected.days)}`} />
-              <Row label="ประเภท" value={selected.leave_type} />
-              {selected.reason && <Row label="เหตุผล" value={selected.reason} />}
+              {selected.edit_pending === '1' && <div style={{ padding: '7px 10px', borderRadius: 10, background: C.amberSoft, color: C.amber, fontSize: 11, fontWeight: 800 }}>ข้อมูลด้านล่างเป็นคำขอแก้ไขที่รอ HR ยืนยัน</div>}
+              <Row label="วันที่ลา" value={Number(shown.days) === 0.5 ? new Date(`${shown.start_date}T00:00:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : `${shown.start_date} – ${shown.end_date}`} />
+              <Row label="จำนวน" value={`${shown.days} วัน · ${periodLabel(shown.leave_period, shown.days)}`} />
+              <Row label="ประเภท" value={shown.leave_type} />
+              {shown.reason && <Row label="เหตุผล" value={shown.reason} />}
               <Row label="สถานะ" value={<span style={{ color: st.text, fontWeight: 800 }}>{st.label}</span>} />
               <div style={{ fontSize: 11, color: C.faint, borderTop: `1px solid ${C.blueLine}`, paddingTop: 10 }}>ส่งคำขอ {new Date(selected.requested_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
                 {selected.decided_at && <div style={{ marginTop: 3 }}>{st.label} {new Date(selected.decided_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })} โดย {selected.decided_by}</div>}
@@ -246,6 +251,7 @@ export default function HRMobile() {
               <button disabled={saving} onClick={() => decideLeave(selected.id, 'rejected')} style={{ flex: 1, border: `1px solid ${C.red}`, background: '#fff', color: C.red, borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer' }}>ปฏิเสธ</button>
               <button disabled={saving} onClick={() => decideLeave(selected.id, 'approved')} style={{ flex: 1, border: 0, background: C.green, color: '#fff', borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer' }}>ยืนยันอนุมัติ</button>
             </div>}
+            {canEdit && <button onClick={() => setEditingLeave(selected)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, border: `1px solid ${C.blueLine}`, background: C.blueSoft, color: C.blueDeep, borderRadius: 12, padding: '11px 0', fontWeight: 800, cursor: 'pointer' }}><Pencil size={16} />แก้ไขรายการลา</button>}
             {!canDecide && canCancel && <button disabled={saving} onClick={() => cancelLeave(selected.id)} style={{ border: `1px solid ${C.blueLine}`, background: '#fff', color: C.muted, borderRadius: 12, padding: '11px 0', fontWeight: 700, cursor: 'pointer' }}>ยกเลิกคำขอ</button>}
           </> })()}
 
@@ -328,6 +334,7 @@ export default function HRMobile() {
         </div>
 
       </div>
+      {editingLeave && <LeaveEditPanel leave={editingLeave} people={people} isAdmin={isBoss} onClose={() => setEditingLeave(null)} onSaved={async () => { setEditingLeave(null); await load(); setView('list') }} />}
     </div>
   )
 }

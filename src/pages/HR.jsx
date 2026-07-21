@@ -4,6 +4,7 @@ import {
   Send, ShieldCheck, UsersRound, X,
 } from 'lucide-react'
 import './HR.css'
+import LeaveEditPanel from '../components/LeaveEditPanel'
 
 const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
@@ -17,6 +18,7 @@ const STATUS = {
   pending: { label: 'รอพิจารณา', className: 'is-pending' },
   approved: { label: 'อนุมัติแล้ว', className: 'is-approved' },
   rejected: { label: 'ไม่อนุมัติ', className: 'is-rejected' },
+  cancelled: { label: 'ยกเลิกแล้ว', className: 'is-rejected' },
 }
 
 const formatDate = (value) => value
@@ -67,6 +69,8 @@ export default function HR() {
   const [empForm, setEmpForm] = useState({ code: '', name: '', group: EMPLOYEE_GROUPS[0] })
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [editEmployees, setEditEmployees] = useState(false)
+  const [balanceDrafts, setBalanceDrafts] = useState({})
+  const [editingLeave, setEditingLeave] = useState(null)
   const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
   const selectedEmployee = people.find((person) => person.code === leaveForm.employee_code)
   const availableLeaveTypes = selectedEmployee && NO_VACATION_GROUPS.has(selectedEmployee.group) ? LEAVE_TYPES.filter((type) => type !== 'พักร้อน') : LEAVE_TYPES
@@ -133,6 +137,13 @@ export default function HR() {
     catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
+  const setLeaveBalance = async (item) => {
+    const remaining = Number(balanceDrafts[item.code] ?? item.remaining)
+    setSaving(true); setError('')
+    try { await postAction({ action: 'set-leave-balance', code: item.code, remaining }, 'แก้ยอดคงเหลือไม่สำเร็จ'); setBalanceDrafts((current) => ({ ...current, [item.code]: remaining })); await load() }
+    catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
   const removeEmployee = async (code, group, name) => {
     if (!window.confirm(`ลบ ${name} ออกจากรายชื่อพนักงานใช่ไหม? (ประวัติการลาเดิมยังอยู่)`)) return
     setSaving(true); setError('')
@@ -154,7 +165,7 @@ export default function HR() {
   }
 
   const myLeave = isBoss ? leave : leave.filter((item) => item.username === currentUser?.u)
-  const pendingLeave = leave.filter((item) => item.status === 'pending')
+  const pendingLeave = leave.filter((item) => item.status === 'pending' || item.edit_pending === '1')
   const approvedThisMonth = leave.filter((item) => item.status === 'approved' && String(item.start_date).slice(0, 7) === today().slice(0, 7)).length
   const peopleOnLeaveToday = leave.filter((item) => item.status === 'approved' && item.leave_type !== 'สลับวันหยุด' && item.start_date <= today() && item.end_date >= today()).length
 
@@ -181,7 +192,7 @@ export default function HR() {
       {!!vacationLeaveBalances.length && <section className="hr-panel" aria-labelledby="balance-heading">
         <div className="hr-section-heading hr-balance-heading">
           <div><span className="hr-section-kicker">โควตาปี {thaiYear}</span><h2 id="balance-heading">วันลาพักร้อนคงเหลือ</h2></div>
-          {isBoss && <div className="hr-toolbar"><button className={`hr-button is-secondary ${editEmployees ? 'is-active' : ''}`} onClick={() => setEditEmployees((value) => !value)}><Pencil size={16} />{editEmployees ? 'เสร็จแล้ว' : 'แก้ไขกลุ่ม'}</button><button className="hr-button is-secondary" onClick={() => setShowAddEmployee((value) => !value)}><Plus size={17} />{showAddEmployee ? 'ปิด' : 'เพิ่มพนักงาน'}</button></div>}
+          {isBoss && <div className="hr-toolbar"><button className={`hr-button is-secondary ${editEmployees ? 'is-active' : ''}`} onClick={() => setEditEmployees((value) => !value)}><Pencil size={16} />{editEmployees ? 'เสร็จแล้ว' : 'จัดการพนักงาน'}</button><button className="hr-button is-secondary" onClick={() => setShowAddEmployee((value) => !value)}><Plus size={17} />{showAddEmployee ? 'ปิด' : 'เพิ่มพนักงาน'}</button></div>}
         </div>
         {isBoss && showAddEmployee && <form className="hr-add-employee" onSubmit={addEmployee}>
           <Field label="รหัส"><input value={empForm.code} onChange={(e) => setEmpForm({ ...empForm, code: e.target.value })} placeholder="เช่น TANG" required /></Field>
@@ -198,6 +209,7 @@ export default function HR() {
             <div className="hr-balance-card-top"><div className="hr-avatar is-small" aria-hidden="true">{item.name?.trim().slice(0, 1) || '?'}</div><div><strong>{item.name}</strong><span>{item.group}</span></div>{isBoss && editEmployees && <button className="hr-remove-button" onClick={() => removeEmployee(item.code, item.group, item.name)} aria-label={`ลบ ${item.name}`}><X size={15} /></button>}</div>
             <div className="hr-balance-value"><strong>{item.remaining}</strong><span>/ {item.quota} วัน</span></div>
             <div className="hr-progress" aria-label={`เหลือ ${item.remaining} จาก ${item.quota} วัน`}><span style={{ width: `${percentage}%` }} /></div>
+            {isBoss && editEmployees && <div className="hr-balance-edit"><input type="number" min="0" max="365" step="0.5" aria-label={`วันลาคงเหลือของ ${item.name}`} value={balanceDrafts[item.code] ?? item.remaining} onChange={(e) => setBalanceDrafts((current) => ({ ...current, [item.code]: e.target.value }))} /><button type="button" disabled={saving} onClick={() => setLeaveBalance(item)} aria-label={`บันทึกยอดของ ${item.name}`}><Check size={15} /></button></div>}
             {isBoss && editEmployees && item.group !== 'ออฟฟิศ' && <select aria-label={`กลุ่มของ ${item.name}`} value={item.group} onChange={(e) => editEmployeeGroup(item.code, e.target.value)}>{EMPLOYEE_GROUPS.filter((value) => value !== 'ออฟฟิศ').map((value) => <option key={value}>{value}</option>)}</select>}
           </article>
         })}</div></div>)}</div>
@@ -210,12 +222,12 @@ export default function HR() {
         </div>
         {loading ? <div className="hr-empty">กำลังโหลดข้อมูล…</div> : !pendingLeave.length ? (
           <div className="hr-empty is-success"><span><Check size={22} /></span><strong>จัดการครบแล้ว</strong><p>ไม่มีคำขอลาที่รออนุมัติ</p></div>
-        ) : <div className="hr-approval-grid">{pendingLeave.map((item) => (
-          <article className="hr-request-card" key={item.id}>
+        ) : <div className="hr-approval-grid">{pendingLeave.map((rawItem) => { const item = rawItem.edit_proposal || rawItem; return (
+          <article className="hr-request-card" key={rawItem.id}>
             <div className="hr-request-top">
               <div className="hr-avatar" aria-hidden="true">{item.employee_name?.trim().slice(0, 1) || '?'}</div>
               <div className="hr-request-person"><strong>{item.employee_name}</strong><span>{item.leave_type}</span></div>
-              <StatusBadge status={item.status} />
+              <StatusBadge status="pending" />
             </div>
             <div className="hr-request-facts">
               <div><CalendarDays size={16} /><span>วันที่</span><strong>{formatDateRange(item)}</strong></div>
@@ -226,11 +238,11 @@ export default function HR() {
               {(item.backup_office || item.backup_assignments?.length) && <p><span>คนทดแทน</span>{backupLabel(item, people)}</p>}
             </div>}
             <div className="hr-request-actions">
-              <button className="hr-button is-reject" disabled={saving} onClick={() => decideLeave(item.id, 'rejected')}><X size={17} />ไม่อนุมัติ</button>
-              <button className="hr-button is-approve" disabled={saving} onClick={() => decideLeave(item.id, 'approved')}><Check size={17} />อนุมัติ</button>
+              <button className="hr-button is-reject" disabled={saving} onClick={() => decideLeave(rawItem.id, 'rejected')}><X size={17} />ไม่อนุมัติ</button>
+              <button className="hr-button is-approve" disabled={saving} onClick={() => decideLeave(rawItem.id, 'approved')}><Check size={17} />{rawItem.edit_pending === '1' ? 'ยืนยันการแก้ไข' : 'อนุมัติ'}</button>
             </div>
           </article>
-        ))}</div>}
+        )})}</div>}
       </section>}
 
       <div className="hr-workspace-grid">
@@ -239,10 +251,10 @@ export default function HR() {
           {loading ? <div className="hr-empty">กำลังโหลดข้อมูล…</div> : !myLeave.length ? <div className="hr-empty">ยังไม่มีคำขอลา</div> : (
             <div className="hr-history-list">{myLeave.slice().reverse().map((item) => (
               <article className="hr-history-row" key={item.id}>
-                <div className="hr-history-main"><strong>{item.employee_name}</strong><span>{item.leave_type} · {formatDateRange(item)} · {periodLabel(item.leave_period, item.days)}</span></div>
+                <div className="hr-history-main"><strong>{item.employee_name}</strong><span>{item.leave_type} · {formatDateRange(item)} · {periodLabel(item.leave_period, item.days)}</span>{item.edit_pending === '1' && <span className="hr-edit-request-pill">มีข้อมูลแก้ไขรอ HR ยืนยัน</span>}</div>
                 <div className="hr-history-days">{item.days}<span>วัน</span></div>
                 <StatusBadge status={item.status} />
-                {item.status === 'pending' && (item.username === currentUser?.u || isBoss) && <button className="hr-text-button is-danger" onClick={() => cancelLeave(item.id)}>ยกเลิก</button>}
+                <div className="hr-history-actions">{(isBoss || (item.username === currentUser?.u && !['rejected', 'cancelled'].includes(item.status))) && <button className="hr-history-edit" onClick={() => setEditingLeave(item)} aria-label={`แก้ไขรายการของ ${item.employee_name}`}><Pencil size={15} /></button>}{item.status === 'pending' && (item.username === currentUser?.u || isBoss) && <button className="hr-text-button is-danger" onClick={() => cancelLeave(item.id)}>ยกเลิก</button>}</div>
               </article>
             ))}</div>
           )}
@@ -272,6 +284,8 @@ export default function HR() {
           </form>
         </aside>
       </div>
+
+      {editingLeave && <LeaveEditPanel leave={editingLeave} people={people} isAdmin={isBoss} onClose={() => setEditingLeave(null)} onSaved={async () => { setEditingLeave(null); await load() }} />}
 
     </main>
   )
