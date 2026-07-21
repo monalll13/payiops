@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Plus, RefreshCw, X } from 'lucide-react'
+import { CheckCircle2, Plus, RefreshCw, UserRoundPen, X } from 'lucide-react'
 
 const API = '/api/sheet-tools?op=workforce'
 const MANPOWER_CACHE_KEY = 'payi-manpower-today-cache'
@@ -27,6 +27,7 @@ export default function WorkforceOT({ preview = false }) {
   const [approvals, setApprovals] = useState([])
   const [approvalHistory, setApprovalHistory] = useState([])
   const [people, setPeople] = useState([])
+  const [schedulePeople, setSchedulePeople] = useState([])
   const [officePeople, setOfficePeople] = useState([])
   const [officeAbsences, setOfficeAbsences] = useState([])
   const groupByName = useMemo(() => Object.fromEntries(people.filter((p) => p.name).map((p) => [p.name, p.group])), [people])
@@ -70,13 +71,14 @@ export default function WorkforceOT({ preview = false }) {
       if (!r.ok) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
       const loadedRows = d.rows || []
       setRows(loadedRows)
-      setManpower([...(d.sourceManpower || []), ...(d.manpower || [])])
+      setManpower(d.sourceManpower || [])
       localStorage.setItem(MANPOWER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), rows: d.sourceManpower || [] }))
       setEvents(d.events || [])
       setHistory(d.history || [])
       setApprovals(d.approvals || [])
       setApprovalHistory(d.approvalHistory || [])
       setPeople(d.people || [])
+      setSchedulePeople(d.schedulePeople?.length ? d.schedulePeople : (d.people || []).filter((person) => String(person.active) !== '0' && person.code && person.name))
       setOfficePeople(d.officePeople || [])
       setOfficeAbsences(d.officeAbsences || [])
       setOtLimitsState(d.otLimits || {})
@@ -184,7 +186,7 @@ export default function WorkforceOT({ preview = false }) {
         {loading ? <Empty text="กำลังโหลด…" /> : !planned.length ? <Empty text="ไม่มีรายการ OT ที่รอยืนยัน" /> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820, fontSize: 13 }}><thead><tr style={{ background: '#f0f7fd', color: '#52677a', textAlign: 'left' }}>{['วันที่','ชื่อ','งาน','เวลาแผน','เริ่มจริง','จบจริง','สถานะ',''].map((h) => <th key={h} style={{ padding: '10px 12px' }}>{h}</th>)}</tr></thead><tbody>{planned.map((r) => { const e = edits[r.id] || {}; return <tr key={r.id} style={{ borderTop: '1px solid #e5eef7' }}><td style={td}>{r.date}</td><td style={{ ...td, fontWeight: 900 }}>{r.employee}</td><td style={td}>{r.task}</td><td style={td}>{r.planned_start}–{r.planned_end}<div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtMinutes(r.planned_minutes)}</div></td><td style={td}><input type="time" value={e.actual_start ?? r.planned_start} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, actual_start: x.target.value } })} style={{ ...inputStyle, width: 105, padding: 7 }} /></td><td style={td}><input type="time" value={e.actual_end ?? r.planned_end} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, actual_end: x.target.value } })} style={{ ...inputStyle, width: 105, padding: 7 }} /></td><td style={td}><select value={e.status || 'completed'} onChange={(x) => setEdits({ ...edits, [r.id]: { ...e, status: x.target.value } })} style={{ ...inputStyle, width: 110, padding: 7 }}><option value="completed">ทำแล้ว</option><option value="cancelled">ยกเลิก</option></select></td><td style={td}><button onClick={() => closeRows([r])} aria-label={`ยืนยัน ${r.employee}`} style={{ border: 0, background: '#e7f7f2', color: '#16866f', borderRadius: 8, padding: 8, cursor: 'pointer' }}><CheckCircle2 size={17} /></button></td></tr> })}</tbody></table></div>}
       </section>}
 
-      {tab === 'calendar' && <CalendarPlanner rows={rows} manpower={manpower} events={events} history={history} names={names} preview={preview} onSaved={load} error={error} setError={setError} otLimits={otLimits} closeRows={closeRows} deleteRows={deleteRows} edits={edits} setEdits={setEdits} saving={saving} groupByName={groupByName} officePeople={officePeople} officeAbsences={officeAbsences} inactiveNames={inactiveNames} />}
+      {tab === 'calendar' && <CalendarPlanner rows={rows} manpower={manpower} events={events} history={history} names={names} preview={preview} onSaved={load} error={error} setError={setError} otLimits={otLimits} closeRows={closeRows} deleteRows={deleteRows} edits={edits} setEdits={setEdits} saving={saving} groupByName={groupByName} officePeople={officePeople} officeAbsences={officeAbsences} inactiveNames={inactiveNames} schedulePeople={schedulePeople} canEditManpower={isBoss && !preview} />}
       {tab === 'overview' && isBoss && <OverviewOT rows={rows} approvals={approvals} otLimits={otLimits} />}
       {tab === 'summary' && isBoss && <PlanControlSummary rows={rows} approvals={approvals} setApprovals={setApprovals} approvalHistory={approvalHistory} preview={preview} setError={setError} otLimits={otLimits} setOtLimits={saveOtLimit} currentUser={currentUser} onSaved={load} />}
     </div>
@@ -196,7 +198,7 @@ function Field({ label, children }) { return <label style={{ display: 'grid', ga
 function Empty({ text }) { return <div style={{ padding: 42, textAlign: 'center', color: '#94a3b8' }}>{text}</div> }
 const td = { padding: '11px 12px', color: '#334155', verticalAlign: 'middle' }
 
-function CalendarPlanner({ rows, manpower, events, history = [], names, preview, onSaved, error, setError, otLimits = {}, closeRows, deleteRows, edits = {}, setEdits, saving, groupByName = {}, officePeople = [], officeAbsences = [], inactiveNames = new Set() }) {
+function CalendarPlanner({ rows, manpower, events, history = [], names, preview, onSaved, error, setError, otLimits = {}, closeRows, deleteRows, edits = {}, setEdits, saving, groupByName = {}, officePeople = [], officeAbsences = [], inactiveNames = new Set(), schedulePeople = [], canEditManpower = false }) {
   const [month, setMonth] = useState(today().slice(0, 7))
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState([])
@@ -211,6 +213,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
   const [promoEnd, setPromoEnd] = useState('')
   const [busy, setBusy] = useState(false)
   const [warning, setWarning] = useState('')
+  const [scheduleDraft, setScheduleDraft] = useState({})
   const [year, mo] = month.split('-').map(Number)
   const first = new Date(year, mo - 1, 1)
   const cells = [...Array(first.getDay()).fill(null), ...Array.from({ length: new Date(year, mo, 0).getDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)]
@@ -235,6 +238,12 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     for (let x = new Date(d); x <= endD; x.setDate(x.getDate() + 1)) feedRangeDates.add(x.toLocaleDateString('en-CA'))
   })
   const openOT = (date) => { setError(''); setModal({ type: 'ot', date }); setSelected([]); setNote('') }
+  const openSchedule = (date) => {
+    const workingCodes = new Set(manpower.filter((row) => row.date === date).map((row) => String(row.code || '').toUpperCase()))
+    setScheduleDraft(Object.fromEntries(schedulePeople.map((person) => [person.code, workingCodes.has(String(person.code).toUpperCase())])))
+    setError('')
+    setModal({ type: 'schedule', date })
+  }
   const checkLimits = (date, employees, plannedMinutes) => {
     const targetMonth = date.slice(0, 7)
     const over = employees.filter((employee) => {
@@ -245,6 +254,18 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     setWarning(over.length ? `เกินลิมิต OT ที่ตั้งไว้: ${over.join(', ')} (เดือนนี้จะรวมเกินโควต้า) — ยังบันทึกให้แล้ว แต่ควรแจ้งบอส` : '')
   }
   const save = async () => {
+    if (modal.type === 'schedule') {
+      setBusy(true); setError('')
+      try {
+        const codes = schedulePeople.filter((person) => scheduleDraft[person.code]).map((person) => person.code)
+        const response = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set-schedule-day', date: modal.date, codes }) })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'บันทึก Manpower ไม่สำเร็จ')
+        setModal(null)
+        await onSaved()
+      } catch (e) { setError(e.message) } finally { setBusy(false) }
+      return
+    }
     if (modal.type === 'ot' && !selected.length) return setError('กรุณาเลือกคนทำ OT อย่างน้อย 1 คน')
     if (modal.type === 'ot' && (!validTime24(start) || !validTime24(end))) return setError('กรอกเวลาเป็น HH:MM เช่น 17:30')
     if (modal.type === 'ot' && timeToMinutes(end) <= timeToMinutes(start)) return setError('เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน')
@@ -296,7 +317,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
 
   return <section style={{ ...card, width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
     <div style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-      <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทินวางแผน OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>กดวันที่เพื่อเลือกคนและกรอกเวลา OT</div></div>
+      <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทิน Manpower & OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>ปุ่ม “คน” ใช้แก้รายชื่อมาทำงาน · ปุ่ม + ใช้เพิ่ม OT</div></div>
       <div style={{ display: 'flex', gap: 8 }}><button onClick={() => { setPromoEnd(`${month}-01`); setPromoTeam('ทุกทีม'); setLeadDays('0'); setLagDays('0'); setModal({ type: 'promo', date: `${month}-01` }) }} style={miniTab(false)}>+ วันโปร</button><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 155 }} /></div>
     </div>
     {warning && <div style={{ margin: '0 18px 12px', padding: '10px 14px', background: '#fef6da', color: '#8a6d1f', border: '1px solid #fbe6a8', borderRadius: 10, fontSize: 12, fontWeight: 800 }}>{warning}</div>}
@@ -320,10 +341,14 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
         const officeAbsentCodes = new Set(officeAbsences.filter((a) => a.date === date).map((a) => a.code))
         const officePresentNames = officePeople.filter((p) => !officeAbsentCodes.has(p.code)).map((p) => p.name)
         const lowPackingManpower = regularHeadcount <= 2
-        return <button key={date} onClick={() => openOT(date)} style={{ minWidth: 0, minHeight: 132, padding: 7, textAlign: 'left', cursor: 'pointer', borderRadius: 12, border: `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', overflow: 'visible' }}>
+        return <div key={date} style={{ minWidth: 0, minHeight: 132, padding: 7, textAlign: 'left', borderRadius: 12, border: `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', overflow: 'visible' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 900, color: '#334155' }}><span>{Number(date.slice(-2))}</span><span style={{ color: isPromo ? '#5b4b8a' : isFeed ? '#8a76c0' : '#2581bd', fontSize: 9 }}>{isPromo ? 'วันโปร' : isFeed ? 'เตรียมฟีด' : '+'}</span></div>
           {events.filter((e) => e.date === date).map((e) => <div key={e.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, minWidth: 0, color: '#be185d', fontSize: 10, fontWeight: 900 }}><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.title}>{e.title}</span><span role="button" aria-label={`ลบ ${e.title}`} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e) }} style={{ flexShrink: 0, cursor: 'pointer', color: '#be185d', opacity: .6, padding: '0 3px' }}>×</span></div>)}
-          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+          <div style={{ marginTop: 4, display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+            {canEditManpower && <button type="button" onClick={() => openSchedule(date)} aria-label={`แก้ Manpower วันที่ ${date}`} title="แก้คนมาทำงาน" style={{ minWidth: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, border: 0, borderRadius: 8, padding: '0 8px', background: '#eaf5ff', color: '#155f98', cursor: 'pointer', fontSize: 9, fontWeight: 900 }}><UserRoundPen size={13} /><span>คน</span></button>}
+            <button type="button" onClick={() => openOT(date)} aria-label={`เพิ่ม OT วันที่ ${date}`} title="เพิ่ม OT" style={{ minWidth: 32, height: 32, display: 'grid', placeItems: 'center', border: 0, borderRadius: 8, background: '#fff7ed', color: '#c2410c', cursor: 'pointer', fontSize: 17, fontWeight: 900 }}>+</button>
+          </div>
+          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
             {regularManpower.length > 0 && <div style={{ borderRadius: 7, padding: '3px 5px', background: '#e0f2fe', border: '1px solid #7dd3fc' }}>
               {regularNames.map((n, idx) => <div key={`${n}-${idx}`} style={{ fontSize: 9, lineHeight: '13px', fontWeight: lowPackingManpower ? 900 : 700, color: lowPackingManpower ? '#dc2626' : '#0369a1' }}>{n}</div>)}
             </div>}
@@ -335,11 +360,11 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
             </div>}
           </div>
           {packers.length > 0 && <DayGroup label="OT คนแพ็ก" rows={packers} />}{partTime.length > 0 && <DayGroup label="OT พาร์ทไทม์" rows={partTime} />}
-        </button>
+        </div>
       })}</div>
     </div></div>
     {modal && (() => { const modalDayRows = modal.type === 'ot' ? rows.filter((r) => r.date === modal.date && r.status !== 'cancelled') : []; return <div onMouseDown={() => setModal(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(15,23,42,.35)', display: 'grid', placeItems: 'center', padding: 18 }}><div onMouseDown={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: 'calc(100vw - 36px)', background: '#fff', borderRadius: 18, padding: 20, boxShadow: '0 24px 70px rgba(15,23,42,.22)', maxHeight: '86vh', overflowY: 'auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}><div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>{modal.type === 'ot' ? 'เพิ่มแผน OT' : 'เพิ่มวันโปร'}</div>{modalDayRows.length > 0 && <span style={{ background: '#fef3c7', color: '#633806', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 999 }}>แก้ไข</span>}</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{modal.date}</div></div><button onClick={() => setModal(null)} style={{ border: 0, background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}><X size={18}/></button></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}><div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>{modal.type === 'schedule' ? 'แก้ Manpower' : modal.type === 'ot' ? 'เพิ่มแผน OT' : 'เพิ่มวันโปร'}</div>{modalDayRows.length > 0 && <span style={{ background: '#fef3c7', color: '#633806', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 999 }}>แก้ไข</span>}</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{modal.date}</div></div><button onClick={() => setModal(null)} aria-label="ปิด" style={{ width: 40, height: 40, display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: '#64748b', cursor: 'pointer', borderRadius: 10 }}><X size={18}/></button></div>
 
       {modal.type === 'ot' && modalDayRows.length > 0 && <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 900, color: '#334155', marginBottom: 8 }}>รายการที่มีอยู่แล้ว · {modalDayRows.length} คน</div>
@@ -361,7 +386,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
         </div>}
       </div>}
 
-      {modal.type === 'ot' ? <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
+      {modal.type === 'schedule' ? <ScheduleDayEditor people={schedulePeople} draft={scheduleDraft} setDraft={setScheduleDraft} /> : modal.type === 'ot' ? <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
         <div style={{ fontSize: 12, fontWeight: 900, color: '#334155' }}>{modalDayRows.length > 0 ? 'เพิ่มคน OT ใหม่' : 'เลือกคนทำ OT'}</div>
         <Field label="เลือกคนทำ OT"><div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>{names.filter((name) => !inactiveNames.has(name) && (!monthsByName[name] || monthsByName[name].has((modal?.date || month).slice(0, 7)))).map((name) => { const on = selected.includes(name); return <button key={name} onClick={() => setSelected(on ? selected.filter((n) => n !== name) : [...selected, name])} style={{ border: `1px solid ${on ? '#ec4899' : '#d7e3ef'}`, background: on ? '#fff0f7' : '#fff', color: on ? '#be185d' : '#475569', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}>{on ? '✓ ' : ''}{name}</button> })}</div></Field><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="เริ่ม OT · HH:MM"><ManualTime24 value={start} onChange={setStart}/></Field><Field label="จบ OT · HH:MM"><ManualTime24 value={end} onChange={setEnd}/></Field></div>{validTime24(start) && validTime24(end) && timeToMinutes(end) > timeToMinutes(start) && <div style={{ padding: '8px 10px', borderRadius: 9, background: '#eaf5ff', color: '#155f98', fontSize: 12, fontWeight: 900 }}>รวม {fmtMinutes(timeToMinutes(end) - timeToMinutes(start))} ต่อคน</div>}<Field label="หมายเหตุ"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle}/></Field></div> : <div style={{ display: 'grid', gap: 12, marginTop: 18 }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="ตั้งแต่วันที่"><input type="date" value={modal.date} onChange={(e) => { setModal({ ...modal, date: e.target.value }); if (!promoEnd || promoEnd < e.target.value) setPromoEnd(e.target.value) }} style={inputStyle}/></Field><Field label="ถึงวันที่"><input type="date" value={promoEnd} min={modal.date} onChange={(e) => setPromoEnd(e.target.value)} style={inputStyle}/></Field></div><Field label="ชื่อโปร / ช่วงเตรียมฟีด">{customTitle
           ? <div style={{ display: 'flex', gap: 8 }}><input value={promoTitle} onChange={(e) => setPromoTitle(e.target.value)} placeholder="ระบุชื่อ" style={inputStyle} autoFocus /><button type="button" onClick={() => { setCustomTitle(false); setPromoTitle(PROMO_TITLE_OPTIONS[0]) }} style={{ border: '1px solid #d7e3ef', background: '#fff', color: '#64748b', borderRadius: 10, padding: '0 12px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>เลือกจากรายการ</button></div>
@@ -374,9 +399,38 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
           <Field label="เตรียมล่วงหน้ากี่วัน (ก่อนวันโปร)"><input type="number" min="0" value={leadDays} onChange={(e) => setLeadDays(e.target.value)} style={inputStyle}/></Field>
           <Field label="เก็บงานหลังกี่วัน (หลังวันโปร)"><input type="number" min="0" value={lagDays} onChange={(e) => setLagDays(e.target.value)} style={inputStyle}/></Field>
         </div></div>}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}><button onClick={() => setModal(null)} style={{ border: '1px solid #d7e3ef', background: '#fff', borderRadius: 10, padding: '9px 15px', color: '#64748b', fontWeight: 800 }}>ยกเลิก</button><button onClick={save} disabled={busy} style={{ border: 0, background: '#ec4899', color: '#fff', borderRadius: 10, padding: '9px 17px', fontWeight: 900 }}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button></div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}><button onClick={() => setModal(null)} style={{ minHeight: 44, border: '1px solid #d7e3ef', background: '#fff', borderRadius: 10, padding: '9px 15px', color: '#64748b', fontWeight: 800 }}>ยกเลิก</button><button onClick={save} disabled={busy} style={{ minHeight: 44, border: 0, background: modal.type === 'schedule' ? '#0284c7' : '#ec4899', color: '#fff', borderRadius: 10, padding: '9px 17px', fontWeight: 900 }}>{busy ? 'กำลังบันทึก…' : modal.type === 'schedule' ? 'บันทึก Manpower' : 'บันทึก'}</button></div>
     </div></div> })()}
   </section>
+}
+
+function ScheduleDayEditor({ people = [], draft = {}, setDraft }) {
+  const selectedCount = people.filter((person) => draft[person.code]).length
+  const groups = [...new Set(people.map((person) => person.group || 'อื่น ๆ'))]
+  return <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
+    <div style={{ padding: '10px 12px', borderRadius: 11, background: '#eef8ff', color: '#155f98', fontSize: 12, lineHeight: 1.55 }}>
+      เลือกเฉพาะคนที่มาทำงานวันนี้ · เมื่อบันทึก ระบบจะใช้รายการนี้แทนข้อมูล SKJ เฉพาะวันนี้
+    </div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <strong style={{ color: '#102a43', fontSize: 13 }}>มาทำงาน {selectedCount} คน</strong>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" onClick={() => setDraft(Object.fromEntries(people.map((person) => [person.code, true])))} style={{ minHeight: 36, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#155f98', borderRadius: 9, padding: '0 10px', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>เลือกทุกคน</button>
+        <button type="button" onClick={() => setDraft(Object.fromEntries(people.map((person) => [person.code, false])))} style={{ minHeight: 36, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', borderRadius: 9, padding: '0 10px', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>หยุดทั้งหมด</button>
+      </div>
+    </div>
+    {people.length === 0 ? <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>ยังไม่มีรายชื่อพนักงานในระบบ</div> : groups.map((group) => <fieldset key={group} style={{ margin: 0, padding: 0, border: 0 }}>
+      <legend style={{ marginBottom: 7, color: '#64748b', fontSize: 11, fontWeight: 900 }}>{group}</legend>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
+        {people.filter((person) => (person.group || 'อื่น ๆ') === group).map((person) => {
+          const checked = !!draft[person.code]
+          return <label key={person.code} style={{ minHeight: 46, display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', border: `1px solid ${checked ? '#7dd3fc' : '#e2e8f0'}`, borderRadius: 11, background: checked ? '#f0f9ff' : '#fff', color: checked ? '#075985' : '#64748b', cursor: 'pointer' }}>
+            <input type="checkbox" checked={checked} onChange={(event) => setDraft({ ...draft, [person.code]: event.target.checked })} style={{ width: 18, height: 18, accentColor: '#0284c7' }} />
+            <span style={{ minWidth: 0 }}><strong style={{ display: 'block', color: checked ? '#0c4a6e' : '#334155', fontSize: 12 }}>{person.name}</strong><small style={{ fontSize: 9 }}>{person.code}</small></span>
+          </label>
+        })}
+      </div>
+    </fieldset>)}
+  </div>
 }
 
 function DayGroup({ label, rows }) { return <div style={{ marginTop: 7 }}><div style={{ fontSize: 9, fontWeight: 900, color: '#64748b' }}>{label}</div>{rows.map((r) => <div key={r.id} style={{ marginTop: 3, padding: '4px 6px', borderRadius: 8, background: '#fef6da', color: '#8a6d1f', fontSize: 10 }}><b>{r.employee}</b> {r.planned_start}-{r.planned_end}</div>)}</div> }

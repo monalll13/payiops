@@ -8,6 +8,7 @@ import {
   MIN_LOWER_HOUSE_HEADCOUNT, buildCoveragePlan, leaveAbsenceDates, leaveAbsenceSlots,
   leavePeriodLabel, normalizeLeavePeriod, officeLeaveConflicts, validateBackupSelections,
 } from './_lib/leaveCoverage.js'
+import { applyScheduleOverrides } from './_lib/scheduleOverrides.js'
 
 // ปิด body parser อัตโนมัติของ Vercel — ต้องอ่าน raw body เองเพื่อตรวจลายเซ็น LINE webhook (HMAC ต้องใช้ byte ดิบ)
 // req.body ยังใช้ได้ตามปกติในทุก op เดิม เพราะ readRawBody() ด้านล่าง parse JSON ให้เหมือน Vercel ทำเอง
@@ -23,6 +24,7 @@ const OT_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'planned_start', '
 const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time', 'end_time', 'note', 'created_at']
 // ตารางพนักงานปี 2026 ที่คัดลอกมาเก็บในระบบแล้ว ทั้งบ้านล่างและออฟฟิศ
 const SCHEDULE_SNAPSHOT_HEADERS = ['date', 'code', 'employee', 'group', 'fraction']
+const SCHEDULE_OVERRIDE_HEADERS = ['date', 'entries_json', 'updated_at', 'updated_by']
 const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date', 'lead_days', 'lag_days']
 const OT_HISTORY_HEADERS = ['id', 'plan_id', 'date', 'employee', 'before_start', 'before_end', 'after_start', 'after_end', 'before_note', 'after_note', 'changed_at', 'changed_by']
 const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'approved_at', 'approved_by']
@@ -43,7 +45,7 @@ const hasVacationBenefit = (group) => !NO_VACATION_GROUPS.has(String(group || ''
 // รายชื่อออฟฟิศ — ย้ายจาก object hardcode มาเป็นชีต (เหมือน workforce_people) เพื่อให้เพิ่ม/ลบคนได้จากหน้าเว็บ ไม่ต้องแก้โค้ด
 const OFFICE_HEADERS = ['code', 'name', 'active']
 const DEFAULT_OFFICE_ROWS = [['TOON', 'ตูน', '1'], ['KED', 'เกด', '1'], ['MO', 'โม', '1']]
-const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_leave_backups', BACKUP_HEADERS], ['hr_leave_edits', LEAVE_EDIT_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_leave_backups', BACKUP_HEADERS], ['hr_leave_edits', LEAVE_EDIT_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS], ['workforce_schedule_overrides', SCHEDULE_OVERRIDE_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
 const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
@@ -245,7 +247,7 @@ const PLANNER_CONFIG_SHEET = 'planner_config'
 const PLANNER_DAILY_SHEET = 'planner_daily'
 const PLANNER_CONFIG_HEADERS = ['master_sku', 'enabled', 'reserve_days', 'safety_percent', 'updated_at', 'updated_by']
 const PLANNER_DAILY_HEADERS = ['id', 'date', 'master_sku', 'fg', 'sales_average', 'demand_mode', 'recommended_feed', 'planned_feed', 'feeders', 'updated_at', 'updated_by']
-const WORKFORCE_SHEETS = [['workforce_ot', OT_HEADERS], ['workforce_manpower', MANPOWER_HEADERS], ['workforce_events', EVENT_HEADERS], ['workforce_ot_history', OT_HISTORY_HEADERS], ['workforce_ot_approvals', OT_APPROVAL_HEADERS], ['workforce_people', PEOPLE_HEADERS], ['workforce_ot_limits', OT_LIMIT_HEADERS], ['workforce_ot_approval_history', OT_APPROVAL_HISTORY_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
+const WORKFORCE_SHEETS = [['workforce_ot', OT_HEADERS], ['workforce_manpower', MANPOWER_HEADERS], ['workforce_events', EVENT_HEADERS], ['workforce_ot_history', OT_HISTORY_HEADERS], ['workforce_ot_approvals', OT_APPROVAL_HEADERS], ['workforce_people', PEOPLE_HEADERS], ['workforce_ot_limits', OT_LIMIT_HEADERS], ['workforce_ot_approval_history', OT_APPROVAL_HISTORY_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS], ['workforce_schedule_overrides', SCHEDULE_OVERRIDE_HEADERS]]
 let workforceEnsurePromise
 let workforceCache = { at: 0, data: null }
 const ensureWorkforceSheets = () => workforceEnsurePromise ||= Promise.all(WORKFORCE_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
@@ -345,9 +347,10 @@ const decorateBackupNeeds = (needs, officeMap) => needs.map((need) => ({
 async function inspectLeaveCoverage(username, proposedLeave, excludeLeaveId = '') {
   if (!String(username || '').startsWith('mp:')) return { ok: true, needs: [], assignments: [] }
   const code = username.slice(3).toUpperCase()
-  const [personMap, officeMap, scheduleRows, allLeaveRows, allBackupRows] = await Promise.all([
-    getPersonMap(), getOfficePeopleMap(), getSheet('workforce_schedule_snapshot'), getSheet('hr_leave'), getSheet('hr_leave_backups'),
+  const [personMap, officeMap, allLeaveRows, allBackupRows] = await Promise.all([
+    getPersonMap(), getOfficePeopleMap(), getSheet('hr_leave'), getSheet('hr_leave_backups'),
   ])
+  const scheduleRows = await getCalendarPresence({ ...personMap, ...officeMap }, Object.keys(personMap), false)
   const leaveRows = allLeaveRows.filter((row) => String(row.id) !== String(excludeLeaveId || ''))
   const backupRows = allBackupRows.filter((row) => String(row.leave_id) !== String(excludeLeaveId || ''))
   if (officeMap[code]) {
@@ -439,12 +442,15 @@ function generateCalendarPresence(personMap, leaveRows) {
 }
 // ปฏิทินบ้านล่างใช้ตารางพนักงานปี 2026 ในระบบ และกรองแถวออฟฟิศออกด้วย roster บ้านล่าง
 // ถ้ามีคำขอลาอนุมัติผ่านระบบ ให้ยึด hr_leave แทนตารางตั้งต้น
-async function getCalendarPresence(personMap) {
-  const [snapshotRows, leaveRows] = await Promise.all([getSheet('workforce_schedule_snapshot'), getSheet('hr_leave')])
-  if (!snapshotRows.length) return generateCalendarPresence(personMap, leaveRows)
-  const baseRows = snapshotRows
+async function getCalendarPresence(personMap, overrideScopeCodes = Object.keys(personMap), applyLeaves = true) {
+  const [snapshotRows, overrideRows, leaveRows] = await Promise.all([
+    getSheet('workforce_schedule_snapshot'), getSheet('workforce_schedule_overrides'), getSheet('hr_leave'),
+  ])
+  let baseRows = (snapshotRows.length ? snapshotRows : generateCalendarPresence(personMap, []))
     .filter((r) => personMap[String(r.code || '').toUpperCase()])
-    .map((r) => ({ id: `stored-${r.date}-${r.code}`, date: r.date, employee: r.employee, code: r.code, group: r.group, fraction: Number(r.fraction) || 1, source: 'stored' }))
+    .map((r) => ({ id: `stored-${r.date}-${r.code}`, date: r.date, employee: r.employee, code: String(r.code || '').toUpperCase(), group: r.group, fraction: Number(r.fraction) || 1, source: 'stored' }))
+  baseRows = applyScheduleOverrides({ baseRows, overrideRows, personMap, overrideScopeCodes })
+  if (!applyLeaves) return baseRows
   const absenceByCode = buildLeaveAbsenceMap(leaveRows)
   return baseRows.map((row) => ({ ...row, fraction: Math.max(0, row.fraction - absenceFraction(absenceByCode, row.code, row.date)) })).filter((row) => row.fraction > 0)
 }
@@ -505,13 +511,30 @@ async function opWorkforceInner(req, res) {
       }
     } catch (e) { console.error('office presence:', e.message) }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
-    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, events, history, approvals, approvalHistory, otLimits, people, officePeople, officeAbsences, sourceYear: '2026' }
+    const schedulePeople = Object.entries(personMap).map(([code, [name, group]]) => ({ code, name, group }))
+    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, events, history, approvals, approvalHistory, otLimits, people, schedulePeople, officePeople, officeAbsences, sourceYear: '2026' }
     workforceCache = { at: Date.now(), data }
     return res.status(200).json(data)
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const body = req.body || {}
   const action = String(body.action || '').trim().toLowerCase()
+  if (action === 'set-schedule-day') {
+    if (!requireAdmin(req, res)) return
+    const date = String(body.date || '')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return res.status(400).json({ error: 'วันที่ไม่ถูกต้อง' })
+    const personMap = await getPersonMap()
+    const requestedCodes = Array.isArray(body.codes) ? body.codes.map((code) => String(code || '').toUpperCase()).filter(Boolean) : []
+    const codes = [...new Set(requestedCodes)]
+    const unknown = codes.filter((code) => !personMap[code])
+    if (unknown.length) return res.status(400).json({ error: `ไม่พบพนักงานในระบบ: ${unknown.join(', ')}` })
+    const updatedAt = new Date().toISOString()
+    const updatedBy = actorName() || body.updated_by || 'Boss'
+    const entriesJson = JSON.stringify(codes.map((code) => ({ code })))
+    await appendRows('workforce_schedule_overrides', [[date, entriesJson, updatedAt, updatedBy]])
+    clearWorkforceCache(); clearHrCache()
+    return res.status(200).json({ success: true, date, codes, updated_at: updatedAt, updated_by: updatedBy })
+  }
   if (action === 'create-plan') {
     const employees = Array.isArray(body.employees) ? body.employees.filter(Boolean) : []
     if (!body.date || !employees.length || !body.planned_start || !body.planned_end) return res.status(400).json({ error: 'กรุณาระบุวันที่ รายชื่อ และเวลา OT' })
@@ -633,16 +656,16 @@ async function opHrInner(req, res) {
     const isAdminViewer = !authEnabled() || req.user?.role === 'admin'
     const withRoleFilter = (data) => ({ ...data, leaveBalances: isAdminViewer ? data.leaveBalancesFull : data.leaveBalancesFull.filter((b) => b.group !== 'ออฟฟิศ') })
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(withRoleFilter(hrCache.data))
-    const [leaveRange, backupRange, scheduleRange, lineLinkRange, peopleRange, snapshotRange] = await batchGetValues(['hr_leave!A:Z', 'hr_leave_backups!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z', 'workforce_schedule_snapshot!A:Z'])
+    const [leaveRange, backupRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_leave_backups!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
     // เดือนที่แต่ละคนมีงานจริงจากตารางปี 2026 ที่เก็บในระบบ ใช้กรอง dropdown โดยไม่เชื่อมไฟล์ภายนอก
+    const peopleFromSheet = rowsToObjects(peopleRange.values || []).filter((p) => String(p.active) !== '0')
+    const [lowerMapForList, officeMapForList] = await Promise.all([getPersonMap(), getOfficePeopleMap()])
     let activeMonths = {}
     try {
-      const manpowerRows = rowsToObjects(snapshotRange.values || [])
+      const manpowerRows = await getCalendarPresence({ ...lowerMapForList, ...officeMapForList }, Object.keys(lowerMapForList), false)
       for (const r of manpowerRows) (activeMonths[r.code] ||= new Set()).add(String(r.date).slice(0, 7))
       activeMonths = Object.fromEntries(Object.entries(activeMonths).map(([code, set]) => [code, [...set]]))
     } catch (e) { console.error('activeMonths:', e.message) }
-    const peopleFromSheet = rowsToObjects(peopleRange.values || []).filter((p) => String(p.active) !== '0')
-    const officeMapForList = await getOfficePeopleMap()
     const extraPeople = Object.entries(officeMapForList).map(([code, [name, group]]) => ({ code, name, group }))
     const backupRows = rowsToObjects(backupRange.values || [])
     const leaveRows = rowsToObjects(leaveRange.values || []).map((leave) => ({
