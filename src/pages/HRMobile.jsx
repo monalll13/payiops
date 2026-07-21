@@ -5,6 +5,7 @@ import { Bell, ChevronLeft, Check, CalendarClock, User, ListChecks, MoreHorizont
 
 const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
+const PERIOD_OPTIONS = [{ value: 'full', label: 'เต็มวัน' }, { value: 'am', label: 'ครึ่งวันเช้า' }, { value: 'pm', label: 'ครึ่งวันบ่าย' }]
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 const THAI_MONTH_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
 const monthFullLabel = (ym) => { const [y, m] = String(ym).split('-'); return `${THAI_MONTH_FULL[parseInt(m, 10) - 1] || m} ${y}` }
@@ -39,6 +40,8 @@ function Avatar({ name, size = 42 }) {
 
 const inputStyle = { width: '100%', boxSizing: 'border-box', border: `1px solid ${C.blueLine}`, borderRadius: 10, padding: '10px 12px', background: '#fff', color: C.text, fontSize: 13, outline: 'none' }
 const pillBtn = (active) => ({ border: `1px solid ${active ? C.blue : C.blueLine}`, background: active ? C.blueSoft : '#fff', color: active ? C.blueDeep : C.muted, borderRadius: 999, padding: '9px 14px', fontWeight: 800, fontSize: 13, cursor: 'pointer' })
+const selectionKey = (need, index) => `${need.date}|${need.period}|${index}`
+const periodLabel = (period, days) => period === 'am' ? 'ครึ่งวันเช้า' : period === 'pm' ? 'ครึ่งวันบ่าย' : Number(days) === 0.5 ? 'ครึ่งวัน' : 'เต็มวัน'
 
 async function readApiResponse(response) {
   try { return await response.json() } catch { return { success: false, error: `HTTP ${response.status}` } }
@@ -64,22 +67,22 @@ export default function HRMobile() {
   const [filterEmployee, setFilterEmployee] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
 
-  const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
+  const [form, setForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), leave_period: 'full', reason: '' })
   const isSwap = form.leave_type === 'สลับวันหยุด'
-  const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
-  const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
+  const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' })
+  const [backupSelections, setBackupSelections] = useState({})
 
   // เช็คว่าช่วงที่เลือกทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำไหม — เช็คเฉพาะตอนยื่นแทนพนักงาน (มี employee_code)
   useEffect(() => {
-    if (!form.employee_code) { setLeaveLock({ locked: false, lockedDates: [] }); return }
+    if (!form.employee_code) { setLeaveLock({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' }); setBackupSelections({}); return }
     const timer = setTimeout(() => {
       fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', ...form }) })
         .then((r) => r.json())
-        .then((d) => { if (d.success) setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [] }) })
+        .then((d) => { if (d.success) { setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [], backupNeeds: d.backupNeeds || [], blocked: !!d.blocked, error: d.coverageError || '' }); setBackupSelections({}) } })
         .catch(() => {})
     }, 300)
     return () => clearTimeout(timer)
-  }, [form.employee_code, form.leave_type, form.start_date, form.end_date, form.half_day])
+  }, [form.employee_code, form.leave_type, form.start_date, form.end_date, form.leave_period])
 
   const load = async () => {
     setLoading(true); setError('')
@@ -119,14 +122,16 @@ export default function HRMobile() {
 
   const submitLeave = async (e) => {
     e.preventDefault()
-    if (leaveLock.locked && !form.backup_office) { setError('ต้องเลือกคนออฟฟิศมาทดแทนก่อน (บ้านล่างเหลือคนน้อยกว่าขั้นต่ำวันนี้)'); return }
+    if (leaveLock.blocked) { setError(leaveLock.error || 'ไม่มีคนออฟฟิศว่างเพียงพอ จึงไม่สามารถลาได้'); return }
+    const backupAssignments = leaveLock.backupNeeds.flatMap((need) => Array.from({ length: need.required }, (_, index) => ({ date: need.date, period: need.period, office_code: backupSelections[selectionKey(need, index)] || '' })))
+    if (backupAssignments.some((item) => !item.office_code)) { setError('กรุณาเลือกคนออฟฟิศที่ว่างให้ครบทุกช่วงเวลา'); return }
     setSaving(true); setError('')
     try {
       const action = form.employee_code ? 'request-leave-for' : 'request-leave'
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...form }) })
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...form, backup_assignments: backupAssignments }) })
       const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ส่งคำขอไม่สำเร็จ')
-      setForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-      setLeaveLock({ locked: false, lockedDates: [] })
+      setForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), leave_period: 'full', reason: '' })
+      setLeaveLock({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' }); setBackupSelections({})
       await load(); setView('list')
     } catch (e2) { setError(e2.message) } finally { setSaving(false) }
   }
@@ -203,7 +208,7 @@ export default function HRMobile() {
                     <Avatar name={l.employee_name} size={36} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employee_name}</div>
-                      <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{new Date(`${l.start_date}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} · {l.leave_type}{Number(l.days) === 0.5 ? ' · ครึ่งวัน' : ''}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{new Date(`${l.start_date}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} · {l.leave_type} · {periodLabel(l.leave_period, l.days)}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.dot }} />
@@ -228,7 +233,7 @@ export default function HRMobile() {
                 <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{selected.employee_name}</div>
               </div>
               <Row label="วันที่ลา" value={Number(selected.days) === 0.5 ? new Date(`${selected.start_date}T00:00:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : `${selected.start_date} – ${selected.end_date}`} />
-              <Row label="จำนวน" value={`${selected.days} วัน${Number(selected.days) === 0.5 ? ' (ครึ่งวัน)' : ''}`} />
+              <Row label="จำนวน" value={`${selected.days} วัน · ${periodLabel(selected.leave_period, selected.days)}`} />
               <Row label="ประเภท" value={selected.leave_type} />
               {selected.reason && <Row label="เหตุผล" value={selected.reason} />}
               <Row label="สถานะ" value={<span style={{ color: st.text, fontWeight: 800 }}>{st.label}</span>} />
@@ -266,22 +271,21 @@ export default function HRMobile() {
               )}
 
               <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>{isSwap ? 'จากวันที่ (วันหยุดเดิม)' : 'วันที่ลา'}
-                <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value, end_date: form.half_day ? e.target.value : form.end_date })} style={inputStyle} required />
+                <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value, end_date: form.leave_period === 'full' ? form.end_date : e.target.value })} style={inputStyle} required />
               </label>
-              {(!form.half_day || isSwap) && <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>{isSwap ? 'เป็นวันที่ (วันหยุดใหม่)' : 'ถึงวันที่'}
+              {(form.leave_period === 'full' || isSwap) && <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>{isSwap ? 'เป็นวันที่ (วันหยุดใหม่)' : 'ถึงวันที่'}
                 <input type="date" value={form.end_date} min={isSwap ? undefined : form.start_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} style={inputStyle} required />
               </label>}
-              {!isSwap && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: C.text, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.half_day} onChange={(e) => setForm({ ...form, half_day: e.target.checked, end_date: e.target.checked ? form.start_date : form.end_date })} />
-                ลาครึ่งวัน
+              {!isSwap && <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 700, color: C.muted }}>ช่วงเวลา
+                <select value={form.leave_period} onChange={(e) => setForm({ ...form, leave_period: e.target.value, end_date: e.target.value === 'full' ? form.end_date : form.start_date })} style={inputStyle}>{PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
               </label>}
 
-              {!isSwap && <div style={{ fontSize: 12, color: C.muted }}>จำนวน : <b style={{ color: C.blue }}>{form.half_day ? 0.5 : Math.max(1, Math.round((new Date(`${form.end_date}T00:00:00`) - new Date(`${form.start_date}T00:00:00`)) / 86400000) + 1)} วัน</b></div>}
+              {!isSwap && <div style={{ fontSize: 12, color: C.muted }}>จำนวน : <b style={{ color: C.blue }}>{form.leave_period !== 'full' ? 0.5 : Math.max(1, Math.round((new Date(`${form.end_date}T00:00:00`) - new Date(`${form.start_date}T00:00:00`)) / 86400000) + 1)} วัน</b></div>}
 
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 8 }}>ประเภทการลา</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {LEAVE_TYPES.map((t) => <button type="button" key={t} onClick={() => setForm({ ...form, leave_type: t, half_day: false })} style={pillBtn(form.leave_type === t)}>{t}</button>)}
+                  {LEAVE_TYPES.map((t) => <button type="button" key={t} onClick={() => setForm({ ...form, leave_type: t, leave_period: t === 'สลับวันหยุด' ? 'full' : form.leave_period })} style={pillBtn(form.leave_type === t)}>{t}</button>)}
                 </div>
               </div>
 
@@ -290,20 +294,18 @@ export default function HRMobile() {
               </label>
 
               {leaveLock.locked && (
-                <div style={{ display: 'grid', gap: 8, padding: 12, background: C.amberSoft, border: `1px solid ${C.amber}`, borderRadius: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: C.amber }}>
-                    วันที่ {leaveLock.lockedDates.join(', ')} บ้านล่างจะเหลือคนน้อยกว่า 3 คน — ต้องเลือกคนออฟฟิศมาทดแทนก่อนส่งคำขอ
-                  </div>
-                  <select value={form.backup_office} onChange={(e) => setForm({ ...form, backup_office: e.target.value })} style={inputStyle} required>
-                    <option value="">— เลือกคนออฟฟิศทดแทน —</option>
-                    {officePeople.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
-                  </select>
+                <div style={{ display: 'grid', gap: 10, padding: 12, background: leaveLock.blocked ? C.redSoft : C.amberSoft, border: `1px solid ${leaveLock.blocked ? C.red : C.amber}`, borderRadius: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: leaveLock.blocked ? C.red : C.amber }}>{leaveLock.error || `กำลังคนต่ำกว่า 3 คนในวันที่ ${leaveLock.lockedDates.join(', ')}`}</div>
+                  {!leaveLock.blocked && leaveLock.backupNeeds.flatMap((need) => Array.from({ length: need.required }, (_, index) => {
+                    const key = selectionKey(need, index); const selectedCodes = Array.from({ length: need.required }, (__, siblingIndex) => backupSelections[selectionKey(need, siblingIndex)]).filter(Boolean)
+                    return <label key={key} style={{ display: 'grid', gap: 5, fontSize: 11, fontWeight: 700, color: C.muted }}>{need.date} · {need.period === 'am' ? 'ช่วงเช้า' : 'ช่วงบ่าย'}{need.required > 1 ? ` · คนที่ ${index + 1}` : ''}<select value={backupSelections[key] || ''} onChange={(e) => setBackupSelections((current) => ({ ...current, [key]: e.target.value }))} style={inputStyle} required><option value="">— เลือกคนที่ว่าง —</option>{need.candidates.filter((candidate) => candidate.code === backupSelections[key] || !selectedCodes.includes(candidate.code)).map((candidate) => <option key={candidate.code} value={candidate.code}>{candidate.name}</option>)}</select></label>
+                  }))}
                 </div>
               )}
 
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button type="button" onClick={() => setView('list')} style={{ flex: 1, border: `1px solid ${C.blueLine}`, background: '#fff', color: C.muted, borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer' }}>ย้อนกลับ</button>
-                <button disabled={saving} style={{ flex: 1, border: 0, background: C.blue, color: '#fff', borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>{saving ? 'กำลังส่ง…' : 'ส่งคำขอลางาน'}</button>
+                <button disabled={saving || leaveLock.blocked} style={{ flex: 1, border: 0, background: C.blue, color: '#fff', borderRadius: 12, padding: '12px 0', fontWeight: 800, cursor: 'pointer', opacity: saving || leaveLock.blocked ? 0.6 : 1 }}>{saving ? 'กำลังส่ง…' : leaveLock.blocked ? 'ไม่มีคนทดแทน' : 'ส่งคำขอลางาน'}</button>
               </div>
             </form>
           </>}

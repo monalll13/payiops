@@ -9,6 +9,7 @@ const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const EMPLOYEE_GROUPS = ['คนแพ็ก', 'คนฟีด', 'พาร์ทไทม์', 'อื่น ๆ', 'ออฟฟิศ']
 const NO_VACATION_GROUPS = new Set(['คนฟีด', 'พาร์ทไทม์'])
+const PERIOD_OPTIONS = [{ value: 'full', label: 'เต็มวัน' }, { value: 'am', label: 'ครึ่งวันเช้า' }, { value: 'pm', label: 'ครึ่งวันบ่าย' }]
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 const thaiYear = new Date().getFullYear() + 543
 
@@ -26,6 +27,12 @@ const formatDateRange = (leave) => {
   if (leave.leave_type === 'สลับวันหยุด') return `${formatDate(leave.start_date)} → ${formatDate(leave.end_date)}`
   return leave.start_date === leave.end_date ? formatDate(leave.start_date) : `${formatDate(leave.start_date)} – ${formatDate(leave.end_date)}`
 }
+const periodLabel = (period, days) => PERIOD_OPTIONS.find((item) => item.value === period)?.label || (Number(days) === 0.5 ? 'ครึ่งวัน' : 'เต็มวัน')
+const selectionKey = (need, index) => `${need.date}|${need.period}|${index}`
+const backupLabel = (leave, people) => (leave.backup_assignments || []).map((item) => {
+  const person = people.find((candidate) => candidate.code === item.office_code)
+  return `${formatDate(item.date)} ${item.period === 'am' ? 'เช้า' : 'บ่าย'} · ${person?.name || item.office_code}`
+}).join(' · ') || (people.find((person) => person.code === leave.backup_office)?.name || leave.backup_office || '')
 
 function StatusBadge({ status }) {
   const item = STATUS[status] || STATUS.pending
@@ -54,28 +61,28 @@ export default function HR() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-  const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
+  const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), leave_period: 'full', reason: '' })
+  const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' })
+  const [backupSelections, setBackupSelections] = useState({})
   const [empForm, setEmpForm] = useState({ code: '', name: '', group: EMPLOYEE_GROUPS[0] })
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [editEmployees, setEditEmployees] = useState(false)
   const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
-  const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
   const selectedEmployee = people.find((person) => person.code === leaveForm.employee_code)
   const availableLeaveTypes = selectedEmployee && NO_VACATION_GROUPS.has(selectedEmployee.group) ? LEAVE_TYPES.filter((type) => type !== 'พักร้อน') : LEAVE_TYPES
   const vacationLeaveBalances = leaveBalances.filter((item) => !NO_VACATION_GROUPS.has(item.group))
-  const { employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, half_day: leaveHalfDay } = leaveForm
+  const { employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, leave_period: leavePeriod } = leaveForm
 
   useEffect(() => {
-    if (!leaveEmployeeCode) return
+    if (!leaveEmployeeCode) { setLeaveLock({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' }); setBackupSelections({}); return }
     const timer = setTimeout(() => {
-      fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, half_day: leaveHalfDay }) })
+      fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, leave_period: leavePeriod }) })
         .then((r) => r.json())
-        .then((d) => { if (d.success) setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [] }) })
+        .then((d) => { if (d.success) { setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [], backupNeeds: d.backupNeeds || [], blocked: !!d.blocked, error: d.coverageError || '' }); setBackupSelections({}) } })
         .catch(() => {})
     }, 300)
     return () => clearTimeout(timer)
-  }, [leaveEmployeeCode, leaveType, leaveStartDate, leaveEndDate, leaveHalfDay])
+  }, [leaveEmployeeCode, leaveType, leaveStartDate, leaveEndDate, leavePeriod])
 
   const load = async () => {
     setLoading(true); setError('')
@@ -101,12 +108,14 @@ export default function HR() {
 
   const submitLeave = async (event) => {
     event.preventDefault()
-    if (leaveLock.locked && !leaveForm.backup_office) { setError('ต้องเลือกคนออฟฟิศมาทดแทนก่อน (บ้านล่างเหลือคนน้อยกว่าขั้นต่ำวันนี้)'); return }
+    if (leaveLock.blocked) { setError(leaveLock.error || 'ไม่มีคนออฟฟิศว่างเพียงพอ จึงไม่สามารถลาได้'); return }
+    const backupAssignments = leaveLock.backupNeeds.flatMap((need) => Array.from({ length: need.required }, (_, index) => ({ date: need.date, period: need.period, office_code: backupSelections[selectionKey(need, index)] || '' })))
+    if (backupAssignments.some((item) => !item.office_code)) { setError('กรุณาเลือกคนออฟฟิศที่ว่างให้ครบทุกช่วงเวลา'); return }
     setSaving(true); setError('')
     try {
-      await postAction({ action: leaveForm.employee_code ? 'request-leave-for' : 'request-leave', ...leaveForm }, 'ส่งคำขอไม่สำเร็จ')
-      setLeaveForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-      setLeaveLock({ locked: false, lockedDates: [] }); await load()
+      await postAction({ action: leaveForm.employee_code ? 'request-leave-for' : 'request-leave', ...leaveForm, backup_assignments: backupAssignments }, 'ส่งคำขอไม่สำเร็จ')
+      setLeaveForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), leave_period: 'full', reason: '' })
+      setLeaveLock({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' }); setBackupSelections({}); await load()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -212,9 +221,9 @@ export default function HR() {
               <div><CalendarDays size={16} /><span>วันที่</span><strong>{formatDateRange(item)}</strong></div>
               <div><Clock3 size={16} /><span>จำนวน</span><strong>{item.days} วัน</strong></div>
             </div>
-            {(item.reason || item.backup_office) && <div className="hr-request-note">
+            {(item.reason || item.backup_office || item.backup_assignments?.length) && <div className="hr-request-note">
               {item.reason && <p><span>เหตุผล</span>{item.reason}</p>}
-              {item.backup_office && <p><span>คนทดแทน</span>{people.find((person) => person.code === item.backup_office)?.name || item.backup_office}</p>}
+              {(item.backup_office || item.backup_assignments?.length) && <p><span>คนทดแทน</span>{backupLabel(item, people)}</p>}
             </div>}
             <div className="hr-request-actions">
               <button className="hr-button is-reject" disabled={saving} onClick={() => decideLeave(item.id, 'rejected')}><X size={17} />ไม่อนุมัติ</button>
@@ -230,7 +239,7 @@ export default function HR() {
           {loading ? <div className="hr-empty">กำลังโหลดข้อมูล…</div> : !myLeave.length ? <div className="hr-empty">ยังไม่มีคำขอลา</div> : (
             <div className="hr-history-list">{myLeave.slice().reverse().map((item) => (
               <article className="hr-history-row" key={item.id}>
-                <div className="hr-history-main"><strong>{item.employee_name}</strong><span>{item.leave_type} · {formatDateRange(item)}</span></div>
+                <div className="hr-history-main"><strong>{item.employee_name}</strong><span>{item.leave_type} · {formatDateRange(item)} · {periodLabel(item.leave_period, item.days)}</span></div>
                 <div className="hr-history-days">{item.days}<span>วัน</span></div>
                 <StatusBadge status={item.status} />
                 {item.status === 'pending' && (item.username === currentUser?.u || isBoss) && <button className="hr-text-button is-danger" onClick={() => cancelLeave(item.id)}>ยกเลิก</button>}
@@ -243,20 +252,23 @@ export default function HR() {
           <div className="hr-section-heading"><div><span className="hr-section-kicker">งานด่วน</span><h2 id="request-heading">ยื่นคำขอลา</h2></div><Send size={20} /></div>
           <form className="hr-form" onSubmit={submitLeave}>
             {isBoss && people.length > 0 && <Field label={`ยื่นแทนพนักงาน · ${leaveForm.start_date.slice(0, 7)}`}>
-              <select value={leaveForm.employee_code} onChange={(e) => { const employee_code = e.target.value; const person = people.find((item) => item.code === employee_code); const leave_type = person && NO_VACATION_GROUPS.has(person.group) && leaveForm.leave_type === 'พักร้อน' ? 'ลากิจ' : leaveForm.leave_type; setLeaveForm({ ...leaveForm, employee_code, leave_type }); if (!employee_code) setLeaveLock({ locked: false, lockedDates: [] }) }}>
+              <select value={leaveForm.employee_code} onChange={(e) => { const employee_code = e.target.value; const person = people.find((item) => item.code === employee_code); const leave_type = person && NO_VACATION_GROUPS.has(person.group) && leaveForm.leave_type === 'พักร้อน' ? 'ลากิจ' : leaveForm.leave_type; setLeaveForm({ ...leaveForm, employee_code, leave_type }); if (!employee_code) setLeaveLock({ locked: false, lockedDates: [], backupNeeds: [], blocked: false, error: '' }) }}>
                 <option value="">— ตัวเอง —</option>
                 {peopleForMonth(leaveForm.start_date.slice(0, 7)).map((person) => <option key={person.code} value={person.code}>{person.name}{person.group ? ` · ${person.group}` : ''}</option>)}
               </select>
             </Field>}
-            <Field label="ประเภทการลา"><select value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value, half_day: false })}>{availableLeaveTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+            <Field label="ประเภทการลา"><select value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value, leave_period: e.target.value === 'สลับวันหยุด' ? 'full' : leaveForm.leave_period })}>{availableLeaveTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
             <div className="hr-form-columns">
-              <Field label={isSwap ? 'วันหยุดเดิม' : 'วันเริ่ม'}><input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value, end_date: leaveForm.half_day ? e.target.value : leaveForm.end_date })} required /></Field>
-              <Field label={isSwap ? 'วันหยุดใหม่' : 'วันสิ้นสุด'}><input type="date" value={leaveForm.half_day ? leaveForm.start_date : leaveForm.end_date} min={isSwap ? undefined : leaveForm.start_date} disabled={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required /></Field>
+              <Field label={isSwap ? 'วันหยุดเดิม' : 'วันเริ่ม'}><input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value, end_date: leaveForm.leave_period === 'full' ? leaveForm.end_date : e.target.value })} required /></Field>
+              <Field label={isSwap ? 'วันหยุดใหม่' : 'วันสิ้นสุด'}><input type="date" value={leaveForm.leave_period === 'full' ? leaveForm.end_date : leaveForm.start_date} min={isSwap ? undefined : leaveForm.start_date} disabled={!isSwap && leaveForm.leave_period !== 'full'} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required /></Field>
             </div>
-            {!isSwap && <label className="hr-check"><input type="checkbox" checked={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, half_day: e.target.checked, end_date: e.target.checked ? leaveForm.start_date : leaveForm.end_date })} /><span>ลาครึ่งวัน <small>0.5 วัน</small></span></label>}
+            {!isSwap && <Field label="ช่วงเวลา"><select value={leaveForm.leave_period} onChange={(e) => setLeaveForm({ ...leaveForm, leave_period: e.target.value, end_date: e.target.value === 'full' ? leaveForm.end_date : leaveForm.start_date })}>{PERIOD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>}
             <Field label="เหตุผล · ไม่บังคับ"><input value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder="เพิ่มรายละเอียดสั้น ๆ" /></Field>
-            {leaveLock.locked && <div className="hr-alert is-warning"><AlertTriangle size={18} /><div><strong>จำนวนคนต่ำกว่ากำหนด</strong><span>วันที่ {leaveLock.lockedDates.join(', ')} ต้องเลือกคนออฟฟิศมาทดแทน</span><select value={leaveForm.backup_office} onChange={(e) => setLeaveForm({ ...leaveForm, backup_office: e.target.value })} required><option value="">เลือกคนทดแทน</option>{officePeople.map((person) => <option key={person.code} value={person.code}>{person.name}</option>)}</select></div></div>}
-            <button className="hr-button is-primary" disabled={saving}><Send size={17} />{saving ? 'กำลังบันทึก…' : 'ส่งคำขอลา'}</button>
+            {leaveLock.locked && <div className={`hr-alert ${leaveLock.blocked ? 'is-error' : 'is-warning'}`}><AlertTriangle size={18} /><div><strong>{leaveLock.blocked ? 'วันนี้ลาไม่ได้' : 'ต้องมีคนออฟฟิศทดแทน'}</strong><span>{leaveLock.error || `กำลังคนต่ำกว่า 3 คนในวันที่ ${leaveLock.lockedDates.join(', ')}`}</span>{!leaveLock.blocked && leaveLock.backupNeeds.flatMap((need) => Array.from({ length: need.required }, (_, index) => {
+              const key = selectionKey(need, index); const selectedCodes = Array.from({ length: need.required }, (__, siblingIndex) => backupSelections[selectionKey(need, siblingIndex)]).filter(Boolean)
+              return <Field key={key} label={`${formatDate(need.date)} · ${need.period === 'am' ? 'ช่วงเช้า' : 'ช่วงบ่าย'}${need.required > 1 ? ` · คนที่ ${index + 1}` : ''}`}><select value={backupSelections[key] || ''} onChange={(e) => setBackupSelections((current) => ({ ...current, [key]: e.target.value }))} required><option value="">เลือกคนที่ว่าง</option>{need.candidates.filter((candidate) => candidate.code === backupSelections[key] || !selectedCodes.includes(candidate.code)).map((candidate) => <option key={candidate.code} value={candidate.code}>{candidate.name}</option>)}</select></Field>
+            }))}</div></div>}
+            <button className="hr-button is-primary" disabled={saving || leaveLock.blocked}><Send size={17} />{saving ? 'กำลังบันทึก…' : leaveLock.blocked ? 'ไม่มีคนทดแทน' : 'ส่งคำขอลา'}</button>
           </form>
         </aside>
       </div>
