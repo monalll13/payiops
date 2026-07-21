@@ -126,7 +126,11 @@
 .hr-balance-card-top > div:nth-child(2) { min-width: 0; display: grid; gap: 1px; flex: 1; }
 .hr-balance-card-top strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .hr-balance-card-top span { color: var(--hr-muted); font-size: 10px; }
-.hr-remove-button { width: 44px; margin: -7px -9px -7px 0; border: 0; background: transparent; color: var(--hr-red); cursor: pointer; }
+.hr-balance-card-actions { display: flex; align-items: center; margin-right: -6px; }
+.hr-balance-pencil, .hr-remove-button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
+.hr-balance-pencil { color: var(--hr-blue); }
+.hr-balance-pencil:hover, .hr-balance-pencil.is-active { background: var(--hr-blue-soft); color: var(--hr-navy); }
+.hr-remove-button { color: var(--hr-red); }
 .hr-balance-value { display: flex; align-items: baseline; gap: 4px; }
 .hr-balance-value strong { font-size: 18px; font-variant-numeric: tabular-nums; }
 .hr-balance-value span { color: var(--hr-muted); font-size: 11px; }

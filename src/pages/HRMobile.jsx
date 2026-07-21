@@ -55,7 +55,8 @@ export default function HRMobile() {
   const [authEnabled, setAuthEnabled] = useState(true)
   useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
-  const isBoss = !authEnabled || currentUser?.role === 'admin'
+  const [serverCanManage, setServerCanManage] = useState(false)
+  const isBoss = !authEnabled || currentUser?.role === 'admin' || serverCanManage
   const myName = currentUser?.name || 'Boss'
 
   const [leave, setLeave] = useState([])
@@ -93,7 +94,7 @@ export default function HRMobile() {
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {})
+      setLeave(d.leave || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {}); setServerCanManage(!!d.canManage)
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 

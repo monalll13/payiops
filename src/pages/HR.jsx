@@ -54,7 +54,8 @@ export default function HR() {
   const [authEnabled, setAuthEnabled] = useState(true)
   useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
-  const isBoss = !authEnabled || currentUser?.role === 'admin'
+  const [serverCanManage, setServerCanManage] = useState(false)
+  const isBoss = !authEnabled || currentUser?.role === 'admin' || serverCanManage
 
   const [leave, setLeave] = useState([])
   const [people, setPeople] = useState([])
@@ -70,6 +71,7 @@ export default function HR() {
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [editEmployees, setEditEmployees] = useState(false)
   const [balanceDrafts, setBalanceDrafts] = useState({})
+  const [editingBalanceCode, setEditingBalanceCode] = useState('')
   const [editingLeave, setEditingLeave] = useState(null)
   const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
   const selectedEmployee = people.find((person) => person.code === leaveForm.employee_code)
@@ -93,7 +95,7 @@ export default function HR() {
     try {
       const response = await fetch(API); const data = await readApiResponse(response)
       if (!response.ok || !data.success) throw new Error(data.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(data.leave || []); setPeople(data.people || []); setActiveMonths(data.activeMonths || {}); setLeaveBalances(data.leaveBalances || [])
+      setLeave(data.leave || []); setPeople(data.people || []); setActiveMonths(data.activeMonths || {}); setLeaveBalances(data.leaveBalances || []); setServerCanManage(!!data.canManage)
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
@@ -140,7 +142,7 @@ export default function HR() {
   const setLeaveBalance = async (item) => {
     const remaining = Number(balanceDrafts[item.code] ?? item.remaining)
     setSaving(true); setError('')
-    try { await postAction({ action: 'set-leave-balance', code: item.code, remaining }, 'แก้ยอดคงเหลือไม่สำเร็จ'); setBalanceDrafts((current) => ({ ...current, [item.code]: remaining })); await load() }
+    try { await postAction({ action: 'set-leave-balance', code: item.code, remaining }, 'แก้ยอดคงเหลือไม่สำเร็จ'); setBalanceDrafts((current) => ({ ...current, [item.code]: remaining })); setEditingBalanceCode(''); await load() }
     catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -206,10 +208,10 @@ export default function HR() {
         ].filter((group) => group.rows.length).map((group) => <div className="hr-balance-group" key={group.key}><h3>{group.label}<span>{group.rows.length} คน</span></h3><div className="hr-balance-grid">{group.rows.map((item) => {
           const percentage = item.quota > 0 ? Math.max(0, Math.min(100, (item.remaining / item.quota) * 100)) : 0
           return <article className={`hr-balance-card ${item.remaining <= 0 ? 'is-empty' : ''}`} key={item.code}>
-            <div className="hr-balance-card-top"><div className="hr-avatar is-small" aria-hidden="true">{item.name?.trim().slice(0, 1) || '?'}</div><div><strong>{item.name}</strong><span>{item.group}</span></div>{isBoss && editEmployees && <button className="hr-remove-button" onClick={() => removeEmployee(item.code, item.group, item.name)} aria-label={`ลบ ${item.name}`}><X size={15} /></button>}</div>
+            <div className="hr-balance-card-top"><div className="hr-avatar is-small" aria-hidden="true">{item.name?.trim().slice(0, 1) || '?'}</div><div><strong>{item.name}</strong><span>{item.group}</span></div>{isBoss && <div className="hr-balance-card-actions"><button type="button" className={`hr-balance-pencil ${editingBalanceCode === item.code ? 'is-active' : ''}`} onClick={() => setEditingBalanceCode((code) => code === item.code ? '' : item.code)} aria-label={`แก้วันลาคงเหลือของ ${item.name}`} title="แก้วันลาคงเหลือ"><Pencil size={14} /></button>{editEmployees && <button className="hr-remove-button" onClick={() => removeEmployee(item.code, item.group, item.name)} aria-label={`ลบ ${item.name}`}><X size={15} /></button>}</div>}</div>
             <div className="hr-balance-value"><strong>{item.remaining}</strong><span>/ {item.quota} วัน</span></div>
             <div className="hr-progress" aria-label={`เหลือ ${item.remaining} จาก ${item.quota} วัน`}><span style={{ width: `${percentage}%` }} /></div>
-            {isBoss && editEmployees && <div className="hr-balance-edit"><input type="number" min="0" max="365" step="0.5" aria-label={`วันลาคงเหลือของ ${item.name}`} value={balanceDrafts[item.code] ?? item.remaining} onChange={(e) => setBalanceDrafts((current) => ({ ...current, [item.code]: e.target.value }))} /><button type="button" disabled={saving} onClick={() => setLeaveBalance(item)} aria-label={`บันทึกยอดของ ${item.name}`}><Check size={15} /></button></div>}
+            {isBoss && (editEmployees || editingBalanceCode === item.code) && <div className="hr-balance-edit"><input type="number" min="0" max="365" step="0.5" aria-label={`วันลาคงเหลือของ ${item.name}`} value={balanceDrafts[item.code] ?? item.remaining} onChange={(e) => setBalanceDrafts((current) => ({ ...current, [item.code]: e.target.value }))} /><button type="button" disabled={saving} onClick={() => setLeaveBalance(item)} aria-label={`บันทึกยอดของ ${item.name}`}><Check size={15} /></button></div>}
             {isBoss && editEmployees && item.group !== 'ออฟฟิศ' && <select aria-label={`กลุ่มของ ${item.name}`} value={item.group} onChange={(e) => editEmployeeGroup(item.code, e.target.value)}>{EMPLOYEE_GROUPS.filter((value) => value !== 'ออฟฟิศ').map((value) => <option key={value}>{value}</option>)}</select>}
           </article>
         })}</div></div>)}</div>
