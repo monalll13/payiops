@@ -13,8 +13,7 @@ mona-ops/
 │   └── pages/
 │       ├── Upload.jsx       # 🔥 นำเข้าออเดอร์ Shopee/TikTok/Lazada → Google Sheets
 │       ├── ClaimView.jsx    # วิเคราะห์เคลมสินค้า + นำเข้าไฟล์เคลม
-│       ├── SalesView.jsx    # บันทึกยอดขายนอกแพลตฟอร์ม (local-first)
-│       ├── PackingView.jsx  # กระดานงานแพ็ก (local-first)
+│       ├── PackingView.jsx  # กระดานงานแพ็ก (local-first, ไม่ได้ใช้แล้ว)
 │       ├── LinksHub.jsx     # รวมลิงก์ทรัพยากร
 │       └── DevHub.jsx       # คู่มือ developer
 ├── api/                     # Vercel Serverless Functions (บน Google Sheets)
@@ -78,4 +77,4 @@ git push -u origin main
 - Push GitHub + Deploy Vercel (ต้องใช้บัญชีของคุณ)
 - เพิ่ม auth ให้ API (ตอนนี้ endpoint เปิด public)
 - ปิดการแชร์ Google Sheet แบบ "anyone with link"
-- อัปเกรด SalesView / PackingView จาก localStorage → เก็บใน Google Sheets (ให้แชร์ข้ามเครื่อง)
+- ทำ Inventory / Stock Movement (ยังไม่มีโค้ดเลย ต่อกับ productGroup.js เดิม)

@@ -186,16 +186,10 @@ export default function LinksHub() {
   return (
     <div style={{ width: '100%', color: '#0f172a' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 22, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 14, background: 'linear-gradient(135deg, #dbeafe, #ede9fe)', display: 'grid', placeItems: 'center', color: '#2563eb', boxShadow: '0 18px 42px rgba(37, 99, 235, 0.16)' }}>
-            <Link2 size={30} />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 31, lineHeight: 1, fontWeight: 900, letterSpacing: 0 }}>Links Hub</h1>
-            <div style={{ marginTop: 14, fontSize: 14, fontWeight: 750, color: '#172554' }}>ศูนย์รวมลิงก์งานสำคัญของธุรกิจ</div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 800, letterSpacing: 0 }}>Links Hub</h1>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>ศูนย์รวมลิงก์งานสำคัญของธุรกิจ</span>
         </div>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 1 650px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 280, flex: '1 1 360px', maxWidth: 520, height: 44, display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #dbe3ef', background: '#ffffff', borderRadius: 10, padding: '0 14px', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.05)' }}>
             <Search size={18} color="#334155" />

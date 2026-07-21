@@ -21,7 +21,7 @@ test('Staff sees only Tang operational pages', () => {
   for (const tab of ['Executive', 'Monthly', 'Products', 'ProductTrends', 'Planner Control', 'FeedProducts', 'Workforce OT', 'Claims']) {
     assert.equal(canAccessTab('staff', tab), true, tab)
   }
-  for (const tab of ['Sales', 'MarketingRadar', 'HR', 'Import Orders', 'Dev Hub', 'Settings']) {
+  for (const tab of ['MarketingRadar', 'HR', 'Import Orders', 'Dev Hub', 'Settings']) {
     assert.equal(canAccessTab('staff', tab), false, tab)
   }
   assert.equal(canManageOperations('staff'), false)

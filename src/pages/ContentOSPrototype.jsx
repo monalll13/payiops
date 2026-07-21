@@ -135,8 +135,7 @@ export default function ContentOSPrototype() {
 
       <main style={styles.main}>
         <header style={styles.header}>
-          <div>
-            <div style={styles.eyebrow}>Content Intelligence Prototype</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <h1 style={styles.title}>{meta.title}</h1>
             <p style={styles.subtitle}>{meta.subtitle}</p>
           </div>
@@ -392,10 +391,9 @@ const styles = {
   navItem: { border: 0, background: 'transparent', color: 'var(--payi-text)', minHeight: 38, borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', textAlign: 'left', fontWeight: 700 },
   navItemActive: { background: 'var(--payi-mint-soft)', color: 'var(--payi-mint-strong)' },
   main: { minWidth: 0 },
-  header: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', marginBottom: 16 },
-  eyebrow: { fontSize: 11, fontWeight: 900, color: 'var(--payi-mint-strong)', textTransform: 'uppercase', marginBottom: 6 },
-  title: { margin: 0, fontSize: 32, letterSpacing: 0, color: 'var(--payi-text-strong)' },
-  subtitle: { margin: '7px 0 0', color: 'var(--payi-text-muted)', fontSize: 13 },
+  header: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 16 },
+  title: { margin: 0, fontSize: 16, fontWeight: 800, letterSpacing: 0, color: 'var(--payi-text-strong)' },
+  subtitle: { margin: 0, color: 'var(--payi-text-muted)', fontSize: 12 },
   headerActions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   primaryBtn: { border: 0, background: 'var(--payi-mint)', color: '#fff', borderRadius: 8, minHeight: 38, padding: '9px 13px', fontWeight: 800 },
   secondaryBtn: { border: '1px solid var(--payi-border)', background: 'var(--payi-surface)', color: 'var(--payi-text)', borderRadius: 8, minHeight: 38, padding: '9px 13px', fontWeight: 800 },

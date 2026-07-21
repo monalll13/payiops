@@ -1,4 +1,4 @@
-// GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite|workforce|planner|hr
+// GET/POST /api/sheet-tools?op=summary|sheet|append|overwrite|workforce|planner|hr|inventory
 // รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth, cacheable, authEnabled } from './_lib/auth.js'
@@ -10,6 +10,7 @@ import {
   leavePeriodLabel, normalizeLeavePeriod, officeLeaveConflicts, validateBackupSelections,
 } from './_lib/leaveCoverage.js'
 import { applyScheduleOverrides } from './_lib/scheduleOverrides.js'
+import opInventory from './_lib/inventory.js'
 
 // ปิด body parser อัตโนมัติของ Vercel — ต้องอ่าน raw body เองเพื่อตรวจลายเซ็น LINE webhook (HMAC ต้องใช้ byte ดิบ)
 // req.body ยังใช้ได้ตามปกติในทุก op เดิม เพราะ readRawBody() ด้านล่าง parse JSON ให้เหมือน Vercel ทำเอง
@@ -1501,5 +1502,6 @@ export default async function handler(req, res) {
   if (op === 'workforce') return opWorkforce(req, res)
   if (op === 'planner') return opPlanner(req, res)
   if (op === 'hr') return opHr(req, res)
-  return res.status(400).json({ error: 'ต้องระบุ ?op=summary|sheet|append|overwrite|workforce|planner|hr|line-webhook' })
+  if (op === 'inventory') return opInventory(req, res)
+  return res.status(400).json({ error: 'ต้องระบุ ?op=summary|sheet|append|overwrite|workforce|planner|hr|inventory|line-webhook' })
 }

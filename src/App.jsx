@@ -4,9 +4,9 @@ import { canAccessTab, normalizeRole, STAFF_TABS } from '../shared/roles.js'
 import {
   Bell, Search, UserCircle2, DollarSign, ShoppingBag, Package, TrendingUp,
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
-  LayoutDashboard, UploadCloud, Store, Radar, Megaphone, CalendarClock, Boxes,
+  LayoutDashboard, UploadCloud, Radar, Megaphone, CalendarClock, Boxes,
   ArrowLeftRight, Users, ShieldAlert, BookOpen, Link2,
-  Code2, Brain, Settings as SettingsIcon, CalendarCheck,
+  Code2, Settings as SettingsIcon, CalendarCheck,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -17,7 +17,6 @@ const Upload = lazy(() => import('./pages/Upload'))
 const LinksHub = lazy(() => import('./pages/LinksHub'))
 const DevHub = lazy(() => import('./pages/DevHub'))
 const ClaimView = lazy(() => import('./pages/ClaimView'))
-const SalesView = lazy(() => import('./pages/SalesView'))
 const MonthlyDashboard = lazy(() => import('./pages/MonthlyDashboard'))
 const PlannerControl = lazy(() => import('./pages/PlannerControl'))
 const FeedProducts = lazy(() => import('./pages/FeedProducts'))
@@ -28,6 +27,8 @@ const ProductTrends = lazy(() => import('./pages/ProductTrends'))
 const MarketingRadar = lazy(() => import('./pages/MarketingRadar'))
 const AdsChannels = lazy(() => import('./pages/AdsChannels'))
 const ContentOSPrototype = lazy(() => import('./pages/ContentOSPrototype'))
+const Inventory = lazy(() => import('./pages/Inventory'))
+const StockMovement = lazy(() => import('./pages/StockMovement'))
 const Settings = lazy(() => import('./pages/Settings'))
 
 const API_BASE = '/api'
@@ -78,7 +79,6 @@ const Icons = {
   Executive: LayoutDashboard,
   Products: Package,
   ImportOrders: UploadCloud,
-  Sales: Store,
   MarketingRadar: Radar,
   AdsChannels: Megaphone,
   ContentOS: Sparkles,
@@ -91,7 +91,6 @@ const Icons = {
   SOPs: BookOpen,
   LinksHub: Link2,
   DevHub: Code2,
-  AIAssistant: Brain,
   Settings: SettingsIcon,
 }
 
@@ -107,7 +106,6 @@ const menuGroups = [
     title: 'ยอดขายและการตลาด',
     items: [
       { id: 'Import Orders', label: 'Import Orders', renderIcon: Icons.ImportOrders, dotColor: 'var(--payi-success)' },
-      { id: 'Sales', label: 'Off-Platform Sales', renderIcon: Icons.Sales },
       { id: 'MarketingRadar', label: 'Marketing Radar', renderIcon: Icons.MarketingRadar, dotColor: 'var(--payi-warning)' },
       { id: 'AdsChannels', label: 'Ads & Channels', renderIcon: Icons.AdsChannels },
       { id: 'ContentOS', label: 'Content OS Prototype', renderIcon: Icons.ContentOS, dotColor: 'var(--payi-mint)' }
@@ -135,7 +133,6 @@ const menuGroups = [
   {
     title: 'ระบบ',
     items: [
-      { id: 'AI Assistant', label: 'PAYI Brain', renderIcon: Icons.AIAssistant },
       { id: 'Settings', label: 'Settings', renderIcon: Icons.Settings }
     ]
   }
@@ -213,128 +210,6 @@ function TrendingCard({ title, items, isUp }) {
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  )
-}
-
-function AIAssistantView() {
-  const modes = [
-    { id: 'executive', name: 'Executive AI', desc: 'สรุปภาพรวมและเรื่องที่ต้องตัดสินใจ' },
-    { id: 'sales', name: 'Sales Analyst', desc: 'วิเคราะห์ยอดขาย แบรนด์ ช่องทาง และ SKU' },
-    { id: 'ops', name: 'Ops Assistant', desc: 'เช็กงานหลังบ้าน แพ็ก สต็อก และงานค้าง' },
-    { id: 'claims', name: 'Claim Detective', desc: 'หาสินค้าที่เคลมบ่อยและมูลค่าเสียหาย' },
-    { id: 'marketing', name: 'Marketing Brain', desc: 'ช่วยคิดแคมเปญ คอนเทนต์ และมุมขาย' },
-  ]
-  const quickPrompts = {
-    executive: ['สรุปวันนี้ให้ผู้บริหาร', 'มีอะไรผิดปกติไหม', 'ทำ action list ให้หน่อย'],
-    sales: ['แบรนด์ไหนยอดตก', 'SKU ไหนควรดัน', 'สรุปยอดนอกแพลตฟอร์ม'],
-    ops: ['งานหลังบ้านเสี่ยงตรงไหน', 'เช็ก stock movement', 'สรุปงานที่ต้องตาม'],
-    claims: ['เคลมเดือนนี้เป็นยังไง', 'SKU ไหนควรระวัง', 'สรุปเคลมส่งทีม'],
-    marketing: ['คิด hook คลิปสั้น', 'จัดโปรสินค้าไหนดี', 'ร่าง brief ให้ทีมคอนเทนต์'],
-  }
-
-  const [activeMode, setActiveMode] = useState('executive')
-  const [input, setInput] = useState('')
-  const [messages, setMessages] = useState([
-    { id: 1, role: 'ai', text: 'PAYI Brain พร้อมแล้วค่ะ เลือกโหมดหรือกดคำถามสำเร็จรูปได้เลย เดี๋ยวช่วยสรุปเป็นภาษาคนทำงานให้พร้อม action ต่อทันที' }
-  ])
-
-  const mode = modes.find(m => m.id === activeMode) || modes[0]
-  const addPrompt = (text) => setInput(text)
-  const buildReply = (text) => {
-    const lower = text.toLowerCase()
-    if (activeMode === 'claims' || text.includes('เคลม')) {
-      return 'สรุปมุม Claims: ให้เริ่มจาก SKU ที่มีเคสซ้ำสูงสุด แยกเหตุผลเป็นเสีย/พัง ส่งไม่ครบ และส่งผิด แล้วส่งรายการ Top 10 ให้ทีมคลังตรวจขั้นตอนแพ็กกับ QC ก่อน รอบถัดไปควรดูมูลค่าเสียหายรวมคู่กับจำนวนเคส เพื่อไม่หลงโฟกัสแค่สินค้าที่เคสเยอะแต่ต้นทุนต่ำค่ะ'
-    }
-    if (activeMode === 'marketing' || lower.includes('hook') || text.includes('คอนเทนต์')) {
-      return 'สรุปมุม Marketing: เลือก SKU ที่ขายดีแต่เคลมต่ำเป็นตัวหลักของแคมเปญ แล้วทำ 3 มุมคือ pain point, before/after, และ social proof ส่วน SKU ที่เคลมสูงให้พักการดันแอดไว้ก่อนจนกว่าทีม Ops จะเคลียร์สาเหตุค่ะ'
-    }
-    if (activeMode === 'sales' || text.includes('ยอด')) {
-      return 'สรุปมุม Sales: ให้ดูยอดขายแยกแบรนด์และช่องทางก่อน แล้วค่อยเจาะ SKU ที่โต/ตกผิดปกติ ถ้าช่องทางนอกแพลตฟอร์มโตดี ควรแยก campaign code หรือ note ให้ชัดเพื่อวัดผลรอบถัดไปค่ะ'
-    }
-    if (activeMode === 'ops' || text.includes('สต็อก') || text.includes('งาน')) {
-      return 'สรุปมุม Ops: วันนี้ควรไล่ 3 จุดก่อนคือสินค้าขายเร็วที่เสี่ยงขาด, SKU ที่มีเคลมซ้ำ, และงานค้างที่กระทบการแพ็ก พอได้รายการแล้วให้แยก owner กับ deadline สั้น ๆ เพื่อปิดงานได้จริงค่ะ'
-    }
-    return 'สรุปสำหรับผู้บริหาร: วันนี้ควรดู 1) ยอดขายและช่องทางที่โต/ตก 2) SKU ที่ต้องดันหรือพัก 3) เคลมที่กระทบต้นทุน 4) งานหลังบ้านที่ต้องตาม แนะนำให้ส่ง action list รายทีมก่อนจบวันค่ะ'
-  }
-  const send = (text = input) => {
-    const clean = text.trim()
-    if (!clean) return
-    setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: clean }])
-    setInput('')
-    setTimeout(() => {
-      setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: buildReply(clean) }])
-    }, 250)
-  }
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 24, width: '100%' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 22 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--payi-text-strong)' }}>PAYI Brain</div>
-          <div style={{ fontSize: 13, color: 'var(--payi-text-muted)', marginTop: 4 }}>ผู้ช่วยวิเคราะห์ยอดขาย เคลม สต็อก งานหลังบ้าน และแผนการตลาดของ Payi Ops</div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-          {modes.map(m => {
-            const active = activeMode === m.id
-            return (
-              <button key={m.id} onClick={() => setActiveMode(m.id)} style={{ textAlign: 'left', border: `1px solid ${active ? 'var(--payi-surface-dark)' : 'var(--payi-border)'}`, background: active ? 'var(--payi-surface-dark)' : 'var(--payi-surface)', color: active ? 'var(--payi-surface)' : 'var(--payi-text-strong)', borderRadius: 14, padding: 14, cursor: 'pointer' }}>
-                <div style={{ fontSize: 13, fontWeight: 800 }}>{m.name}</div>
-                <div style={{ fontSize: 11, color: active ? 'var(--payi-line)' : 'var(--payi-text-muted)', marginTop: 5, lineHeight: 1.45 }}>{m.desc}</div>
-              </button>
-            )
-          })}
-        </div>
-
-        <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)', marginBottom: 10 }}>{mode.name} พร้อมใช้งาน</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {(quickPrompts[activeMode] || []).map(prompt => (
-              <button key={prompt} onClick={() => addPrompt(prompt)} style={{ border: '1px solid #dbe3ef', background: 'var(--payi-surface-muted)', color: 'var(--payi-text)', borderRadius: 999, padding: '8px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)', marginBottom: 14 }}>สิ่งที่ PAYI Brain จะช่วยได้</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
-            {[
-              ['Daily Brief', 'สรุปยอดขาย เคลม และงานเสี่ยงเป็นภาษาสั้น ๆ'],
-              ['Anomaly Check', 'ชี้จุดผิดปกติ เช่น ยอดตก เคลมพุ่ง หรือ SKU เสี่ยง'],
-              ['Action List', 'แปลง insight เป็นรายการงานพร้อม owner/deadline'],
-              ['Team Summary', 'ร่างข้อความส่งทีมขาย คลัง แพ็ก หรือคอนเทนต์'],
-            ].map(([title, desc]) => (
-              <div key={title} style={{ border: '1px solid var(--payi-border)', background: 'var(--payi-surface-muted)', borderRadius: 14, padding: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-text-strong)' }}>{title}</div>
-                <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', marginTop: 5, lineHeight: 1.5 }}>{desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 620 }}>
-        <div style={{ background: 'var(--payi-surface-dark)', color: 'var(--payi-surface)', padding: '15px 18px' }}>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>PAYI Brain Chat</div>
-          <div style={{ fontSize: 11, color: 'var(--payi-line)', marginTop: 2 }}>{mode.name}</div>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: 'var(--payi-surface-muted)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {messages.map(m => (
-            <div key={m.id} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
-              <div style={{ background: m.role === 'user' ? 'var(--payi-mint)' : 'var(--payi-surface)', color: m.role === 'user' ? 'var(--payi-surface)' : 'var(--payi-text-strong)', border: m.role === 'user' ? 'none' : '1px solid var(--payi-border)', borderRadius: m.role === 'user' ? '14px 14px 3px 14px' : '14px 14px 14px 3px', padding: '10px 13px', fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-line' }}>
-                {m.text}
-              </div>
-            </div>
-          ))}
-        </div>
-        <form onSubmit={e => { e.preventDefault(); send() }} style={{ padding: 12, borderTop: '1px solid var(--payi-border)', display: 'flex', gap: 8 }}>
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="ถาม PAYI Brain..." style={{ flex: 1, border: '1px solid var(--payi-border)', borderRadius: 12, padding: '9px 12px', fontSize: 12, outline: 'none' }} />
-          <button type="submit" style={{ background: 'var(--payi-surface-dark)', color: 'var(--payi-surface)', border: 'none', borderRadius: 12, padding: '0 16px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>ส่ง</button>
-        </form>
       </div>
     </div>
   )
@@ -610,7 +485,7 @@ export default function App() {
   }, [business, platform, startDate, endDate])
 
   useEffect(() => {
-    if (activeTab === 'Executive' || activeTab === 'Sales' || activeTab === 'FeedProducts') {
+    if (activeTab === 'Executive' || activeTab === 'FeedProducts') {
       fetchDashboard()
     }
   }, [activeTab, fetchDashboard])
@@ -724,11 +599,6 @@ export default function App() {
       eyebrow: 'Overview',
       subtitle: 'ภาพรวมคำสั่งซื้อรายวัน + สรุปรายเดือน (ยอดขาย ออเดอร์ ร้าน แพลตฟอร์ม)'
     },
-    Sales: {
-      title: 'Off-Platform Sales',
-      eyebrow: 'Sales',
-      subtitle: 'Manual and non-marketplace sales tracking.'
-    },
     'Import Orders': {
       title: 'Import Orders',
       eyebrow: 'Sales',
@@ -768,6 +638,26 @@ export default function App() {
       title: 'พนักงาน (ลา)',
       eyebrow: 'Operations Planning',
       subtitle: 'คำขอลา + อนุมัติ และวันลาพักร้อนคงเหลือ'
+    },
+    Inventory: {
+      title: 'Inventory',
+      eyebrow: 'Operations Planning',
+      subtitle: 'ภาพรวมสต็อกสินค้า — คงเหลือคำนวณสดจากรายการเข้า-ออกทั้งหมด'
+    },
+    'Stock Movement': {
+      title: 'Stock Movement',
+      eyebrow: 'Operations Planning',
+      subtitle: 'ประวัติรายการรับเข้า-เบิกออกสต็อกทั้งหมด'
+    },
+    Claims: {
+      title: 'Claim View',
+      eyebrow: 'Operations Planning',
+      subtitle: 'วิเคราะห์สถิติจดแจ้งยอดเคลมสินค้า'
+    },
+    ContentOS: {
+      title: 'Content OS Prototype',
+      eyebrow: 'Marketing',
+      subtitle: 'Content Intelligence Prototype'
     }
   }[activeTab] || {
     title: activeTab,
@@ -1249,10 +1139,12 @@ export default function App() {
             <ContentOSPrototype />
         ) : activeTab === 'MarketingRadar' ? (
             <MarketingRadar />
-        ) : activeTab === 'Sales' ? ( // <--- เพิ่มตรงนี้
-            <SalesView />
         ) : activeTab === 'Planner Control' ? (
             <PlannerControl onNavigate={setActiveTab} />
+        ) : activeTab === 'Inventory' ? (
+            <Inventory />
+        ) : activeTab === 'Stock Movement' ? (
+            <StockMovement />
         ) : activeTab === 'Workforce OT' ? (
             <WorkforceOT />
         ) : activeTab === 'HR' ? (
@@ -1265,8 +1157,6 @@ export default function App() {
             <LinksHub />
         ) : activeTab === 'Dev Hub' ? (
           <DevHub />
-        ) : activeTab === 'AI Assistant' ? (
-            <AIAssistantView />
         ) : activeTab === 'Settings' ? (
             <Settings />
         ) : (

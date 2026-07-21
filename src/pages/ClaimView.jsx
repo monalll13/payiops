@@ -724,11 +724,8 @@ export default function ClaimView() {
     <div style={{ width: '100%', fontFamily: 'system-ui, sans-serif', padding: '10px 4px' }}>
       
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#111827', letterSpacing: '-0.02em' }}>Claim View 🛡️</div>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>วิเคราะห์สถิติจดแจ้งยอดเคลมสินค้า · อัปเดตล่าสุด {ts || '—'}</div>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>อัปเดตล่าสุด {ts || '—'}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <input type="date" value={startDate} onChange={e => setStart(e.target.value)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#334155', background: '#f8fafc' }} />
           <span style={{ color: '#94a3b8', fontSize: 12 }}>ถึง</span>

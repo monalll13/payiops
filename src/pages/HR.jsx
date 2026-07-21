@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle, CalendarDays, Check, Clock3, Pencil, Plus, RefreshCw,
-  Send, ShieldCheck, UsersRound, X,
+  Send, UsersRound, X,
 } from 'lucide-react'
 import './HR.css'
 import LeaveEditPanel from '../components/LeaveEditPanel'
@@ -174,12 +174,8 @@ export default function HR() {
 
   return (
     <main className="hr-page" id="main-content">
-      <header className="hr-page-header">
-        <div>
-          <span className="hr-eyebrow"><ShieldCheck size={15} /> HR workspace</span>
-          <h1>จัดการวันลา</h1>
-          <p>อนุมัติคำขอ ดูยอดคงเหลือ และยื่นแทนพนักงานในที่เดียว</p>
-        </div>
+      <header className="hr-page-header" style={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+        <h1 style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>จัดการวันลา</h1>
         <button className="hr-icon-button" onClick={load} aria-label="รีเฟรชข้อมูล" title="รีเฟรชข้อมูล"><RefreshCw size={18} /></button>
       </header>
 
