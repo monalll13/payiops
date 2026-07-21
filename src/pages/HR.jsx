@@ -19,10 +19,6 @@ function StatusBadge({ status }) {
   return <span style={{ background: s.bg, color: s.fg, borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 800 }}>{s.label}</span>
 }
 
-function miniTab(active) {
-  return { border: `1px solid ${active ? 'var(--payi-mint)' : 'var(--payi-border)'}`, background: active ? 'var(--payi-mint-soft)' : 'var(--payi-surface)', color: active ? 'var(--payi-mint-strong)' : 'var(--payi-text-muted)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }
-}
-
 async function readApiResponse(response) {
   try { return await response.json() } catch { return { success: false, error: `HTTP ${response.status}` } }
 }
@@ -34,10 +30,7 @@ export default function HR() {
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
   const isBoss = !authEnabled || currentUser?.role === 'admin'
 
-  const [tab, setTab] = useState('leave')
   const [leave, setLeave] = useState([])
-  const [schedule, setSchedule] = useState([])
-  const [users, setUsers] = useState([])
   const [people, setPeople] = useState([])
   const [activeMonths, setActiveMonths] = useState({})
   const [leaveBalances, setLeaveBalances] = useState([])
@@ -46,7 +39,6 @@ export default function HR() {
   const [error, setError] = useState('')
 
   const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-  const [schedForm, setSchedForm] = useState({ date: today(), username: '', shift_start: '09:00', shift_end: '17:00', role_note: '' })
   const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
   const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
   const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
@@ -70,7 +62,7 @@ export default function HR() {
     try {
       const r = await fetch(API); const d = await readApiResponse(r)
       if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setSchedule(d.schedule || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {}); setLeaveBalances(d.leaveBalances || [])
+      setLeave(d.leave || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {}); setLeaveBalances(d.leaveBalances || [])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
@@ -82,11 +74,6 @@ export default function HR() {
     return people.filter((p) => (activeMonths[p.code] || []).includes(month))
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
-  useEffect(() => {
-    if (!isBoss || !authEnabled) return
-    fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list-users' }) })
-      .then((r) => r.json()).then((d) => { if (d.success) setUsers(d.users || []) }).catch(() => {})
-  }, [isBoss, authEnabled])
 
   const submitLeave = async (e) => {
     e.preventDefault()
@@ -141,44 +128,19 @@ export default function HR() {
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
-  const submitSchedule = async (e) => {
-    e.preventDefault(); setSaving(true); setError('')
-    try {
-      const picked = users.find((u) => u.username === schedForm.username)
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-schedule', ...schedForm, employee_name: picked?.display_name || schedForm.username }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
-      setSchedForm({ ...schedForm, role_note: '' })
-      await load()
-    } catch (e2) { setError(e2.message) } finally { setSaving(false) }
-  }
-
-  const deleteSchedule = async (id) => {
-    if (!window.confirm('ลบตารางเวรนี้ใช่ไหม?')) return
-    setSaving(true); setError('')
-    try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete-schedule', id }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ลบไม่สำเร็จ')
-      await load()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
-  }
-
   const myLeave = isBoss ? leave : leave.filter((l) => l.username === currentUser?.u)
   const pendingLeave = leave.filter((l) => l.status === 'pending')
-  const mySchedule = isBoss ? schedule : schedule.filter((s) => s.username === currentUser?.u)
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setTab('leave')} style={miniTab(tab === 'leave')}>คำขอลา</button>
-          <button onClick={() => setTab('schedule')} style={miniTab(tab === 'schedule')}>ตารางเวรพนักงาน</button>
-        </div>
+        <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>คำขอลา</div>
         <button onClick={load} aria-label="รีเฟรช" style={{ border: '1px solid var(--payi-border)', background: 'var(--payi-surface)', borderRadius: 9, padding: 7, color: 'var(--payi-mint-strong)', cursor: 'pointer' }}><RefreshCw size={15} /></button>
       </div>
 
       {error && <div style={{ padding: '10px 14px', background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', border: '1px solid var(--payi-danger)', borderRadius: 10 }}>{error}</div>}
 
-      {tab === 'leave' && <div style={{ display: 'grid', gap: 14 }}>
+      <div style={{ display: 'grid', gap: 14 }}>
         <form onSubmit={submitLeave} style={{ ...card, padding: 20, display: 'grid', gap: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>ส่งคำขอลา</div>
           {isBoss && people.length > 0 && (
@@ -295,50 +257,7 @@ export default function HR() {
               </tr>)}</tbody>
             </table></div>}
         </section>
-      </div>}
-
-      {tab === 'schedule' && <div style={{ display: 'grid', gap: 14 }}>
-        {isBoss && <form onSubmit={submitSchedule} style={{ ...card, padding: 20, display: 'grid', gap: 14 }}>
-          <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>เพิ่มตารางเวร</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 12 }}>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>วันที่
-              <input className="payi-date-input" type="date" value={schedForm.date} onChange={(e) => setSchedForm({ ...schedForm, date: e.target.value })} required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>พนักงาน
-              {users.length ? <select className="payi-select" value={schedForm.username} onChange={(e) => setSchedForm({ ...schedForm, username: e.target.value })} required>
-                <option value="">เลือก...</option>
-                {users.map((u) => <option key={u.username} value={u.username}>{u.display_name}</option>)}
-              </select> : <input className="payi-input" value={schedForm.username} onChange={(e) => setSchedForm({ ...schedForm, username: e.target.value })} placeholder="username" required />}
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>เริ่มกะ
-              <input className="payi-input" type="time" value={schedForm.shift_start} onChange={(e) => setSchedForm({ ...schedForm, shift_start: e.target.value })} required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>จบกะ
-              <input className="payi-input" type="time" value={schedForm.shift_end} onChange={(e) => setSchedForm({ ...schedForm, shift_end: e.target.value })} required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>หมายเหตุ
-              <input className="payi-input" value={schedForm.role_note} onChange={(e) => setSchedForm({ ...schedForm, role_note: e.target.value })} placeholder="ไม่จำเป็นต้องกรอก" />
-            </label>
-          </div>
-          <button disabled={saving} className="payi-btn-primary" style={{ justifySelf: 'start', padding: '11px 20px', opacity: saving ? 0.6 : 1 }}>{saving ? 'กำลังบันทึก…' : 'บันทึกตารางเวร'}</button>
-        </form>}
-
-        <section style={{ ...card, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>{isBoss ? 'ตารางเวรทั้งหมด' : 'ตารางเวรของฉัน'}</div>
-          {loading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--payi-text-faint)' }}>กำลังโหลด…</div>
-            : !mySchedule.length ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--payi-text-faint)' }}>ยังไม่มีตารางเวร</div>
-            : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700, fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--payi-surface-muted)', color: 'var(--payi-text-muted)', textAlign: 'left' }}>{['วันที่', 'พนักงาน', 'เวลากะ', 'หมายเหตุ', ...(isBoss ? [''] : [])].map((h) => <th key={h} style={{ padding: '10px 12px' }}>{h}</th>)}</tr></thead>
-              <tbody>{mySchedule.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map((s) => <tr key={s.id} style={{ borderTop: '1px solid var(--payi-line)' }}>
-                <td style={td}>{s.date}</td>
-                <td style={{ ...td, fontWeight: 900 }}>{s.employee_name}</td>
-                <td style={td}>{s.shift_start}–{s.shift_end}</td>
-                <td style={td}>{s.role_note || '-'}</td>
-                {isBoss && <td style={td}><button onClick={() => deleteSchedule(s.id)} style={{ border: '1px solid var(--payi-danger)', background: 'transparent', color: 'var(--payi-danger)', borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer', fontSize: 11 }}>ลบ</button></td>}
-              </tr>)}</tbody>
-            </table></div>}
-        </section>
-      </div>}
+      </div>
     </div>
   )
 }

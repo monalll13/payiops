@@ -123,7 +123,7 @@ const menuGroups = [
       { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
       { id: 'Packing', label: 'Packing', renderIcon: Icons.Packing },
       { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.WorkforceOT, dotColor: '#7dd3fc' },
-      { id: 'HR', label: 'พนักงาน (ลา/ตารางเวร)', renderIcon: Icons.HR, dotColor: '#a78bfa' },
+      { id: 'HR', label: 'พนักงาน (ลา)', renderIcon: Icons.HR, dotColor: '#a78bfa' },
       { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims },
       { id: 'Tasks', label: 'Tasks', renderIcon: Icons.Tasks, dotColor: 'var(--payi-warning)' }
     ]
@@ -757,9 +757,9 @@ export default function App() {
       subtitle: 'จำนวนสินค้าราย SKU สำหรับใช้ประกอบการวางแผนฟีด'
     },
     HR: {
-      title: 'พนักงาน (ลา/ตารางเวร)',
+      title: 'พนักงาน (ลา)',
       eyebrow: 'Operations Planning',
-      subtitle: 'คำขอลา + อนุมัติ และตารางเวรพนักงาน'
+      subtitle: 'คำขอลา + อนุมัติ และวันลาพักร้อนคงเหลือ'
     }
   }[activeTab] || {
     title: activeTab,

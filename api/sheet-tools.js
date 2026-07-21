@@ -695,31 +695,6 @@ async function opHrInner(req, res) {
     clearHrCache()
     return res.status(200).json({ success: true, line_user_id: lineUserId })
   }
-  if (action === 'create-schedule') {
-    if (!requireAdmin(req, res)) return
-    if (!body.date || !body.username || !validTime(body.shift_start) || !validTime(body.shift_end) || clockMinutes(body.shift_end) <= clockMinutes(body.shift_start)) {
-      return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่ พนักงาน และเวลากะให้ถูกต้อง' })
-    }
-    const now = new Date().toISOString()
-    const record = {
-      id: `sched-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      date: body.date, username: body.username, employee_name: body.employee_name || body.username,
-      shift_start: body.shift_start, shift_end: body.shift_end, role_note: body.role_note || '',
-      created_at: now, created_by: actorName(),
-    }
-    await appendRows('hr_schedule', [SCHEDULE_HEADERS.map((h) => record[h] ?? '')])
-    clearHrCache()
-    return res.status(200).json({ success: true, schedule: record })
-  }
-  if (action === 'delete-schedule') {
-    if (!requireAdmin(req, res)) return
-    if (!body.id) return res.status(400).json({ success: false, error: 'กรุณาระบุ id' })
-    const current = await getSheet('hr_schedule')
-    const kept = current.filter((r) => String(r.id) !== String(body.id))
-    await overwriteSheet('hr_schedule', SCHEDULE_HEADERS, kept.map((r) => SCHEDULE_HEADERS.map((h) => r[h] ?? '')))
-    clearHrCache()
-    return res.status(200).json({ success: true, deleted: current.length - kept.length })
-  }
   return res.status(400).json({ success: false, error: `Unknown hr action: ${action || '(empty)'}` })
 }
 
