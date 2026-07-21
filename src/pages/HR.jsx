@@ -1,22 +1,39 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
+import {
+  AlertTriangle, CalendarDays, Check, Clock3, Pencil, Plus, RefreshCw,
+  Send, ShieldCheck, UsersRound, X,
+} from 'lucide-react'
+import './HR.css'
 
 const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
 const EMPLOYEE_GROUPS = ['คนแพ็ก', 'คนฟีด', 'พาร์ทไทม์', 'อื่น ๆ', 'ออฟฟิศ']
+const NO_VACATION_GROUPS = new Set(['คนฟีด', 'พาร์ทไทม์'])
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+const thaiYear = new Date().getFullYear() + 543
 
-const card = { background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, boxShadow: 'var(--payi-shadow)' }
-const td = { padding: '11px 12px', color: 'var(--payi-text)', verticalAlign: 'middle' }
+const STATUS = {
+  pending: { label: 'รอพิจารณา', className: 'is-pending' },
+  approved: { label: 'อนุมัติแล้ว', className: 'is-approved' },
+  rejected: { label: 'ไม่อนุมัติ', className: 'is-rejected' },
+}
+
+const formatDate = (value) => value
+  ? new Date(`${value}T00:00:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+  : '—'
+
+const formatDateRange = (leave) => {
+  if (leave.leave_type === 'สลับวันหยุด') return `${formatDate(leave.start_date)} → ${formatDate(leave.end_date)}`
+  return leave.start_date === leave.end_date ? formatDate(leave.start_date) : `${formatDate(leave.start_date)} – ${formatDate(leave.end_date)}`
+}
 
 function StatusBadge({ status }) {
-  const map = {
-    pending: { bg: 'var(--payi-warning-bg)', fg: 'var(--payi-warning)', label: 'รอพิจารณา' },
-    approved: { bg: 'var(--payi-success-bg)', fg: 'var(--payi-success)', label: 'อนุมัติแล้ว' },
-    rejected: { bg: 'var(--payi-danger-bg)', fg: 'var(--payi-danger)', label: 'ไม่อนุมัติ' },
-  }
-  const s = map[status] || map.pending
-  return <span style={{ background: s.bg, color: s.fg, borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 800 }}>{s.label}</span>
+  const item = STATUS[status] || STATUS.pending
+  return <span className={`hr-status ${item.className}`}><span aria-hidden="true" />{item.label}</span>
+}
+
+function Field({ label, children, className = '' }) {
+  return <label className={`hr-field ${className}`}><span>{label}</span>{children}</label>
 }
 
 async function readApiResponse(response) {
@@ -37,245 +54,213 @@ export default function HR() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
   const [leaveForm, setLeaveForm] = useState({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-  const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
-  const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
   const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
   const [empForm, setEmpForm] = useState({ code: '', name: '', group: EMPLOYEE_GROUPS[0] })
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [editEmployees, setEditEmployees] = useState(false)
+  const isSwap = leaveForm.leave_type === 'สลับวันหยุด'
+  const officePeople = people.filter((p) => p.group === 'ออฟฟิศ')
+  const selectedEmployee = people.find((person) => person.code === leaveForm.employee_code)
+  const availableLeaveTypes = selectedEmployee && NO_VACATION_GROUPS.has(selectedEmployee.group) ? LEAVE_TYPES.filter((type) => type !== 'พักร้อน') : LEAVE_TYPES
+  const vacationLeaveBalances = leaveBalances.filter((item) => !NO_VACATION_GROUPS.has(item.group))
+  const { employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, half_day: leaveHalfDay } = leaveForm
 
-  // เช็คว่าช่วงที่เลือกทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำไหม — เช็คเฉพาะตอนยื่นแทนพนักงาน (มี employee_code)
   useEffect(() => {
-    if (!leaveForm.employee_code) { setLeaveLock({ locked: false, lockedDates: [] }); return }
+    if (!leaveEmployeeCode) return
     const timer = setTimeout(() => {
-      fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', ...leaveForm }) })
+      fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check-leave-lock', employee_code: leaveEmployeeCode, leave_type: leaveType, start_date: leaveStartDate, end_date: leaveEndDate, half_day: leaveHalfDay }) })
         .then((r) => r.json())
         .then((d) => { if (d.success) setLeaveLock({ locked: !!d.locked, lockedDates: d.lockedDates || [] }) })
         .catch(() => {})
     }, 300)
     return () => clearTimeout(timer)
-  }, [leaveForm.employee_code, leaveForm.leave_type, leaveForm.start_date, leaveForm.end_date, leaveForm.half_day])
+  }, [leaveEmployeeCode, leaveType, leaveStartDate, leaveEndDate, leaveHalfDay])
 
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const r = await fetch(API); const d = await readApiResponse(r)
-      if (!r.ok || !d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
-      setLeave(d.leave || []); setPeople(d.people || []); setActiveMonths(d.activeMonths || {}); setLeaveBalances(d.leaveBalances || [])
+      const response = await fetch(API); const data = await readApiResponse(response)
+      if (!response.ok || !data.success) throw new Error(data.error || 'โหลดข้อมูลไม่สำเร็จ')
+      setLeave(data.leave || []); setPeople(data.people || []); setActiveMonths(data.activeMonths || {}); setLeaveBalances(data.leaveBalances || [])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
-  // กรองคนในตาราง manpower ให้เหลือแค่คนที่มีงานจริงเดือนที่เลือก (ตัดคนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น)
-  // ถ้าไม่มีข้อมูลเดือนเลย (ไฟล์ manpower โหลดไม่ได้/ยังไม่มี) โชว์ทุกคนไว้ก่อน กันไม่ให้ dropdown ว่างเปล่า
   const peopleForMonth = (month) => {
-    const hasData = Object.keys(activeMonths).length > 0
-    if (!hasData) return people
-    return people.filter((p) => (activeMonths[p.code] || []).includes(month))
+    if (!Object.keys(activeMonths).length) return people
+    return people.filter((person) => (activeMonths[person.code] || []).includes(month))
   }
   useEffect(() => { if (loadStarted.current) return; loadStarted.current = true; load() }, [])
 
-  const submitLeave = async (e) => {
-    e.preventDefault()
+  const postAction = async (body, fallbackError) => {
+    const response = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = await readApiResponse(response)
+    if (!response.ok || !data.success) throw new Error(data.error || fallbackError)
+    return data
+  }
+
+  const submitLeave = async (event) => {
+    event.preventDefault()
     if (leaveLock.locked && !leaveForm.backup_office) { setError('ต้องเลือกคนออฟฟิศมาทดแทนก่อน (บ้านล่างเหลือคนน้อยกว่าขั้นต่ำวันนี้)'); return }
     setSaving(true); setError('')
     try {
-      const action = leaveForm.employee_code ? 'request-leave-for' : 'request-leave'
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...leaveForm }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ส่งคำขอไม่สำเร็จ')
+      await postAction({ action: leaveForm.employee_code ? 'request-leave-for' : 'request-leave', ...leaveForm }, 'ส่งคำขอไม่สำเร็จ')
       setLeaveForm({ employee_code: '', leave_type: LEAVE_TYPES[0], start_date: today(), end_date: today(), half_day: false, reason: '', backup_office: '' })
-      setLeaveLock({ locked: false, lockedDates: [] })
-      await load()
-    } catch (e2) { setError(e2.message) } finally { setSaving(false) }
+      setLeaveLock({ locked: false, lockedDates: [] }); await load()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
-  const addEmployee = async (e) => {
-    e.preventDefault(); setSaving(true); setError('')
+  const addEmployee = async (event) => {
+    event.preventDefault(); setSaving(true); setError('')
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-employee', ...empForm }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'เพิ่มพนักงานไม่สำเร็จ')
-      setEmpForm({ code: '', name: '', group: EMPLOYEE_GROUPS[0] }); setShowAddEmployee(false)
-      await load()
-    } catch (e2) { setError(e2.message) } finally { setSaving(false) }
+      await postAction({ action: 'add-employee', ...empForm }, 'เพิ่มพนักงานไม่สำเร็จ')
+      setEmpForm({ code: '', name: '', group: EMPLOYEE_GROUPS[0] }); setShowAddEmployee(false); await load()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   const editEmployeeGroup = async (code, group) => {
     setSaving(true); setError('')
-    try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'edit-employee-group', code, group }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'แก้กลุ่มไม่สำเร็จ')
-      await load()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
+    try { await postAction({ action: 'edit-employee-group', code, group }, 'แก้กลุ่มไม่สำเร็จ'); await load() }
+    catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   const removeEmployee = async (code, group, name) => {
     if (!window.confirm(`ลบ ${name} ออกจากรายชื่อพนักงานใช่ไหม? (ประวัติการลาเดิมยังอยู่)`)) return
     setSaving(true); setError('')
-    try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-employee', code, group }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ลบไม่สำเร็จ')
-      await load()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
+    try { await postAction({ action: 'remove-employee', code, group }, 'ลบไม่สำเร็จ'); await load() }
+    catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   const decideLeave = async (id, decision) => {
     setSaving(true); setError('')
-    try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'decide-leave', id, decision }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
-      await load()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
+    try { await postAction({ action: 'decide-leave', id, decision }, 'บันทึกไม่สำเร็จ'); await load() }
+    catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
   const cancelLeave = async (id) => {
     if (!window.confirm('ยกเลิกคำขอลานี้ใช่ไหม?')) return
     setSaving(true); setError('')
-    try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel-leave', id }) })
-      const d = await readApiResponse(r); if (!r.ok || !d.success) throw new Error(d.error || 'ยกเลิกไม่สำเร็จ')
-      await load()
-    } catch (e) { setError(e.message) } finally { setSaving(false) }
+    try { await postAction({ action: 'cancel-leave', id }, 'ยกเลิกไม่สำเร็จ'); await load() }
+    catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
-  const myLeave = isBoss ? leave : leave.filter((l) => l.username === currentUser?.u)
-  const pendingLeave = leave.filter((l) => l.status === 'pending')
+  const myLeave = isBoss ? leave : leave.filter((item) => item.username === currentUser?.u)
+  const pendingLeave = leave.filter((item) => item.status === 'pending')
+  const approvedThisMonth = leave.filter((item) => item.status === 'approved' && String(item.start_date).slice(0, 7) === today().slice(0, 7)).length
+  const peopleOnLeaveToday = leave.filter((item) => item.status === 'approved' && item.leave_type !== 'สลับวันหยุด' && item.start_date <= today() && item.end_date >= today()).length
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>คำขอลา</div>
-        <button onClick={load} aria-label="รีเฟรช" style={{ border: '1px solid var(--payi-border)', background: 'var(--payi-surface)', borderRadius: 9, padding: 7, color: 'var(--payi-mint-strong)', cursor: 'pointer' }}><RefreshCw size={15} /></button>
-      </div>
+    <main className="hr-page" id="main-content">
+      <header className="hr-page-header">
+        <div>
+          <span className="hr-eyebrow"><ShieldCheck size={15} /> HR workspace</span>
+          <h1>จัดการวันลา</h1>
+          <p>อนุมัติคำขอ ดูยอดคงเหลือ และยื่นแทนพนักงานในที่เดียว</p>
+        </div>
+        <button className="hr-icon-button" onClick={load} aria-label="รีเฟรชข้อมูล" title="รีเฟรชข้อมูล"><RefreshCw size={18} /></button>
+      </header>
 
-      {error && <div style={{ padding: '10px 14px', background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', border: '1px solid var(--payi-danger)', borderRadius: 10 }}>{error}</div>}
+      {error && <div className="hr-alert is-error" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
 
-      <div style={{ display: 'grid', gap: 14 }}>
-        <form onSubmit={submitLeave} style={{ ...card, padding: 20, display: 'grid', gap: 14 }}>
-          <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>ส่งคำขอลา</div>
-          {isBoss && people.length > 0 && (
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ยื่นแทนพนักงาน (จากตาราง manpower เดือน{leaveForm.start_date.slice(0, 7)})
-              <select className="payi-select" value={leaveForm.employee_code} onChange={(e) => setLeaveForm({ ...leaveForm, employee_code: e.target.value })}>
-                <option value="">— ตัวเอง —</option>
-                {peopleForMonth(leaveForm.start_date.slice(0, 7)).map((p) => <option key={p.code} value={p.code}>{p.name}{p.group ? ` (${p.group})` : ''}</option>)}
-              </select>
-            </label>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12 }}>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ประเภทการลา
-              <select className="payi-select" value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value, half_day: false })}>
-                {LEAVE_TYPES.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>{isSwap ? 'จากวันที่ (วันหยุดเดิม)' : 'วันเริ่ม'}
-              <input className="payi-date-input" type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value })} required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>{isSwap ? 'เป็นวันที่ (วันหยุดใหม่)' : 'วันสิ้นสุด'}
-              <input className="payi-date-input" type="date" value={leaveForm.half_day ? leaveForm.start_date : leaveForm.end_date} min={isSwap ? undefined : leaveForm.start_date} disabled={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>เหตุผล
-              <input className="payi-input" value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder="ไม่จำเป็นต้องกรอก" />
-            </label>
-          </div>
-          {!isSwap && <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, half_day: e.target.checked, end_date: e.target.checked ? leaveForm.start_date : leaveForm.end_date })} />
-            ลาครึ่งวัน (0.5 วัน)
-          </label>}
-          {leaveLock.locked && (
-            <div style={{ display: 'grid', gap: 8, padding: 12, background: 'var(--payi-warning-bg)', border: '1px solid var(--payi-warning)', borderRadius: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-warning)' }}>
-                วันที่ {leaveLock.lockedDates.join(', ')} บ้านล่างจะเหลือคนน้อยกว่า 3 คน — ต้องเลือกคนออฟฟิศมาทดแทนก่อนส่งคำขอ
-              </div>
-              <select className="payi-select" value={leaveForm.backup_office} onChange={(e) => setLeaveForm({ ...leaveForm, backup_office: e.target.value })} required>
-                <option value="">— เลือกคนออฟฟิศทดแทน —</option>
-                {officePeople.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
-              </select>
+      <section className="hr-metrics" aria-label="ภาพรวมวันลา">
+        <article className="hr-metric is-emphasis"><div className="hr-metric-icon"><Clock3 size={20} /></div><div><span>รออนุมัติ</span><strong>{pendingLeave.length}</strong><small>รายการที่ต้องจัดการ</small></div></article>
+        <article className="hr-metric"><div className="hr-metric-icon"><CalendarDays size={20} /></div><div><span>ลาวันนี้</span><strong>{peopleOnLeaveToday}</strong><small>คนที่อนุมัติแล้ว</small></div></article>
+        <article className="hr-metric"><div className="hr-metric-icon"><Check size={20} /></div><div><span>อนุมัติเดือนนี้</span><strong>{approvedThisMonth}</strong><small>รายการ</small></div></article>
+        <article className="hr-metric"><div className="hr-metric-icon"><UsersRound size={20} /></div><div><span>พนักงานในระบบ</span><strong>{people.length}</strong><small>คน</small></div></article>
+      </section>
+
+      {!!vacationLeaveBalances.length && <section className="hr-panel" aria-labelledby="balance-heading">
+        <div className="hr-section-heading hr-balance-heading">
+          <div><span className="hr-section-kicker">โควตาปี {thaiYear}</span><h2 id="balance-heading">วันลาพักร้อนคงเหลือ</h2></div>
+          {isBoss && <div className="hr-toolbar"><button className={`hr-button is-secondary ${editEmployees ? 'is-active' : ''}`} onClick={() => setEditEmployees((value) => !value)}><Pencil size={16} />{editEmployees ? 'เสร็จแล้ว' : 'แก้ไขกลุ่ม'}</button><button className="hr-button is-secondary" onClick={() => setShowAddEmployee((value) => !value)}><Plus size={17} />{showAddEmployee ? 'ปิด' : 'เพิ่มพนักงาน'}</button></div>}
+        </div>
+        {isBoss && showAddEmployee && <form className="hr-add-employee" onSubmit={addEmployee}>
+          <Field label="รหัส"><input value={empForm.code} onChange={(e) => setEmpForm({ ...empForm, code: e.target.value })} placeholder="เช่น TANG" required /></Field>
+          <Field label="ชื่อ"><input value={empForm.name} onChange={(e) => setEmpForm({ ...empForm, name: e.target.value })} placeholder="ชื่อพนักงาน" required /></Field>
+          <Field label="กลุ่ม"><select value={empForm.group} onChange={(e) => setEmpForm({ ...empForm, group: e.target.value })}>{EMPLOYEE_GROUPS.map((group) => <option key={group}>{group}</option>)}</select></Field>
+          <button className="hr-button is-primary" disabled={saving}><Plus size={17} />เพิ่ม</button>
+        </form>}
+        <div className="hr-balance-groups">{[
+          { key: 'lower', label: 'บ้านล่าง', rows: vacationLeaveBalances.filter((item) => item.group !== 'ออฟฟิศ') },
+          { key: 'office', label: 'ออฟฟิศ', rows: vacationLeaveBalances.filter((item) => item.group === 'ออฟฟิศ') },
+        ].filter((group) => group.rows.length).map((group) => <div className="hr-balance-group" key={group.key}><h3>{group.label}<span>{group.rows.length} คน</span></h3><div className="hr-balance-grid">{group.rows.map((item) => {
+          const percentage = item.quota > 0 ? Math.max(0, Math.min(100, (item.remaining / item.quota) * 100)) : 0
+          return <article className={`hr-balance-card ${item.remaining <= 0 ? 'is-empty' : ''}`} key={item.code}>
+            <div className="hr-balance-card-top"><div className="hr-avatar is-small" aria-hidden="true">{item.name?.trim().slice(0, 1) || '?'}</div><div><strong>{item.name}</strong><span>{item.group}</span></div>{isBoss && editEmployees && <button className="hr-remove-button" onClick={() => removeEmployee(item.code, item.group, item.name)} aria-label={`ลบ ${item.name}`}><X size={15} /></button>}</div>
+            <div className="hr-balance-value"><strong>{item.remaining}</strong><span>/ {item.quota} วัน</span></div>
+            <div className="hr-progress" aria-label={`เหลือ ${item.remaining} จาก ${item.quota} วัน`}><span style={{ width: `${percentage}%` }} /></div>
+            {isBoss && editEmployees && item.group !== 'ออฟฟิศ' && <select aria-label={`กลุ่มของ ${item.name}`} value={item.group} onChange={(e) => editEmployeeGroup(item.code, e.target.value)}>{EMPLOYEE_GROUPS.filter((value) => value !== 'ออฟฟิศ').map((value) => <option key={value}>{value}</option>)}</select>}
+          </article>
+        })}</div></div>)}</div>
+      </section>}
+
+      {isBoss && <section className="hr-panel hr-approval-panel" aria-labelledby="pending-heading">
+        <div className="hr-section-heading">
+          <div><span className="hr-section-kicker">งานที่ต้องทำก่อน</span><h2 id="pending-heading">คิวรออนุมัติ</h2></div>
+          <span className="hr-count-pill">{pendingLeave.length} รายการ</span>
+        </div>
+        {loading ? <div className="hr-empty">กำลังโหลดข้อมูล…</div> : !pendingLeave.length ? (
+          <div className="hr-empty is-success"><span><Check size={22} /></span><strong>จัดการครบแล้ว</strong><p>ไม่มีคำขอลาที่รออนุมัติ</p></div>
+        ) : <div className="hr-approval-grid">{pendingLeave.map((item) => (
+          <article className="hr-request-card" key={item.id}>
+            <div className="hr-request-top">
+              <div className="hr-avatar" aria-hidden="true">{item.employee_name?.trim().slice(0, 1) || '?'}</div>
+              <div className="hr-request-person"><strong>{item.employee_name}</strong><span>{item.leave_type}</span></div>
+              <StatusBadge status={item.status} />
             </div>
-          )}
-          <button disabled={saving} className="payi-btn-primary" style={{ justifySelf: 'start', padding: '11px 20px', opacity: saving ? 0.6 : 1 }}>{saving ? 'กำลังบันทึก…' : 'ส่งคำขอลา'}</button>
-        </form>
-
-        {leaveBalances.length > 0 && <section style={{ ...card, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>วันลาพักร้อนคงเหลือ · ปี {new Date().getFullYear() + 543}</div>
-            {isBoss && <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setEditEmployees((v) => !v)} style={{ border: '1px solid var(--payi-border)', background: editEmployees ? 'var(--payi-danger-bg)' : 'var(--payi-surface)', color: editEmployees ? 'var(--payi-danger)' : 'var(--payi-text-muted)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{editEmployees ? 'เสร็จแล้ว' : 'แก้ไข'}</button>
-              <button onClick={() => setShowAddEmployee((v) => !v)} style={{ border: '1px solid var(--payi-mint)', background: showAddEmployee ? 'var(--payi-mint-soft)' : 'var(--payi-surface)', color: 'var(--payi-mint-strong)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{showAddEmployee ? 'ยกเลิก' : '+ เพิ่มพนักงาน'}</button>
+            <div className="hr-request-facts">
+              <div><CalendarDays size={16} /><span>วันที่</span><strong>{formatDateRange(item)}</strong></div>
+              <div><Clock3 size={16} /><span>จำนวน</span><strong>{item.days} วัน</strong></div>
+            </div>
+            {(item.reason || item.backup_office) && <div className="hr-request-note">
+              {item.reason && <p><span>เหตุผล</span>{item.reason}</p>}
+              {item.backup_office && <p><span>คนทดแทน</span>{people.find((person) => person.code === item.backup_office)?.name || item.backup_office}</p>}
             </div>}
-          </div>
-          {isBoss && showAddEmployee && <form onSubmit={addEmployee} style={{ padding: '0 20px 16px', display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr)) auto', gap: 10, alignItems: 'end' }}>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>รหัส
-              <input className="payi-input" value={empForm.code} onChange={(e) => setEmpForm({ ...empForm, code: e.target.value })} placeholder="เช่น TANG" required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>ชื่อ
-              <input className="payi-input" value={empForm.name} onChange={(e) => setEmpForm({ ...empForm, name: e.target.value })} placeholder="เช่น แตง" required />
-            </label>
-            <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>กลุ่ม
-              <select className="payi-select" value={empForm.group} onChange={(e) => setEmpForm({ ...empForm, group: e.target.value })}>
-                {EMPLOYEE_GROUPS.map((g) => <option key={g}>{g}</option>)}
-              </select>
-            </label>
-            <button disabled={saving} className="payi-btn-primary" style={{ padding: '11px 16px', opacity: saving ? 0.6 : 1 }}>{saving ? 'กำลังบันทึก…' : 'เพิ่ม'}</button>
-          </form>}
-          {[
-            { key: 'บ้านล่าง', label: 'บ้านล่าง', rows: leaveBalances.filter((b) => b.group !== 'ออฟฟิศ') },
-            { key: 'ออฟฟิศ', label: 'ออฟฟิศ', rows: leaveBalances.filter((b) => b.group === 'ออฟฟิศ') },
-          ].filter((g) => g.rows.length > 0).map((g) => (
-            <div key={g.key} style={{ padding: '0 20px 16px' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--payi-text-muted)', margin: '10px 0 6px' }}>{g.label}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {g.rows.map((b) => (
-                  <div key={b.code} style={{ position: 'relative', border: '1px solid var(--payi-border)', borderRadius: 10, padding: '8px 12px', minWidth: 120 }}>
-                    {isBoss && editEmployees && <button onClick={() => removeEmployee(b.code, b.group, b.name)} aria-label={`ลบ ${b.name}`} title="ลบพนักงาน" style={{ position: 'absolute', top: 4, right: 4, border: 0, background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', borderRadius: 999, width: 18, height: 18, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
-                    <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--payi-text-strong)' }}>{b.name}</div>
-                    <div style={{ fontSize: 12, color: b.remaining <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-muted)' }}>เหลือ <b>{b.remaining}</b> / {b.quota} วัน</div>
-                    {isBoss && editEmployees && b.group !== 'ออฟฟิศ' && (
-                      <select className="payi-select" value={b.group} onChange={(e) => editEmployeeGroup(b.code, e.target.value)} style={{ marginTop: 6, fontSize: 11, padding: '3px 5px' }}>
-                        {EMPLOYEE_GROUPS.filter((g) => g !== 'ออฟฟิศ').map((g) => <option key={g}>{g}</option>)}
-                      </select>
-                    )}
-                  </div>
-                ))}
-              </div>
+            <div className="hr-request-actions">
+              <button className="hr-button is-reject" disabled={saving} onClick={() => decideLeave(item.id, 'rejected')}><X size={17} />ไม่อนุมัติ</button>
+              <button className="hr-button is-approve" disabled={saving} onClick={() => decideLeave(item.id, 'approved')}><Check size={17} />อนุมัติ</button>
             </div>
-          ))}
-        </section>}
+          </article>
+        ))}</div>}
+      </section>}
 
-        {isBoss && pendingLeave.length > 0 && <section style={{ ...card, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>รออนุมัติ · {pendingLeave.length} รายการ</div>
-          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700, fontSize: 13 }}>
-            <thead><tr style={{ background: 'var(--payi-surface-muted)', color: 'var(--payi-text-muted)', textAlign: 'left' }}>{['พนักงาน', 'ประเภท', 'วันที่', 'จำนวนวัน', 'เหตุผล', ''].map((h) => <th key={h} style={{ padding: '10px 12px' }}>{h}</th>)}</tr></thead>
-            <tbody>{pendingLeave.map((l) => <tr key={l.id} style={{ borderTop: '1px solid var(--payi-line)' }}>
-              <td style={{ ...td, fontWeight: 900 }}>{l.employee_name}</td>
-              <td style={td}>{l.leave_type}</td>
-              <td style={td}>{l.start_date} – {l.end_date}</td>
-              <td style={td}>{l.days}</td>
-              <td style={td}>{l.reason || '-'}{l.backup_office && <div style={{ fontSize: 11, color: 'var(--payi-warning)', fontWeight: 800 }}>ทดแทน: {people.find((p) => p.code === l.backup_office)?.name || l.backup_office}</div>}</td>
-              <td style={td}><div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => decideLeave(l.id, 'approved')} aria-label="อนุมัติ" style={{ border: 0, background: 'var(--payi-success-bg)', color: 'var(--payi-success)', borderRadius: 8, padding: 7, cursor: 'pointer' }}><CheckCircle2 size={16} /></button>
-                <button onClick={() => decideLeave(l.id, 'rejected')} aria-label="ไม่อนุมัติ" style={{ border: 0, background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', borderRadius: 8, padding: 7, cursor: 'pointer' }}><XCircle size={16} /></button>
-              </div></td>
-            </tr>)}</tbody>
-          </table></div>
-        </section>}
-
-        <section style={{ ...card, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>{isBoss ? 'คำขอลาทั้งหมด' : 'คำขอลาของฉัน'}</div>
-          {loading ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--payi-text-faint)' }}>กำลังโหลด…</div>
-            : !myLeave.length ? <div style={{ padding: 40, textAlign: 'center', color: 'var(--payi-text-faint)' }}>ยังไม่มีคำขอลา</div>
-            : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760, fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--payi-surface-muted)', color: 'var(--payi-text-muted)', textAlign: 'left' }}>{['พนักงาน', 'ประเภท', 'วันที่', 'จำนวนวัน', 'สถานะ', ''].map((h) => <th key={h} style={{ padding: '10px 12px' }}>{h}</th>)}</tr></thead>
-              <tbody>{myLeave.slice().reverse().map((l) => <tr key={l.id} style={{ borderTop: '1px solid var(--payi-line)' }}>
-                <td style={{ ...td, fontWeight: 900 }}>{l.employee_name}</td>
-                <td style={td}>{l.leave_type}</td>
-                <td style={td}>{l.start_date} – {l.end_date}</td>
-                <td style={td}>{l.days}</td>
-                <td style={td}><StatusBadge status={l.status} /></td>
-                <td style={td}>{l.status === 'pending' && (l.username === currentUser?.u || isBoss) && <button onClick={() => cancelLeave(l.id)} style={{ border: '1px solid var(--payi-danger)', background: 'transparent', color: 'var(--payi-danger)', borderRadius: 8, padding: '5px 10px', fontWeight: 800, cursor: 'pointer', fontSize: 11 }}>ยกเลิก</button>}</td>
-              </tr>)}</tbody>
-            </table></div>}
+      <div className="hr-workspace-grid">
+        <section className="hr-panel" aria-labelledby="history-heading">
+          <div className="hr-section-heading"><div><span className="hr-section-kicker">ประวัติ</span><h2 id="history-heading">{isBoss ? 'คำขอลาทั้งหมด' : 'คำขอลาของฉัน'}</h2></div></div>
+          {loading ? <div className="hr-empty">กำลังโหลดข้อมูล…</div> : !myLeave.length ? <div className="hr-empty">ยังไม่มีคำขอลา</div> : (
+            <div className="hr-history-list">{myLeave.slice().reverse().map((item) => (
+              <article className="hr-history-row" key={item.id}>
+                <div className="hr-history-main"><strong>{item.employee_name}</strong><span>{item.leave_type} · {formatDateRange(item)}</span></div>
+                <div className="hr-history-days">{item.days}<span>วัน</span></div>
+                <StatusBadge status={item.status} />
+                {item.status === 'pending' && (item.username === currentUser?.u || isBoss) && <button className="hr-text-button is-danger" onClick={() => cancelLeave(item.id)}>ยกเลิก</button>}
+              </article>
+            ))}</div>
+          )}
         </section>
+
+        <aside className="hr-panel hr-form-panel" aria-labelledby="request-heading">
+          <div className="hr-section-heading"><div><span className="hr-section-kicker">งานด่วน</span><h2 id="request-heading">ยื่นคำขอลา</h2></div><Send size={20} /></div>
+          <form className="hr-form" onSubmit={submitLeave}>
+            {isBoss && people.length > 0 && <Field label={`ยื่นแทนพนักงาน · ${leaveForm.start_date.slice(0, 7)}`}>
+              <select value={leaveForm.employee_code} onChange={(e) => { const employee_code = e.target.value; const person = people.find((item) => item.code === employee_code); const leave_type = person && NO_VACATION_GROUPS.has(person.group) && leaveForm.leave_type === 'พักร้อน' ? 'ลากิจ' : leaveForm.leave_type; setLeaveForm({ ...leaveForm, employee_code, leave_type }); if (!employee_code) setLeaveLock({ locked: false, lockedDates: [] }) }}>
+                <option value="">— ตัวเอง —</option>
+                {peopleForMonth(leaveForm.start_date.slice(0, 7)).map((person) => <option key={person.code} value={person.code}>{person.name}{person.group ? ` · ${person.group}` : ''}</option>)}
+              </select>
+            </Field>}
+            <Field label="ประเภทการลา"><select value={leaveForm.leave_type} onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value, half_day: false })}>{availableLeaveTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+            <div className="hr-form-columns">
+              <Field label={isSwap ? 'วันหยุดเดิม' : 'วันเริ่ม'}><input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value, end_date: leaveForm.half_day ? e.target.value : leaveForm.end_date })} required /></Field>
+              <Field label={isSwap ? 'วันหยุดใหม่' : 'วันสิ้นสุด'}><input type="date" value={leaveForm.half_day ? leaveForm.start_date : leaveForm.end_date} min={isSwap ? undefined : leaveForm.start_date} disabled={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })} required /></Field>
+            </div>
+            {!isSwap && <label className="hr-check"><input type="checkbox" checked={leaveForm.half_day} onChange={(e) => setLeaveForm({ ...leaveForm, half_day: e.target.checked, end_date: e.target.checked ? leaveForm.start_date : leaveForm.end_date })} /><span>ลาครึ่งวัน <small>0.5 วัน</small></span></label>}
+            <Field label="เหตุผล · ไม่บังคับ"><input value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder="เพิ่มรายละเอียดสั้น ๆ" /></Field>
+            {leaveLock.locked && <div className="hr-alert is-warning"><AlertTriangle size={18} /><div><strong>จำนวนคนต่ำกว่ากำหนด</strong><span>วันที่ {leaveLock.lockedDates.join(', ')} ต้องเลือกคนออฟฟิศมาทดแทน</span><select value={leaveForm.backup_office} onChange={(e) => setLeaveForm({ ...leaveForm, backup_office: e.target.value })} required><option value="">เลือกคนทดแทน</option>{officePeople.map((person) => <option key={person.code} value={person.code}>{person.name}</option>)}</select></div></div>}
+            <button className="hr-button is-primary" disabled={saving}><Send size={17} />{saving ? 'กำลังบันทึก…' : 'ส่งคำขอลา'}</button>
+          </form>
+        </aside>
       </div>
-    </div>
+
+    </main>
   )
 }
