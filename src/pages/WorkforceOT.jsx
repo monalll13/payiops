@@ -204,6 +204,9 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
   const [end, setEnd] = useState('20:00')
   const [note, setNote] = useState('')
   const [promoTitle, setPromoTitle] = useState('วันโปร')
+  const [promoTeam, setPromoTeam] = useState('ทุกทีม')
+  const [leadDays, setLeadDays] = useState('0')
+  const [lagDays, setLagDays] = useState('0')
   const [customTitle, setCustomTitle] = useState(false)
   const [promoEnd, setPromoEnd] = useState('')
   const [busy, setBusy] = useState(false)
@@ -211,10 +214,26 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
   const [year, mo] = month.split('-').map(Number)
   const first = new Date(year, mo - 1, 1)
   const cells = [...Array(first.getDay()).fill(null), ...Array.from({ length: new Date(year, mo, 0).getDate() }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)]
+  // เดือนที่แต่ละคนมีงานจริง (จาก manpower/ประวัติ OT) — ใช้กรองตัวเลือก "เพิ่มคน OT ใหม่" ไม่ให้โชว์คนที่ไม่ได้ทำงานเดือนนี้
+  // ถ้าไม่เคยมีข้อมูลของคนนั้นเลย (เช่น ชื่อที่พิมพ์เพิ่มเอง) ให้โชว์ไว้ก่อน ไม่กรองออก
+  const monthsByName = useMemo(() => {
+    const map = {}
+    for (const row of manpower) { if (row.employee && row.date) (map[row.employee] ||= new Set()).add(String(row.date).slice(0, 7)) }
+    for (const row of rows) { if (row.employee && row.date) (map[row.employee] ||= new Set()).add(String(row.date).slice(0, 7)) }
+    return map
+  }, [manpower, rows])
   while (cells.length % 7) cells.push(null)
   const promoDates = new Set(events.map((e) => e.date))
+  // ช่วงเตรียมฟีด = ช่วงวันโปรเอง (หลายวัน) บวกวันเผื่อก่อน/หลัง (lead_days/lag_days) ถ้ากำหนดไว้ — โปรวันเดียวไม่มีเผื่อก่อน/หลังเลยจะไม่ไฮไลท์ (เหมือนเดิม)
   const feedRangeDates = new Set()
-  events.forEach((e) => { const end = e.end_date || e.date; if (end === e.date) return; const d = new Date(`${e.date}T00:00:00`); const endD = new Date(`${end}T00:00:00`); for (let x = new Date(d); x <= endD; x.setDate(x.getDate() + 1)) feedRangeDates.add(x.toLocaleDateString('en-CA')) })
+  events.forEach((e) => {
+    const lead = Number(e.lead_days || 0); const lag = Number(e.lag_days || 0)
+    const end = e.end_date || e.date
+    if (end === e.date && !lead && !lag) return
+    const d = new Date(`${e.date}T00:00:00`); d.setDate(d.getDate() - lead)
+    const endD = new Date(`${end}T00:00:00`); endD.setDate(endD.getDate() + lag)
+    for (let x = new Date(d); x <= endD; x.setDate(x.getDate() + 1)) feedRangeDates.add(x.toLocaleDateString('en-CA'))
+  })
   const openOT = (date) => { setError(''); setModal({ type: 'ot', date }); setSelected([]); setNote('') }
   const checkLimits = (date, employees, plannedMinutes) => {
     const targetMonth = date.slice(0, 7)
@@ -245,14 +264,14 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
       const eventEnd = promoEnd || modal.date
       const body = modal.type === 'ot'
         ? { action: 'create-plan', date: modal.date, employees: selected, team: 'บ้านล่าง', task: 'แพ็ก', planned_start: start, planned_end: end, reason: 'วางแผน OT', note }
-        : { action: 'create-event', date: modal.date, end_date: eventEnd, title: promoTitle, team: 'ทุกทีม', note }
+        : { action: 'create-event', date: modal.date, end_date: eventEnd, title: promoTitle, team: promoTeam, note, lead_days: leadDays, lag_days: lagDays }
       if (preview) {
         if (modal.type === 'ot') {
           const [sh, sm] = start.split(':').map(Number); const [eh, em] = end.split(':').map(Number)
           const added = selected.map((employee, i) => ({ id: `demo-${Date.now()}-${i}`, date: modal.date, employee, task: 'แพ็ก', planned_start: start, planned_end: end, planned_minutes: Math.max(0, eh * 60 + em - sh * 60 - sm), status: 'planned', note }))
           localStorage.setItem('payi-ot-preview', JSON.stringify([...added, ...rows]))
         } else {
-          localStorage.setItem('payi-events-preview', JSON.stringify([...events, { id: `ev-${Date.now()}`, date: modal.date, end_date: eventEnd, title: promoTitle, note }]))
+          localStorage.setItem('payi-events-preview', JSON.stringify([...events, { id: `ev-${Date.now()}`, date: modal.date, end_date: eventEnd, title: promoTitle, team: promoTeam, note, lead_days: leadDays, lag_days: lagDays }]))
         }
       } else {
         const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || 'บันทึกไม่สำเร็จ')
@@ -278,7 +297,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
   return <section style={{ ...card, width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
     <div style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
       <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทินวางแผน OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>กดวันที่เพื่อเลือกคนและกรอกเวลา OT</div></div>
-      <div style={{ display: 'flex', gap: 8 }}><button onClick={() => { setPromoEnd(`${month}-01`); setModal({ type: 'promo', date: `${month}-01` }) }} style={miniTab(false)}>+ วันโปร</button><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 155 }} /></div>
+      <div style={{ display: 'flex', gap: 8 }}><button onClick={() => { setPromoEnd(`${month}-01`); setPromoTeam('ทุกทีม'); setLeadDays('0'); setLagDays('0'); setModal({ type: 'promo', date: `${month}-01` }) }} style={miniTab(false)}>+ วันโปร</button><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: 155 }} /></div>
     </div>
     {warning && <div style={{ margin: '0 18px 12px', padding: '10px 14px', background: '#fef6da', color: '#8a6d1f', border: '1px solid #fbe6a8', borderRadius: 10, fontSize: 12, fontWeight: 800 }}>{warning}</div>}
     <div style={{ padding: '9px 16px', display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f8fbff', fontSize: 11, color: '#64748b' }}><Legend color="#d3c2f2" text="วันโปร"/><Legend color="#f0eafb" text="ช่วงเตรียมฟีด (กำหนดเองได้)"/></div>
@@ -344,12 +363,17 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
 
       {modal.type === 'ot' ? <div style={{ display: 'grid', gap: 14, marginTop: 18 }}>
         <div style={{ fontSize: 12, fontWeight: 900, color: '#334155' }}>{modalDayRows.length > 0 ? 'เพิ่มคน OT ใหม่' : 'เลือกคนทำ OT'}</div>
-        <Field label="เลือกคนทำ OT"><div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>{names.filter((name) => !inactiveNames.has(name)).map((name) => { const on = selected.includes(name); return <button key={name} onClick={() => setSelected(on ? selected.filter((n) => n !== name) : [...selected, name])} style={{ border: `1px solid ${on ? '#ec4899' : '#d7e3ef'}`, background: on ? '#fff0f7' : '#fff', color: on ? '#be185d' : '#475569', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}>{on ? '✓ ' : ''}{name}</button> })}</div></Field><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="เริ่ม OT · HH:MM"><ManualTime24 value={start} onChange={setStart}/></Field><Field label="จบ OT · HH:MM"><ManualTime24 value={end} onChange={setEnd}/></Field></div>{validTime24(start) && validTime24(end) && timeToMinutes(end) > timeToMinutes(start) && <div style={{ padding: '8px 10px', borderRadius: 9, background: '#eaf5ff', color: '#155f98', fontSize: 12, fontWeight: 900 }}>รวม {fmtMinutes(timeToMinutes(end) - timeToMinutes(start))} ต่อคน</div>}<Field label="หมายเหตุ"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle}/></Field></div> : <div style={{ display: 'grid', gap: 12, marginTop: 18 }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="ตั้งแต่วันที่"><input type="date" value={modal.date} onChange={(e) => { setModal({ ...modal, date: e.target.value }); if (!promoEnd || promoEnd < e.target.value) setPromoEnd(e.target.value) }} style={inputStyle}/></Field><Field label="ถึงวันที่"><input type="date" value={promoEnd} min={modal.date} onChange={(e) => setPromoEnd(e.target.value)} style={inputStyle}/></Field></div><Field label="ชื่อโปร / ช่วงเตรียมฟีด">{customTitle
+        <Field label="เลือกคนทำ OT"><div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>{names.filter((name) => !inactiveNames.has(name) && (!monthsByName[name] || monthsByName[name].has((modal?.date || month).slice(0, 7)))).map((name) => { const on = selected.includes(name); return <button key={name} onClick={() => setSelected(on ? selected.filter((n) => n !== name) : [...selected, name])} style={{ border: `1px solid ${on ? '#ec4899' : '#d7e3ef'}`, background: on ? '#fff0f7' : '#fff', color: on ? '#be185d' : '#475569', borderRadius: 999, padding: '8px 12px', fontWeight: 800, cursor: 'pointer' }}>{on ? '✓ ' : ''}{name}</button> })}</div></Field><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="เริ่ม OT · HH:MM"><ManualTime24 value={start} onChange={setStart}/></Field><Field label="จบ OT · HH:MM"><ManualTime24 value={end} onChange={setEnd}/></Field></div>{validTime24(start) && validTime24(end) && timeToMinutes(end) > timeToMinutes(start) && <div style={{ padding: '8px 10px', borderRadius: 9, background: '#eaf5ff', color: '#155f98', fontSize: 12, fontWeight: 900 }}>รวม {fmtMinutes(timeToMinutes(end) - timeToMinutes(start))} ต่อคน</div>}<Field label="หมายเหตุ"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="ไม่จำเป็นต้องกรอก" style={inputStyle}/></Field></div> : <div style={{ display: 'grid', gap: 12, marginTop: 18 }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}><Field label="ตั้งแต่วันที่"><input type="date" value={modal.date} onChange={(e) => { setModal({ ...modal, date: e.target.value }); if (!promoEnd || promoEnd < e.target.value) setPromoEnd(e.target.value) }} style={inputStyle}/></Field><Field label="ถึงวันที่"><input type="date" value={promoEnd} min={modal.date} onChange={(e) => setPromoEnd(e.target.value)} style={inputStyle}/></Field></div><Field label="ชื่อโปร / ช่วงเตรียมฟีด">{customTitle
           ? <div style={{ display: 'flex', gap: 8 }}><input value={promoTitle} onChange={(e) => setPromoTitle(e.target.value)} placeholder="ระบุชื่อ" style={inputStyle} autoFocus /><button type="button" onClick={() => { setCustomTitle(false); setPromoTitle(PROMO_TITLE_OPTIONS[0]) }} style={{ border: '1px solid #d7e3ef', background: '#fff', color: '#64748b', borderRadius: 10, padding: '0 12px', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>เลือกจากรายการ</button></div>
           : <select value={promoTitle} onChange={(e) => { if (e.target.value === '__other__') { setCustomTitle(true); setPromoTitle('') } else setPromoTitle(e.target.value) }} style={inputStyle}>
               {PROMO_TITLE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
               <option value="__other__">อื่นๆ โปรดระบุ</option>
-            </select>}</Field></div>}
+            </select>}</Field>
+        <Field label="ใคร / ทีมไหนเกี่ยวข้อง"><select value={promoTeam} onChange={(e) => setPromoTeam(e.target.value)} style={inputStyle}>{['ทุกทีม', 'บ้านล่าง', 'บ้านบน', 'พาร์ตไทม์', 'ออฟฟิศ'].map((t) => <option key={t}>{t}</option>)}</select></Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
+          <Field label="เตรียมล่วงหน้ากี่วัน (ก่อนวันโปร)"><input type="number" min="0" value={leadDays} onChange={(e) => setLeadDays(e.target.value)} style={inputStyle}/></Field>
+          <Field label="เก็บงานหลังกี่วัน (หลังวันโปร)"><input type="number" min="0" value={lagDays} onChange={(e) => setLagDays(e.target.value)} style={inputStyle}/></Field>
+        </div></div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}><button onClick={() => setModal(null)} style={{ border: '1px solid #d7e3ef', background: '#fff', borderRadius: 10, padding: '9px 15px', color: '#64748b', fontWeight: 800 }}>ยกเลิก</button><button onClick={save} disabled={busy} style={{ border: 0, background: '#ec4899', color: '#fff', borderRadius: 10, padding: '9px 17px', fontWeight: 900 }}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button></div>
     </div></div> })()}
   </section>

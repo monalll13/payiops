@@ -24,7 +24,7 @@ const XLSX = XLSX_NS.default && typeof XLSX_NS.default.read === 'function' ? XLS
 
 const OT_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'planned_start', 'planned_end', 'planned_minutes', 'actual_start', 'actual_end', 'actual_minutes', 'status', 'reason', 'note', 'created_at', 'closed_at']
 const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time', 'end_time', 'note', 'created_at']
-const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date']
+const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date', 'lead_days', 'lag_days']
 const OT_HISTORY_HEADERS = ['id', 'plan_id', 'date', 'employee', 'before_start', 'before_end', 'after_start', 'after_end', 'before_note', 'after_note', 'changed_at', 'changed_by']
 const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'approved_at', 'approved_by']
 const PEOPLE_HEADERS = ['code', 'name', 'group', 'active']
@@ -480,7 +480,9 @@ async function opWorkforceInner(req, res) {
     if (!body.date || !body.title) return res.status(400).json({ error: 'กรุณาระบุวันและชื่อโปร' })
     const endDate = body.end_date || body.date
     if (endDate < body.date) return res.status(400).json({ error: 'วันสิ้นสุดต้องไม่ก่อนวันเริ่ม' })
-    await appendRows('workforce_events', [[`event-${Date.now()}`, body.title, body.date, body.team || 'ทุกทีม', body.note || '', new Date().toISOString(), endDate]])
+    const leadDays = Math.max(0, Math.round(Number(body.lead_days) || 0))
+    const lagDays = Math.max(0, Math.round(Number(body.lag_days) || 0))
+    await appendRows('workforce_events', [[`event-${Date.now()}`, body.title, body.date, body.team || 'ทุกทีม', body.note || '', new Date().toISOString(), endDate, leadDays, lagDays]])
     clearWorkforceCache()
     return res.status(200).json({ success: true })
   }
@@ -894,10 +896,10 @@ async function opPlanner(req, res) {
       updated_by: updatedBy,
     }))
 
-    const saveDate = text(body.date).slice(0, 10)
+    // อัปเดตเฉพาะแถว (date|sku) ที่ส่งมาจริง ห้ามลบแถววันเดียวกันของ SKU อื่นที่ไม่ได้ส่งมา (เช่น SKU ที่ถูกปิดชั่วคราว) — เดิมกรองด้วย row.date !== saveDate ทำให้ FG ของ SKU ที่ถูกปิดหายไปทั้งวัน พอเปิดกลับมาเลยเห็น FG เป็น 0
     const currentDaily = await getSheet(PLANNER_DAILY_SHEET)
     const incomingKeys = new Set(daily.map((row) => row.id))
-    const keptDaily = currentDaily.filter((row) => row.date !== saveDate && !incomingKeys.has(row.id))
+    const keptDaily = currentDaily.filter((row) => !incomingKeys.has(row.id))
     await overwriteSheet(PLANNER_CONFIG_SHEET, PLANNER_CONFIG_HEADERS, config.map((row) => PLANNER_CONFIG_HEADERS.map((header) => row[header] ?? '')))
     await overwriteSheet(PLANNER_DAILY_SHEET, PLANNER_DAILY_HEADERS, [...keptDaily, ...daily].map((row) => PLANNER_DAILY_HEADERS.map((header) => row[header] ?? '')))
     return res.status(200).json({ success: true, configSaved: config.length, dailySaved: daily.length, updatedAt: now, updatedBy })

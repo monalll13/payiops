@@ -80,13 +80,15 @@ export default function PlannerControl({ onNavigate }) {
     try { return JSON.parse(localStorage.getItem(MANPOWER_CACHE_KEY) || 'null') }
     catch { return null }
   })
+  const [selectedDate, setSelectedDate] = useState(todayBangkok)
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(products)) }, [products])
   useEffect(() => { localStorage.setItem(EXCLUDED_PRODUCTS_KEY, JSON.stringify(excludedSkus)) }, [excludedSkus])
   useEffect(() => { localStorage.setItem(DEMAND_MODE_KEY, demandMode) }, [demandMode])
   useEffect(() => {
     let active = true
-    fetch(`/api/sheet-tools?op=planner&date=${todayBangkok()}`)
+    setPlannerStatus('loading')
+    fetch(`/api/sheet-tools?op=planner&date=${selectedDate}`)
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
       .then(({ ok, data }) => {
         if (!active || !ok || !data?.success) throw new Error(data?.error || 'โหลด Planner ไม่สำเร็จ')
@@ -99,7 +101,7 @@ export default function PlannerControl({ onNavigate }) {
       })
       .catch(() => { if (active) setPlannerStatus('offline') })
     return () => { active = false }
-  }, [])
+  }, [selectedDate])
   useEffect(() => {
     const fetchedAt = new Date(salesSnapshot?.fetchedAt || 0).getTime()
     const mappedSkus = new Set((salesSnapshot?.productMapping || []).map((item) => String(item.masterSku || '').toUpperCase()))
@@ -178,6 +180,10 @@ export default function PlannerControl({ onNavigate }) {
       const byName = new Map(current.map((item) => [normalizeProductName(item.name), item]))
       const configBySku = new Map((plannerData?.config || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
       const dailyBySku = new Map((plannerData?.daily || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
+      // เคยมีปัญหา: สลับไปดูวันอื่นที่ยังไม่เคยกรอก FG/ฟีดวันนี้ แล้วเห็นเลขของวันก่อนหน้าค้างอยู่ (เพราะ fallback ไป saved.stock ข้ามวันแบบไม่ตั้งใจ)
+      // ถ้าดึงข้อมูล Planner ของวันนี้มาได้แล้ว (plannerData ไม่ null) ให้ถือว่า "ไม่มีแถวของวันนี้ = ยังไม่เคยกรอก" ต้องเป็น 0/ว่าง ไม่ใช่เลขจากวันอื่น
+      // จะ fallback ไป saved เฉพาะตอนยังโหลดจากเซิร์ฟเวอร์ไม่สำเร็จเลย (plannerData เป็น null) เพื่อไม่ให้หน้าจอว่างเปล่าตอนออฟไลน์
+      const hasServerData = Boolean(plannerData)
       return mapping.map((mapped) => {
         const saved = bySku.get(mapped.masterSku) || byName.get(normalizeProductName(mapped.displayName)) || {}
         const config = configBySku.get(mapped.masterSku) || {}
@@ -186,9 +192,9 @@ export default function PlannerControl({ onNavigate }) {
           ...saved,
           reserveDays: config.reserve_days ?? saved.reserveDays,
           safetyPercent: config.safety_percent ?? saved.safetyPercent,
-          stock: daily.fg ?? saved.stock,
-          dayFeed: daily.planned_feed ?? saved.dayFeed,
-          feeders: daily.feeders ? String(daily.feeders).split('·').map((name) => name.trim()).filter(Boolean) : saved.feeders,
+          stock: daily.fg ?? (hasServerData ? 0 : saved.stock),
+          dayFeed: daily.planned_feed ?? (hasServerData ? 0 : saved.dayFeed),
+          feeders: daily.feeders ? String(daily.feeders).split('·').map((name) => name.trim()).filter(Boolean) : (hasServerData ? [] : saved.feeders),
         })
       })
     })
@@ -230,11 +236,11 @@ export default function PlannerControl({ onNavigate }) {
   const peopleAtWork = useMemo(() => {
     const byName = new Map()
     for (const row of manpowerSnapshot?.rows || []) {
-      if (row.date !== todayBangkok() || !row.employee) continue
+      if (row.date !== selectedDate || !row.employee) continue
       if (!byName.has(row.employee)) byName.set(row.employee, { name: row.employee, group: row.group || 'อื่น ๆ' })
     }
     return [...byName.values()]
-  }, [manpowerSnapshot])
+  }, [manpowerSnapshot, selectedDate])
 
   const rows = useMemo(() => products.map((item) => {
     const mode = DEMAND_MODES[demandMode] || DEMAND_MODES.normal
@@ -285,10 +291,10 @@ export default function PlannerControl({ onNavigate }) {
     try {
       const response = await fetch('/api/sheet-tools?op=planner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         action: 'save-all',
-        date: todayBangkok(),
+        date: selectedDate,
         updated_by: currentUser?.display_name || currentUser?.name || currentUser?.username || 'Planner',
         config: products.map((item) => ({ master_sku: item.masterSku, enabled: !excludedSkus.includes(item.masterSku), reserve_days: item.reserveDays, safety_percent: item.safetyPercent })),
-        daily: activeRows.map((item) => ({ date: todayBangkok(), master_sku: item.masterSku, fg: item.stock, sales_average: item.daily, demand_mode: demandMode, recommended_feed: item.need, planned_feed: item.dayFeed, feeders: item.feeders || [] })),
+        daily: activeRows.map((item) => ({ date: selectedDate, master_sku: item.masterSku, fg: item.stock, sales_average: item.daily, demand_mode: demandMode, recommended_feed: item.need, planned_feed: item.dayFeed, feeders: item.feeders || [] })),
       }) })
       const data = await response.json()
       if (!response.ok || !data.success) throw new Error(data.error || 'บันทึก Planner ไม่สำเร็จ')
@@ -300,10 +306,14 @@ export default function PlannerControl({ onNavigate }) {
   return <div className="planner-control-page" style={{ display: 'grid', gap: 14 }}>
     <div style={{ ...panel, padding: 18, background: 'linear-gradient(135deg,#eef8ff,#ffffff 70%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>แผนผลิตวันนี้</b><span style={{ borderRadius: 999, padding: '4px 9px', background: plannerStatus === 'offline' ? '#fff1f2' : '#e7f7f2', color: plannerStatus === 'offline' ? '#be123c' : '#087765', fontSize: 11, fontWeight: 900 }}>{plannerStatus === 'loading' ? 'กำลังเชื่อมต่อ' : plannerStatus === 'offline' ? 'ยังไม่บันทึกส่วนกลาง' : dirty ? 'มีการแก้ไข' : 'บันทึกส่วนกลางแล้ว'}</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>{selectedDate === todayBangkok() ? 'แผนผลิตวันนี้' : 'แผนผลิต'}</b><span style={{ borderRadius: 999, padding: '4px 9px', background: plannerStatus === 'offline' ? '#fff1f2' : '#e7f7f2', color: plannerStatus === 'offline' ? '#be123c' : '#087765', fontSize: 11, fontWeight: 900 }}>{plannerStatus === 'loading' ? 'กำลังเชื่อมต่อ' : plannerStatus === 'offline' ? 'ยังไม่บันทึกส่วนกลาง' : dirty ? 'มีการแก้ไข' : 'บันทึกส่วนกลางแล้ว'}</span></div>
         <div style={{ color: '#64748b', fontSize: 13, marginTop: 5 }}>ยอดเฉลี่ยย้อนหลัง + ของกันพุ่ง − FG → ระบบแนะนำจำนวนฟีดให้</div>
       </div>
-      <button type="button" onClick={savePlanner} disabled={plannerSaving || !products.length} style={{ ...primaryButton, padding: '10px 16px', opacity: plannerSaving || !products.length ? .55 : 1 }}>{plannerSaving ? 'กำลังบันทึก…' : dirty ? 'บันทึก Planner' : 'บันทึกอีกครั้ง'}</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <input type="date" value={selectedDate} onChange={(event) => event.target.value && setSelectedDate(event.target.value)} style={{ ...formInput, width: 150 }} />
+        {selectedDate !== todayBangkok() && <button type="button" onClick={() => setSelectedDate(todayBangkok())} style={secondaryButton}>วันนี้</button>}
+        <button type="button" onClick={savePlanner} disabled={plannerSaving || !products.length} style={{ ...primaryButton, padding: '10px 16px', opacity: plannerSaving || !products.length ? .55 : 1 }}>{plannerSaving ? 'กำลังบันทึก…' : dirty ? 'บันทึก Planner' : 'บันทึกอีกครั้ง'}</button>
+      </div>
     </div>
 
     {message && <div style={{ padding: '11px 14px', borderRadius: 10, background: '#e7f7f2', color: '#087765', fontWeight: 800 }}>{message}</div>}
@@ -348,7 +358,7 @@ export default function PlannerControl({ onNavigate }) {
     </section>
     {modal && <ProductModal key={`${modal.mode}-${modal.item?.id || 'new'}`} modal={modal} onClose={() => setModal(null)} onSave={saveProduct} onEdit={() => setModal({ mode: 'edit', item: modal.item })} onCreateOt={() => { createOt(modal.item); setModal(null) }} />}
     {manageOpen && <ManageMappedProducts products={rows} excludedSkus={excludedSkus} onToggle={toggleExcluded} onClose={() => setManageOpen(false)} />}
-    {feedPeopleFor && <FeedPeopleModal item={products.find((item) => item.id === feedPeopleFor)} people={peopleAtWork} date={todayBangkok()} onChange={(feeders) => updateFeeders(feedPeopleFor, feeders)} onClose={() => setFeedPeopleFor(null)} />}
+    {feedPeopleFor && <FeedPeopleModal item={products.find((item) => item.id === feedPeopleFor)} people={peopleAtWork} date={selectedDate} onChange={(feeders) => updateFeeders(feedPeopleFor, feeders)} onClose={() => setFeedPeopleFor(null)} />}
   </div>
 }
 
