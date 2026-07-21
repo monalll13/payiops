@@ -2,7 +2,7 @@
 // รวมข้อมูลสำหรับ "โหมดผู้จัดการ" (มือถือ): เคลมรายกลุ่มสินค้า + อัตราเคลม (เคลม ÷ ยอดขาย)
 // เคลมมาจาก sheet "claims", ยอดขาย(units) มาจาก raw_orders_* — จับกลุ่มด้วย deriveGroup
 // ตัวเดียวกันทั้งคู่ (key จึงตรงกัน) ตาม TODO#2/#3
-import { requireAuth, cacheable } from './_lib/auth.js'
+import { requireManager, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
 
@@ -28,7 +28,7 @@ let managerClaimsCache = { at: 0, data: null }
 const MANAGER_CLAIMS_CACHE_MS = 180000
 
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
+  if (!requireManager(req, res)) return
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' })
 
   if (managerClaimsCache.data && Date.now() - managerClaimsCache.at < MANAGER_CLAIMS_CACHE_MS) {

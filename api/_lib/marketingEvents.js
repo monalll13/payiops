@@ -1,6 +1,6 @@
 // GET/POST/PATCH /api/marketing-events
 // Lightweight marketing action log plus sales snapshots from raw_orders_*.
-import { requireAuth } from './auth.js'
+import { requireManager } from './auth.js'
 import { appendRows, batchGetValues, ensureSheet, getMeta, getSheet, overwriteSheet } from './sheets.js'
 import { buildOverrideMap, deriveGroup } from './productGroup.js'
 
@@ -329,7 +329,7 @@ function bodyFromReq(req) {
 }
 
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
+  if (!requireManager(req, res)) return
   try {
     if (req.method === 'GET') {
       const [events, orders] = await Promise.all([getMarketingRows(), readOrderRows()])

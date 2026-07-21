@@ -2,7 +2,7 @@
 // ตัวเลข "กรอกมือ" รายเดือน: ค่า Ads (ต่อร้าน/แพลตฟอร์ม) และ TikTok channel (Affiliate/Live/VDO/อื่นๆ)
 // ข้อมูลนี้ไม่มีใน raw_orders — เจ้าของกรอกเอง เก็บในแท็บ marketing_inputs (สร้างอัตโนมัติ)
 // Sales/Orders รายเดือนดึงจาก /api/monthly (raw_orders) แล้ว frontend รวมเอง
-import { requireAuth } from './auth.js'
+import { requireManager } from './auth.js'
 import { ensureSheet, getSheet, overwriteSheet } from './sheets.js'
 
 const SHEET = 'marketing_inputs'
@@ -29,7 +29,7 @@ function bodyFromReq(req) {
 }
 
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
+  if (!requireManager(req, res)) return
   try {
     if (req.method === 'GET') {
       const inputs = await getRows()

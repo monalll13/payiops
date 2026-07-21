@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import './HR.css'
 import LeaveEditPanel from '../components/LeaveEditPanel'
+import { canManageOperations } from '../../shared/roles.js'
 
 const API = '/api/sheet-tools?op=hr'
 const LEAVE_TYPES = ['พักร้อน', 'ลากิจ', 'ลาป่วย', 'ขาดงาน', 'สลับวันหยุด']
@@ -55,7 +56,7 @@ export default function HR() {
   useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
   const [serverCanManage, setServerCanManage] = useState(false)
-  const isBoss = !authEnabled || currentUser?.role === 'admin' || serverCanManage
+  const isBoss = !authEnabled || canManageOperations(currentUser?.role) || serverCanManage
 
   const [leave, setLeave] = useState([])
   const [people, setPeople] = useState([])

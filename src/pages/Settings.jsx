@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader2, KeyRound, UserPlus, Trash2, Users, ShieldCheck, MessageCircle } from 'lucide-react'
+import { isDev } from '../../shared/roles.js'
 
 const getMe = () => {
   try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null }
@@ -7,7 +8,7 @@ const getMe = () => {
 
 export default function Settings() {
   const me = getMe()
-  const isAdmin = me?.role === 'admin'
+  const isAdmin = isDev(me?.role)
 
   return (
     <div style={{ width: '100%', display: 'grid', gap: 20, maxWidth: 720 }}>
@@ -200,7 +201,7 @@ function ChangePasswordCard({ me }) {
   }
 
   return (
-    <Card icon={KeyRound} title="บัญชีของฉัน" sub={me ? `${me.name || me.u} · ${me.role === 'admin' ? 'admin' : 'staff'}` : ''}>
+    <Card icon={KeyRound} title="บัญชีของฉัน" sub={me ? `${me.name || me.u} · ${me.role || 'staff'}` : ''}>
       <form onSubmit={submit} style={{ display: 'grid', gap: 10, maxWidth: 360 }}>
         <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="รหัสผ่านปัจจุบัน" style={inputStyle} />
         <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)" style={inputStyle} />
@@ -283,8 +284,9 @@ function UserManagementCard({ me }) {
         <input value={draft.display_name} onChange={(e) => setDraft({ ...draft, display_name: e.target.value })} placeholder="ชื่อที่แสดง" style={inputStyle} />
         <input type="password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" style={inputStyle} />
         <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} className="payi-select" style={inputStyle}>
-          <option value="staff">staff</option>
-          <option value="admin">admin</option>
+          <option value="staff">Staff — Tang</option>
+          <option value="boss">Boss</option>
+          <option value="dev">Dev</option>
         </select>
         <button type="submit" disabled={busy || !draft.username || draft.password.length < 6} style={{ ...primaryBtn, gridColumn: '1 / -1', justifySelf: 'start', opacity: busy || !draft.username || draft.password.length < 6 ? 0.6 : 1 }}>
           {busy ? <Loader2 size={14} className="payi-spin" /> : <UserPlus size={14} />} เพิ่มผู้ใช้
@@ -300,7 +302,7 @@ function UserManagementCard({ me }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--payi-text-strong)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   {u.display_name}
-                  {u.role === 'admin' && <ShieldCheck size={13} color="var(--payi-mint-strong)" />}
+                  {isDev(u.role) && <ShieldCheck size={13} color="var(--payi-mint-strong)" />}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--payi-text-muted)', fontFamily: 'monospace' }}>{u.username} · {u.role}</div>
               </div>

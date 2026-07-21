@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import payiLogo from './assets/payi-logo.png'
+import { canAccessTab, normalizeRole, STAFF_TABS } from '../shared/roles.js'
 import {
   Bell, Search, UserCircle2, DollarSign, ShoppingBag, Package, TrendingUp,
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
@@ -478,13 +479,25 @@ function ProductInsightDrawer({ isOpen, onClose, selectedSku }) {
 }
 
 export default function App() {
+  const currentRole = (() => {
+    try { return normalizeRole(JSON.parse(localStorage.getItem('payi-user') || 'null')?.role || 'dev') } catch { return 'dev' }
+  })()
+  const visibleMenuGroups = menuGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => canAccessTab(currentRole, item.id)) }))
+    .filter((group) => group.items.length > 0)
+  const firstAllowedTab = currentRole === 'staff' ? STAFF_TABS[0] : 'Executive'
   const [activeTab, setActiveTab] = useState(() => {
     try {
-      return localStorage.getItem('payi-active-tab') || 'Executive'
+      const stored = localStorage.getItem('payi-active-tab') || firstAllowedTab
+      return canAccessTab(currentRole, stored) ? stored : firstAllowedTab
     } catch {
       return 'Executive'
     }
   })
+
+  useEffect(() => {
+    if (!canAccessTab(currentRole, activeTab)) setActiveTab(firstAllowedTab)
+  }, [activeTab, currentRole, firstAllowedTab])
 
   useEffect(() => {
     try {
@@ -803,7 +816,7 @@ export default function App() {
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: 0 }}>
-          {menuGroups.map((group, gi) => (
+          {visibleMenuGroups.map((group, gi) => (
             <div
               key={group.title}
               style={{

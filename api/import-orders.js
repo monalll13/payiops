@@ -2,7 +2,7 @@
 //   GET    ?view=log             → ประวัติการนำเข้าจาก import_log
 //   POST   { fileName, platform, business, rows } → นำเข้าออเดอร์เข้า raw_orders_YYYY_MM
 //   DELETE ?importId=IMPxxxx      → ลบล็อตไฟล์นี้ออกจาก raw_orders_* ทุก tab ที่เกี่ยวข้อง
-import { requireAuth } from './_lib/auth.js'
+import { requireDev } from './_lib/auth.js'
 import { getSheet, appendRows, batchGetValues, overwriteSheet, getMeta } from './_lib/sheets.js'
 import { isoDate } from './_lib/dates.js'
 
@@ -58,7 +58,7 @@ function genImportId() {
 }
 
 export default async function handler(req, res) {
-  if (!requireAuth(req, res)) return
+  if (!requireDev(req, res)) return
   try {
     if (req.method === 'GET' && (req.query.view || 'log') === 'log') {
       let imports = []

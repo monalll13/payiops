@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Loader2, LogIn, UserPlus } from 'lucide-react'
 import payiLogo from '../assets/payi-logo.png'
 
-// จอ login รายบัญชี — ถ้าเป็นการเปิดระบบครั้งแรก (ยังไม่มีผู้ใช้) จะกลายเป็นฟอร์ม "สร้าง admin คนแรก"
+// จอ login รายบัญชี — ถ้าเป็นการเปิดระบบครั้งแรก (ยังไม่มีผู้ใช้) จะกลายเป็นฟอร์ม "สร้าง Dev คนแรก"
 export default function Login({ firstTime, onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -46,11 +46,11 @@ export default function Login({ firstTime, onLogin }) {
         </div>
 
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)' }}>
-          {firstTime ? 'ตั้งค่าครั้งแรก — สร้างบัญชี admin' : 'เข้าสู่ระบบ'}
+          {firstTime ? 'ตั้งค่าครั้งแรก — สร้างบัญชี Dev' : 'เข้าสู่ระบบ'}
         </div>
         {firstTime && (
           <div style={{ fontSize: 12, color: 'var(--payi-text-muted)', marginTop: -8 }}>
-            ยังไม่มีผู้ใช้ในระบบ บัญชีแรกจะเป็น admin (เพิ่มคนอื่นได้ทีหลัง)
+            ยังไม่มีผู้ใช้ในระบบ บัญชีแรกจะเป็น Dev (เพิ่ม Boss และ Staff ได้ทีหลัง)
           </div>
         )}
 

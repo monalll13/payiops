@@ -2,6 +2,7 @@
 // รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth, cacheable, authEnabled } from './_lib/auth.js'
+import { canManageOperations } from '../shared/roles.js'
 import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet, ensureSheet } from './_lib/sheets.js'
 import { verifySignature, pushMessage, replyMessage } from './_lib/line.js'
 import {
@@ -123,7 +124,7 @@ async function notifyLeaveDecision(record) {
 async function getAdminLineTargets() {
   const [users, links] = await Promise.all([getSheet('users'), getSheet('hr_line_links')])
   const linkByUsername = Object.fromEntries(links.filter((l) => l.username && l.line_user_id).map((l) => [l.username, l.line_user_id]))
-  return users.filter((u) => (u.role || 'staff') === 'admin' && linkByUsername[u.username]).map((u) => ({ username: u.username, line_user_id: linkByUsername[u.username] }))
+  return users.filter((u) => canManageOperations(u.role) && linkByUsername[u.username]).map((u) => ({ username: u.username, line_user_id: linkByUsername[u.username] }))
 }
 
 const recordBackupAssignments = (record) => Array.isArray(record.backup_assignments) ? record.backup_assignments : []
@@ -258,7 +259,7 @@ const rowsToObjects = (values = []) => { const [headers, ...rows] = values; retu
 // workforce_ot_approvals/workforce_ot_limits เป็น append-only log (ไม่ overwrite แถวเดิม) — กัน race condition ตอนแก้พร้อมกันหลายเครื่อง
 // อ่านตอน GET ต้องลดเหลือ "ล่าสุดต่อ key" เอง
 const latestByKey = (rows, keyFn, timeField) => { const map = new Map(); for (const r of rows) { const k = keyFn(r); const prev = map.get(k); if (!prev || String(r[timeField]) >= String(prev[timeField])) map.set(k, r) } return [...map.values()] }
-const requireAdmin = (req, res) => { if (authEnabled() && req.user?.role !== 'admin') { res.status(403).json({ error: 'ต้องเป็น admin เท่านั้น' }); return false } return true }
+const requireAdmin = (req, res) => { if (authEnabled() && !canManageOperations(req.user?.role)) { res.status(403).json({ error: 'ต้องเป็น Boss หรือ Dev เท่านั้น' }); return false } return true }
 const clearWorkforceCache = () => { workforceCache = { at: 0, data: null } }
 
 async function getPersonMap() {
@@ -653,7 +654,7 @@ async function opHrInner(req, res) {
 
   if (req.method === 'GET') {
     // ผจก. (ไม่ใช่ admin) เห็นแค่โควตาบ้านล่าง ไม่เห็นออฟฟิศ — เช็คทุกครั้งแม้ตอน cache hit เพราะ hrCache ใช้ร่วมกันข้าม request/role
-    const isAdminViewer = !authEnabled() || req.user?.role === 'admin'
+    const isAdminViewer = !authEnabled() || canManageOperations(req.user?.role)
     const withRoleFilter = (data) => ({ ...data, canManage: isAdminViewer, leaveBalances: isAdminViewer ? data.leaveBalancesFull : data.leaveBalancesFull.filter((b) => b.group !== 'ออฟฟิศ') })
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(withRoleFilter(hrCache.data))
     const [leaveRange, backupRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_leave_backups!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
@@ -789,7 +790,7 @@ async function opHrInner(req, res) {
     const target = current.find((row) => String(row.id) === String(body.id || ''))
     if (!target) return res.status(404).json({ success: false, error: 'ไม่พบรายการลานี้' })
     const isOwner = target.username === actorUsername()
-    const isAdmin = !authEnabled() || req.user?.role === 'admin'
+    const isAdmin = !authEnabled() || canManageOperations(req.user?.role)
     if (!isAdminEdit && !isOwner && !isAdmin) return res.status(403).json({ success: false, error: 'แก้ไขได้เฉพาะคำขอของตัวเองค่ะ' })
     if (!isAdminEdit && ['rejected', 'cancelled'].includes(target.status)) return res.status(400).json({ success: false, error: 'รายการนี้สิ้นสุดแล้ว กรุณาส่งคำขอใหม่ค่ะ' })
     const { draft, error: draftError } = normalizeEditableLeave(body, target)
@@ -893,7 +894,7 @@ async function opHrInner(req, res) {
     const target = current.find((r) => String(r.id) === String(body.id))
     if (!target) return res.status(404).json({ success: false, error: 'ไม่พบคำขอลานี้' })
     const isOwner = target.username === actorUsername()
-    const isAdmin = !authEnabled() || req.user?.role === 'admin'
+    const isAdmin = !authEnabled() || canManageOperations(req.user?.role)
     if (!isOwner && !isAdmin) return res.status(403).json({ success: false, error: 'ยกเลิกได้เฉพาะคำขอของตัวเองหรือ admin' })
     if (target.status !== 'pending') return res.status(400).json({ success: false, error: 'ยกเลิกได้เฉพาะรายการที่ยัง pending' })
     const kept = current.filter((r) => String(r.id) !== String(body.id))
@@ -1488,6 +1489,11 @@ export default async function handler(req, res) {
   const op = String(req.query.op || '')
   if (op === 'line-webhook') return opLineWebhook(req, res)
   if (!requireAuth(req, res)) return
+  // Staff only needs the data behind its four operational areas. Raw sheet
+  // tools, HR and settings data remain restricted even if called directly.
+  if (authEnabled() && !canManageOperations(req.user?.role) && !['summary', 'workforce', 'planner'].includes(op)) {
+    return res.status(403).json({ success: false, error: 'ไม่มีสิทธิ์เข้าถึงส่วนนี้' })
+  }
   if (op === 'summary') return opSummary(req, res)
   if (op === 'sheet') return opSheet(req, res)
   if (op === 'append') return opAppend(req, res)

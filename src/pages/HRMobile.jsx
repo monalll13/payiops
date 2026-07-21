@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bell, ChevronLeft, Check, CalendarClock, User, ListChecks, MoreHorizontal, Pencil } from 'lucide-react'
 import LeaveEditPanel from '../components/LeaveEditPanel'
+import { canManageOperations } from '../../shared/roles.js'
 import './HR.css'
 
 const API = '/api/sheet-tools?op=hr'
@@ -56,7 +57,7 @@ export default function HRMobile() {
   useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
   const [serverCanManage, setServerCanManage] = useState(false)
-  const isBoss = !authEnabled || currentUser?.role === 'admin' || serverCanManage
+  const isBoss = !authEnabled || canManageOperations(currentUser?.role) || serverCanManage
   const myName = currentUser?.name || 'Boss'
 
   const [leave, setLeave] = useState([])

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Plus, RefreshCw, UserRoundPen, X } from 'lucide-react'
+import { canManageOperations } from '../../shared/roles.js'
 
 const API = '/api/sheet-tools?op=workforce'
 const MANPOWER_CACHE_KEY = 'payi-manpower-today-cache'
@@ -19,7 +20,7 @@ export default function WorkforceOT({ preview = false }) {
   const [authEnabled, setAuthEnabled] = useState(true)
   useEffect(() => { fetch('/api/auth?action=status').then((r) => r.json()).then((d) => setAuthEnabled(!!d.enabled)).catch(() => {}) }, [])
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
-  const isBoss = preview || !authEnabled || currentUser?.role === 'admin'
+  const isBoss = preview || !authEnabled || canManageOperations(currentUser?.role)
   const [rows, setRows] = useState([])
   const [manpower, setManpower] = useState([])
   const [events, setEvents] = useState([])

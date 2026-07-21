@@ -10,6 +10,7 @@
 // หมายเหตุ: ไฟล์นี้จงใจไม่มี requireAuth ครอบทั้ง handler — login ต้องเข้าถึงได้ก่อนมี token
 import { ensureSheet, getSheet, appendRows, overwriteSheet } from './_lib/sheets.js'
 import { authEnabled, hashPassword, verifyPassword, signToken, verifyToken } from './_lib/auth.js'
+import { isDev, normalizeRole, ROLES } from '../shared/roles.js'
 
 const SHEET = 'users'
 const HEADERS = ['username', 'password_hash', 'salt', 'display_name', 'role', 'created_at']
@@ -55,7 +56,7 @@ export default async function handler(req, res) {
       if (!u || !verifyPassword(password, u.salt, u.password_hash)) {
         return res.status(401).json({ success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' })
       }
-      const user = { u: norm(u.username), name: u.display_name || u.username, role: u.role || 'staff' }
+      const user = { u: norm(u.username), name: u.display_name || u.username, role: normalizeRole(u.role) }
       return res.status(200).json({ success: true, token: signToken(user), user })
     }
 
@@ -67,20 +68,20 @@ export default async function handler(req, res) {
       const password = String(body.password || '')
       if (!username || password.length < 6) return res.status(400).json({ success: false, error: 'ต้องมีชื่อผู้ใช้ และรหัสผ่านอย่างน้อย 6 ตัว' })
       const { salt, hash } = hashPassword(password)
-      await appendRows(SHEET, [[username, hash, salt, String(body.display_name || username).trim(), 'admin', new Date().toISOString()]])
-      const user = { u: username, name: String(body.display_name || username).trim(), role: 'admin' }
+      await appendRows(SHEET, [[username, hash, salt, String(body.display_name || username).trim(), ROLES.DEV, new Date().toISOString()]])
+      const user = { u: username, name: String(body.display_name || username).trim(), role: ROLES.DEV }
       return res.status(200).json({ success: true, token: signToken(user), user })
     }
 
     if (action === 'create-user') {
       const caller = verifyToken(req.headers['x-api-token'])
-      if (!caller || caller.role !== 'admin') return res.status(403).json({ success: false, error: 'ต้องเป็น admin เท่านั้น' })
+      if (!caller || !isDev(caller.role)) return res.status(403).json({ success: false, error: 'ต้องเป็น Dev เท่านั้น' })
       const username = norm(body.username)
       const password = String(body.password || '')
       if (!username || password.length < 6) return res.status(400).json({ success: false, error: 'ต้องมีชื่อผู้ใช้ และรหัสผ่านอย่างน้อย 6 ตัว' })
       const users = await getUsers()
       if (users.some((x) => norm(x.username) === username)) return res.status(409).json({ success: false, error: 'มีชื่อผู้ใช้นี้แล้ว' })
-      const role = body.role === 'admin' ? 'admin' : 'staff'
+      const role = normalizeRole(body.role)
       const { salt, hash } = hashPassword(password)
       await appendRows(SHEET, [[username, hash, salt, String(body.display_name || username).trim(), role, new Date().toISOString()]])
       return res.status(200).json({ success: true, user: { u: username, role } })
@@ -88,26 +89,26 @@ export default async function handler(req, res) {
 
     if (action === 'list-users') {
       const caller = verifyToken(req.headers['x-api-token'])
-      if (!caller || caller.role !== 'admin') return res.status(403).json({ success: false, error: 'ต้องเป็น admin เท่านั้น' })
+      if (!caller || !isDev(caller.role)) return res.status(403).json({ success: false, error: 'ต้องเป็น Dev เท่านั้น' })
       const users = await getUsers()
       return res.status(200).json({
         success: true,
-        users: users.map((u) => ({ username: u.username, display_name: u.display_name || u.username, role: u.role || 'staff', created_at: u.created_at })),
+        users: users.map((u) => ({ username: u.username, display_name: u.display_name || u.username, role: normalizeRole(u.role), created_at: u.created_at })),
       })
     }
 
     if (action === 'delete-user') {
       const caller = verifyToken(req.headers['x-api-token'])
-      if (!caller || caller.role !== 'admin') return res.status(403).json({ success: false, error: 'ต้องเป็น admin เท่านั้น' })
+      if (!caller || !isDev(caller.role)) return res.status(403).json({ success: false, error: 'ต้องเป็น Dev เท่านั้น' })
       const username = norm(body.username)
       if (!username) return res.status(400).json({ success: false, error: 'ต้องระบุ username' })
       if (username === norm(caller.u)) return res.status(400).json({ success: false, error: 'ลบบัญชีตัวเองไม่ได้ — ให้ admin คนอื่นลบแทน' })
       const users = await getUsers()
       const target = users.find((x) => norm(x.username) === username)
       if (!target) return res.status(404).json({ success: false, error: 'ไม่พบผู้ใช้นี้' })
-      const remainingAdmins = users.filter((x) => (x.role || 'staff') === 'admin' && norm(x.username) !== username)
-      if ((target.role || 'staff') === 'admin' && remainingAdmins.length === 0) {
-        return res.status(400).json({ success: false, error: 'ลบไม่ได้ — ต้องมี admin เหลืออย่างน้อย 1 คน' })
+      const remainingDevs = users.filter((x) => isDev(x.role) && norm(x.username) !== username)
+      if (isDev(target.role) && remainingDevs.length === 0) {
+        return res.status(400).json({ success: false, error: 'ลบไม่ได้ — ต้องมี Dev เหลืออย่างน้อย 1 คน' })
       }
       const kept = users.filter((x) => norm(x.username) !== username)
       await overwriteSheet(SHEET, HEADERS, kept.map((u) => HEADERS.map((h) => u[h] || '')))

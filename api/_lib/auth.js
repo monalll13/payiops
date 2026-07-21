@@ -4,9 +4,12 @@
 // - ผู้ใช้เก็บในแท็บ `users` ของชีต จัดการผ่าน /api/auth (login / setup / create-user)
 // guard ใช้เป็นบรรทัดแรกของทุก handler: if (!requireAuth(req, res)) return
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { canManageOperations, isDev, normalizeRole } from '../../shared/roles.js'
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url')
 const fromB64u = (s) => Buffer.from(String(s), 'base64url')
+// Increment to revoke every token issued by an older deployment.
+const SESSION_VERSION = 2
 
 export const authEnabled = () => Boolean(process.env.AUTH_SECRET)
 
@@ -25,7 +28,7 @@ export function verifyPassword(password, salt, expectedHash) {
 
 // token = base64url(payload JSON).base64url(HMAC-SHA256)
 export function signToken(payload, days = 30) {
-  const body = b64u(JSON.stringify({ ...payload, exp: Date.now() + days * 86400000 }))
+  const body = b64u(JSON.stringify({ ...payload, sv: SESSION_VERSION, exp: Date.now() + days * 86400000 }))
   const sig = createHmac('sha256', process.env.AUTH_SECRET).update(body).digest('base64url')
   return `${body}.${sig}`
 }
@@ -39,6 +42,7 @@ export function verifyToken(token) {
     if (expect.length !== got.length || !timingSafeEqual(expect, got)) return null
     const payload = JSON.parse(fromB64u(body).toString())
     if (!payload.exp || Date.now() > payload.exp) return null
+    if (payload.sv !== SESSION_VERSION) return null
     return payload
   } catch { return null }
 }
@@ -55,5 +59,24 @@ export function requireAuth(req, res) {
     return false
   }
   req.user = user // ให้ endpoint รู้ว่าใครเรียก (username/role)
+  req.user.role = normalizeRole(req.user.role)
+  return true
+}
+
+export function requireDev(req, res) {
+  if (!requireAuth(req, res)) return false
+  if (authEnabled() && !isDev(req.user?.role)) {
+    res.status(403).json({ success: false, error: 'ส่วนนี้สำหรับ Dev เท่านั้น' })
+    return false
+  }
+  return true
+}
+
+export function requireManager(req, res) {
+  if (!requireAuth(req, res)) return false
+  if (authEnabled() && !canManageOperations(req.user?.role)) {
+    res.status(403).json({ success: false, error: 'ส่วนนี้สำหรับ Boss หรือ Dev เท่านั้น' })
+    return false
+  }
   return true
 }
