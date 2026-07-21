@@ -3,6 +3,12 @@ import { Boxes, Layers, AlertTriangle, ArrowLeftRight, Plus, Pencil, X } from 'l
 import KpiCard from '../components/KpiCard'
 
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })
+const fmtShortDate = (iso) => {
+  if (!iso) return ''
+  const d = new Date(`${iso}T00:00:00`)
+  if (isNaN(d)) return iso
+  return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })
+}
 
 const STATUS_STYLE = {
   'ปกติ': { bg: 'var(--payi-success-bg)', color: 'var(--payi-success)' },
@@ -166,7 +172,14 @@ export default function Inventory() {
                     <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: it.balance <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-strong)' }}>{fmt(it.balance)}</td>
                     <td style={{ padding: '10px', textAlign: 'right', color: 'var(--payi-text-muted)' }}>{fmt(it.safety_stock)}</td>
                     <td style={{ padding: '10px', color: 'var(--payi-text-muted)' }}>{it.unit}</td>
-                    <td style={{ padding: '10px' }}><StatusBadge status={it.status} /></td>
+                    <td style={{ padding: '10px' }}>
+                      <StatusBadge status={it.status} />
+                      {it.status !== 'ปกติ' && it.expected_arrival && (
+                        <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 4 }}>
+                          รอของ {fmtShortDate(it.expected_arrival)}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: '10px' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'in' })} title="รับเข้า" style={iconBtnStyle('var(--payi-success)')}>+</button>
@@ -216,12 +229,15 @@ function ItemModal({ initial, saving, onClose, onSave }) {
   const [unit, setUnit] = useState(initial?.unit || 'ชิ้น')
   const [safetyStock, setSafetyStock] = useState(initial?.safety_stock ?? '')
   const [openingBalance, setOpeningBalance] = useState(isEdit ? '' : '0')
+  const [reorderDate, setReorderDate] = useState(initial?.reorder_date || '')
+  const [expectedArrival, setExpectedArrival] = useState(initial?.expected_arrival || '')
 
   const submit = (e) => {
     e.preventDefault()
     if (!sku.trim() || !displayName.trim()) return
     const payload = { sku: sku.trim(), display_name: displayName.trim(), unit, safety_stock: safetyStock }
     if (!isEdit) payload.opening_balance = openingBalance
+    if (isEdit) { payload.reorder_date = reorderDate; payload.expected_arrival = expectedArrival }
     onSave(payload)
   }
 
@@ -250,6 +266,18 @@ function ItemModal({ initial, saving, onClose, onSave }) {
           <div>
             <label style={labelStyle}>ยอดคงเหลือเริ่มต้น</label>
             <input type="number" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} style={inputStyle} placeholder="0" />
+          </div>
+        )}
+        {isEdit && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>วันที่สั่ง/เช็คของ</label>
+              <input type="date" value={reorderDate} onChange={(e) => setReorderDate(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>วันที่คาดว่าจะเข้า</label>
+              <input type="date" value={expectedArrival} onChange={(e) => setExpectedArrival(e.target.value)} style={inputStyle} />
+            </div>
           </div>
         )}
         <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
