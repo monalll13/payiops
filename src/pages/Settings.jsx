@@ -102,7 +102,7 @@ function StaffLineLinkCard() {
   }
   useEffect(() => { load() }, [])
 
-  // เอาเฉพาะคนที่มีชื่อในตาราง SKJ เดือนที่เลือกจริง (ตัดคนออกแล้ว/พาร์ทไทม์นอกช่วง) — ไม่มีข้อมูลเดือนเลยโชว์ทุกคนไว้ก่อน
+  // เอาเฉพาะคนที่มีชื่อในตารางพนักงานปี 2026 เดือนที่เลือกจริง
   const monthOptions = [...new Set(Object.values(activeMonths).flat())].sort().reverse()
   const visiblePeople = Object.keys(activeMonths).length === 0 ? people : people.filter((p) => (activeMonths[p.code] || []).includes(month))
 
@@ -133,7 +133,7 @@ function StaffLineLinkCard() {
         <div style={{ display: 'grid', gap: 8 }}>
           {monthOptions.length > 0 && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', marginBottom: 4 }}>
-              เดือน (จากตาราง SKJ)
+              เดือน (จากตารางพนักงานปี 2026)
               <select value={month} onChange={(e) => setMonth(e.target.value)} className="payi-select" style={{ ...inputStyle, width: 'auto' }}>
                 {monthOptions.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
@@ -144,7 +144,7 @@ function StaffLineLinkCard() {
               {msg.text}
             </div>
           )}
-          {!visiblePeople.length && <div style={{ fontSize: 13, color: 'var(--payi-text-faint)' }}>ไม่มีพนักงานในตาราง SKJ เดือนนี้</div>}
+          {!visiblePeople.length && <div style={{ fontSize: 13, color: 'var(--payi-text-faint)' }}>ไม่มีพนักงานในตารางปี 2026 เดือนนี้</div>}
           {visiblePeople.map((p) => (
             <div key={p.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: 110, flexShrink: 0, fontSize: 13, fontWeight: 700, color: 'var(--payi-text-strong)' }}>{p.name}{links[p.code] && <span title="ผูกแล้ว" style={{ color: 'var(--payi-success)', marginLeft: 4 }}>●</span>}</div>

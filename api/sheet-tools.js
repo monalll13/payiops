@@ -2,7 +2,7 @@
 // รวม 4 endpoint เครื่องมือชีตเดิม (/api/summary /api/sheet /api/append /api/overwrite)
 // เป็นฟังก์ชันเดียว — Vercel Hobby จำกัด 12 serverless functions ต่อโปรเจค
 import { requireAuth, cacheable, authEnabled } from './_lib/auth.js'
-import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet, ensureSheet, downloadDriveFile } from './_lib/sheets.js'
+import { getMeta, batchGetValues, getSheet, appendRows, overwriteSheet, ensureSheet } from './_lib/sheets.js'
 import { verifySignature, pushMessage, replyMessage } from './_lib/line.js'
 
 // ปิด body parser อัตโนมัติของ Vercel — ต้องอ่าน raw body เองเพื่อตรวจลายเซ็น LINE webhook (HMAC ต้องใช้ byte ดิบ)
@@ -15,16 +15,9 @@ async function readRawBody(req) {
   req.rawBody = Buffer.concat(chunks).toString()
   return req.rawBody
 }
-// import ต้องเป็น static (ไม่ใช่ createRequire) ไม่งั้น @vercel/nft ตอน deploy ตรวจไม่เจอว่าไฟล์นี้ใช้ xlsx
-// แล้วไม่ bundle แพ็กเกจไปด้วย → "Cannot find module 'xlsx'" ตอนรันจริงบน Vercel (yืนยันจาก log จริง)
-// แต่ static import ของแพ็กเกจ CJS นี้บาง bundler ก็ห่อ exports ไว้ใต้ .default แทนที่จะแปะตรงๆ บน namespace
-// จึง unwrap เผื่อไว้ทั้งสองแบบ ให้ใช้ได้ทั้งตอน dev (Vite/Node) และตอน deploy จริง (esbuild)
-import * as XLSX_NS from 'xlsx'
-const XLSX = XLSX_NS.default && typeof XLSX_NS.default.read === 'function' ? XLSX_NS.default : XLSX_NS
-
 const OT_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'planned_start', 'planned_end', 'planned_minutes', 'actual_start', 'actual_end', 'actual_minutes', 'status', 'reason', 'note', 'created_at', 'closed_at']
 const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time', 'end_time', 'note', 'created_at']
-// สแนปช็อตตารางจากไฟล์ SKJ ครั้งเดียว — หลัง import แล้วปฏิทิน Workforce OT ใช้ตารางนี้แทน ไม่ดึงไฟล์ Excel บน Drive อีก (ดู action import-manpower-snapshot)
+// ตารางพนักงานปี 2026 ที่คัดลอกมาเก็บในระบบแล้ว ทั้งบ้านล่างและออฟฟิศ
 const SCHEDULE_SNAPSHOT_HEADERS = ['date', 'code', 'employee', 'group', 'fraction']
 const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date', 'lead_days', 'lag_days']
 const OT_HISTORY_HEADERS = ['id', 'plan_id', 'date', 'employee', 'before_start', 'before_end', 'after_start', 'after_end', 'before_note', 'after_note', 'changed_at', 'changed_by']
@@ -44,7 +37,7 @@ const hasVacationBenefit = (group) => !NO_VACATION_GROUPS.has(String(group || ''
 // รายชื่อออฟฟิศ — ย้ายจาก object hardcode มาเป็นชีต (เหมือน workforce_people) เพื่อให้เพิ่ม/ลบคนได้จากหน้าเว็บ ไม่ต้องแก้โค้ด
 const OFFICE_HEADERS = ['code', 'name', 'active']
 const DEFAULT_OFFICE_ROWS = [['TOON', 'ตูน', '1'], ['KED', 'เกด', '1'], ['MO', 'โม', '1']]
-const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS]]
+const HR_SHEETS = [['hr_leave', LEAVE_HEADERS], ['hr_schedule', SCHEDULE_HEADERS], ['hr_line_links', LINE_LINK_HEADERS], ['hr_line_sessions', LINE_SESSION_HEADERS], ['hr_leave_quota', QUOTA_HEADERS], ['hr_office_people', OFFICE_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
 let hrEnsurePromise
 let hrCache = { at: 0, data: null }
 const ensureHrSheets = () => hrEnsurePromise ||= Promise.all(HR_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
@@ -180,25 +173,12 @@ const ensureWorkforceSheets = () => workforceEnsurePromise ||= Promise.all(WORKF
 // กลุ่มพื้นเหลืองในไฟล์ต้นฉบับ (TOON/KED/MO) เป็นอีกหน่วยงาน (ออฟฟิศ) ไม่ใช่บ้านล่าง — ไม่ต้องเพิ่มแถวใน workforce_people ให้กลุ่มนั้น จึงไม่ถูกดึงเข้าปฏิทินนี้
 // รายชื่อบ้านล่างตอนเริ่มระบบ ใช้ seed แท็บ workforce_people ครั้งแรกเท่านั้น — หลังจากนี้แก้/เพิ่มคนได้ตรงในชีตเลย ไม่ต้องแก้โค้ด
 const DEFAULT_PEOPLE_ROWS = [['TANG', 'แตง', 'คนแพ็ก', '1'], ['PANG', 'แป้ง', 'คนแพ็ก', '1'], ['FAH', 'ฟ้า', 'คนแพ็ก', '1'], ['MII', 'มี่', 'คนแพ็ก', '1'], ['PANID', 'ป้านิด', 'คนฟีด', '1'], ['MOM', 'แม่', 'คนฟีด', '1'], ['MAPRANG', 'มะปราง', 'พาร์ทไทม์', '1'], ['ATOM', 'อะตอม', 'อื่น ๆ', '1'], ['BAS', 'บาส', 'อื่น ๆ', '1'], ['NEOY', 'เนย', 'อื่น ๆ', '1']]
-const MONTH_BY_TAB = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' }
 const rowsToObjects = (values = []) => { const [headers, ...rows] = values; return headers ? rows.map((row) => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))) : [] }
 // workforce_ot_approvals/workforce_ot_limits เป็น append-only log (ไม่ overwrite แถวเดิม) — กัน race condition ตอนแก้พร้อมกันหลายเครื่อง
 // อ่านตอน GET ต้องลดเหลือ "ล่าสุดต่อ key" เอง
 const latestByKey = (rows, keyFn, timeField) => { const map = new Map(); for (const r of rows) { const k = keyFn(r); const prev = map.get(k); if (!prev || String(r[timeField]) >= String(prev[timeField])) map.set(k, r) } return [...map.values()] }
 const requireAdmin = (req, res) => { if (authEnabled() && req.user?.role !== 'admin') { res.status(403).json({ error: 'ต้องเป็น admin เท่านั้น' }); return false } return true }
 const clearWorkforceCache = () => { workforceCache = { at: 0, data: null } }
-
-// ดาวน์โหลด + parse ไฟล์ manpower จาก Drive เป็นส่วนที่ช้าที่สุดของหน้านี้ (ไฟล์ใหญ่ + ต้อง auth ใหม่ทุกครั้ง)
-// ตารางคนทำงานเปลี่ยนไม่บ่อย จึง cache แยกจาก workforceCache ด้วย TTL ยาวกว่ามาก (15 นาที) ลดเวลาโหลดที่ผู้ใช้เจอ
-let manpowerSourceCache = { at: 0, data: null }
-const MANPOWER_SOURCE_CACHE_MS = 900000
-async function getManpowerSource(personMap) {
-  if (!process.env.MANPOWER_FILE_ID) return []
-  if (manpowerSourceCache.data && Date.now() - manpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return manpowerSourceCache.data
-  const data = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap)
-  manpowerSourceCache = { at: Date.now(), data }
-  return data
-}
 
 async function getPersonMap() {
   const people = await getSheet('workforce_people')
@@ -273,7 +253,7 @@ async function computeLeaveBalances(leaveRows, includeOffice) {
   })
 }
 
-// ── เช็คคนเหลือบ้านล่างต่อวัน — เขียนกลับจาก hr_leave เอง ไม่พึ่งไฟล์ SKJ อีกต่อไป (แยกเป็น source of truth คนละก้อน) ──
+// ── เช็คคนเหลือบ้านล่างต่อวันจาก hr_leave และตารางภายในระบบ ──
 const LOWER_HOUSE_MIN_HEADCOUNT = 3
 async function isValidOfficeCode(code) { return Boolean((await getOfficePeopleMap())[String(code || '').toUpperCase()]) }
 // วันที่ที่ "หาย" จากบ้านล่างจริง — สลับวันหยุดหายแค่วันใหม่ (end_date) วันเดิม (start_date) มาทำงานตามปกติ ไม่หาย
@@ -321,9 +301,7 @@ async function resolveBackupOffice(username, absenceDates, backupOfficeCode) {
   return { ok: true, lockedDates, backupOffice: code }
 }
 
-// ปฏิทินบ้านล่าง — เดิมพึ่งไฟล์ SKJ (Excel บน Drive) ตอนนี้เลิกพึ่งแล้ว คำนวณเองจาก roster (workforce_people) หัก hr_leave ที่ approved
-// สมมติว่าทุกคนมาทำงานทุกวัน ยกเว้นวันที่มีคำขอลาอนุมัติแล้ว — ครอบคลุมช่วง -90 ถึง +180 วันจากวันนี้ (พอสำหรับเลื่อนดูปฏิทินย้อนหน้า/ล่วงหน้า)
-// code (บ้านล่าง, mp:<code>) -> Set(วันที่ลาอนุมัติแล้ว) — ใช้ทั้ง fallback generator ด้านล่างและ override ทับ SKJ
+// code (บ้านล่าง, mp:<code>) -> Set(วันที่ลาอนุมัติแล้ว)
 function buildLeaveAbsenceMap(leaveRows) {
   const absenceByCode = {}
   for (const l of leaveRows) {
@@ -334,7 +312,7 @@ function buildLeaveAbsenceMap(leaveRows) {
   }
   return absenceByCode
 }
-// fallback เมื่อไม่มีไฟล์ SKJ เลย (เช่น dev local ไม่ได้ตั้ง MANPOWER_FILE_ID) — สมมติทุกคนมาทำงานทุกวัน ยกเว้นวันที่มีคำขอลาอนุมัติแล้ว
+// fallback เมื่อยังไม่มีตารางพนักงาน — สมมติทุกคนมาทำงานทุกวัน ยกเว้นวันที่มีคำขอลาอนุมัติแล้ว
 function generateCalendarPresence(personMap, leaveRows) {
   const absenceByCode = buildLeaveAbsenceMap(leaveRows)
   const roster = Object.entries(personMap).map(([code, [name, group]]) => ({ code, name, group }))
@@ -350,53 +328,16 @@ function generateCalendarPresence(personMap, leaveRows) {
   }
   return result
 }
-// ปฏิทินบ้านล่าง — ยืนพื้นด้วยสแนปช็อตตารางที่ import มาจาก SKJ ครั้งเดียว (action import-manpower-snapshot) ไม่ดึงไฟล์ Excel บน Drive สดๆ อีกแล้ว
-// ถ้ามีคำขอลาอนุมัติผ่านระบบ (hr_leave) หลังจาก import ให้ยึด hr_leave แทน (ตัดคนออกจากวันนั้น แม้สแนปช็อตจะยังเขียนว่ามาทำงาน)
+// ปฏิทินบ้านล่างใช้ตารางพนักงานปี 2026 ในระบบ และกรองแถวออฟฟิศออกด้วย roster บ้านล่าง
+// ถ้ามีคำขอลาอนุมัติผ่านระบบ ให้ยึด hr_leave แทนตารางตั้งต้น
 async function getCalendarPresence(personMap) {
   const [snapshotRows, leaveRows] = await Promise.all([getSheet('workforce_schedule_snapshot'), getSheet('hr_leave')])
-  if (!snapshotRows.length) return generateCalendarPresence(personMap, leaveRows) // ยังไม่ได้ import สแนปช็อต — fallback คำนวณเอง (ไม่ดึง SKJ)
-  const baseRows = snapshotRows.map((r) => ({ id: `stored-${r.date}-${r.code}`, date: r.date, employee: r.employee, code: r.code, group: r.group, fraction: Number(r.fraction) || 1, source: 'stored' }))
+  if (!snapshotRows.length) return generateCalendarPresence(personMap, leaveRows)
+  const baseRows = snapshotRows
+    .filter((r) => personMap[String(r.code || '').toUpperCase()])
+    .map((r) => ({ id: `stored-${r.date}-${r.code}`, date: r.date, employee: r.employee, code: r.code, group: r.group, fraction: Number(r.fraction) || 1, source: 'stored' }))
   const absenceByCode = buildLeaveAbsenceMap(leaveRows)
   return baseRows.filter((r) => !absenceByCode[r.code]?.has(r.date))
-}
-let hrManpowerSourceCache = { at: 0, data: null }
-async function getHrManpowerSource() {
-  if (!process.env.MANPOWER_FILE_ID) return []
-  if (hrManpowerSourceCache.data && Date.now() - hrManpowerSourceCache.at < MANPOWER_SOURCE_CACHE_MS) return hrManpowerSourceCache.data
-  const personMap = { ...(await getPersonMap()), ...(await getOfficePeopleMap()) }
-  const data = parseManpowerWorkbook(await downloadDriveFile(process.env.MANPOWER_FILE_ID), personMap)
-  hrManpowerSourceCache = { at: Date.now(), data }
-  return data
-}
-
-export function parseManpowerWorkbook(buffer, personMap = {}) {
-  const wb = XLSX.read(buffer, { type: 'buffer' }); const result = []; const warnings = []
-  for (const sheetName of wb.SheetNames) {
-    const tab = sheetName.slice(0, 3).toUpperCase(); const month = MONTH_BY_TAB[tab]; if (!month) continue
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: '' })
-    const yearMatch = sheetName.match(/(\d{2,4})/); const year = yearMatch ? (yearMatch[1].length === 2 ? `20${yearMatch[1]}` : yearMatch[1]) : '2026'
-    const dateRows = []
-    for (let r = 0; r < rows.length; r++) {
-      const days = Array.from({ length: 7 }, (_, c) => { const m = String(rows[r]?.[c] || '').trim().match(/(?:^|\s)(\d{1,2})$/); const d = m ? Number(m[1]) : 0; return d >= 1 && d <= 31 ? d : 0 })
-      if (days.filter(Boolean).length >= 2) dateRows.push({ r, days })
-    }
-    if (!dateRows.length) { warnings.push(`อ่านชีต "${sheetName}" ไม่ได้ — หารูปแบบวันที่ในตารางไม่เจอ (รูปแบบไฟล์อาจเปลี่ยน)`); continue }
-    for (let i = 0; i < dateRows.length; i++) {
-      const { r, days } = dateRows[i]; const end = dateRows[i + 1]?.r ?? rows.length
-      for (let c = 0; c < 7; c++) {
-        if (!days[c]) continue
-        const date = `${year}-${month}-${String(days[c]).padStart(2, '0')}`
-        for (let rr = r + 1; rr < end; rr++) {
-          const raw = String(rows[rr]?.[c] || '').trim(); if (!raw || raw === '**') continue
-          const code = raw.toUpperCase().match(/^[A-Z]+/)?.[0]; const person = personMap[code]; if (!person) continue
-          const upper = raw.toUpperCase(); const absent = /\b(OFF|VAC|SICK|ABSENT|LWP)\b/.test(upper); if (absent) continue
-          result.push({ id: `source-${date}-${code}-${rr}`, date, employee: person[0], code, group: person[1], fraction: /0[.,]5|O[.,]5/.test(upper) ? 0.5 : 1, raw, source: 'SKJ2026' })
-        }
-      }
-    }
-  }
-  result.warnings = warnings
-  return result
 }
 
 const minutesBetween = (start, end) => {
@@ -427,7 +368,7 @@ async function opWorkforceInner(req, res) {
       await ensureWorkforceSheets()
       const personMap = await getPersonMap()
       const sourceManpower = await getCalendarPresence(personMap)
-      return res.status(200).json({ success: true, sourceManpower, sourceWarnings: [], sourceUpdatedAt: new Date().toISOString() })
+      return res.status(200).json({ success: true, sourceManpower, sourceYear: '2026' })
     } catch (e) { return res.status(500).json({ success: false, error: e.message }) }
   }
   await ensureWorkforceSheets()
@@ -440,7 +381,7 @@ async function opWorkforceInner(req, res) {
     const limits = latestByKey(rawLimits, (r) => r.employee, 'updated_at')
     const personMap = await getPersonMap() // ต้องผ่าน getPersonMap() ไม่ใช่ build จาก people ตรงๆ — เผื่อชีตยังไม่มีแถวของบางคน (เช่น MOM/PANID) ต้อง fallback ไป DEFAULT_PEOPLE_ROWS ไม่งั้นหายจากปฏิทิน
     const otLimits = Object.fromEntries(limits.filter((l) => l.employee).map((l) => [l.employee, l.limit_hours]))
-    let sourceManpower = []; let sourceWarnings = []
+    let sourceManpower = []
     let officePeople = []; let officeAbsences = []
     try {
       sourceManpower = await getCalendarPresence(personMap)
@@ -455,23 +396,13 @@ async function opWorkforceInner(req, res) {
       }
     } catch (e) { console.error('office presence:', e.message) }
     res.setHeader('Cache-Control', cacheable('public, s-maxage=20, stale-while-revalidate=60'))
-    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, sourceWarnings, events, history, approvals, approvalHistory, otLimits, people, officePeople, officeAbsences, sourceUpdatedAt: new Date().toISOString() }
+    const data = { success: true, rows: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))), manpower, sourceManpower, events, history, approvals, approvalHistory, otLimits, people, officePeople, officeAbsences, sourceYear: '2026' }
     workforceCache = { at: Date.now(), data }
     return res.status(200).json(data)
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const body = req.body || {}
   const action = String(body.action || '').trim().toLowerCase()
-  if (action === 'import-manpower-snapshot') {
-    if (!requireAdmin(req, res)) return
-    const personMap = await getPersonMap()
-    const skjRows = await getManpowerSource(personMap) // ดึงจาก Drive ครั้งนี้ครั้งเดียว จากนั้น getCalendarPresence จะไม่ดึงอีก
-    if (!skjRows.length) return res.status(400).json({ error: 'ไม่พบข้อมูลจากไฟล์ SKJ (เช็ค MANPOWER_FILE_ID หรือไฟล์ว่าง)' })
-    const rows = skjRows.map((r) => SCHEDULE_SNAPSHOT_HEADERS.map((h) => ({ date: r.date, code: r.code, employee: r.employee, group: r.group, fraction: r.fraction ?? 1 })[h] ?? ''))
-    await overwriteSheet('workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS, rows)
-    clearWorkforceCache()
-    return res.status(200).json({ success: true, imported: rows.length })
-  }
   if (action === 'create-plan') {
     const employees = Array.isArray(body.employees) ? body.employees.filter(Boolean) : []
     if (!body.date || !employees.length || !body.planned_start || !body.planned_end) return res.status(400).json({ error: 'กรุณาระบุวันที่ รายชื่อ และเวลา OT' })
@@ -593,15 +524,14 @@ async function opHrInner(req, res) {
     const isAdminViewer = !authEnabled() || req.user?.role === 'admin'
     const withRoleFilter = (data) => ({ ...data, leaveBalances: isAdminViewer ? data.leaveBalancesFull : data.leaveBalancesFull.filter((b) => b.group !== 'ออฟฟิศ') })
     if (hrCache.data && Date.now() - hrCache.at < 20000) return res.status(200).json(withRoleFilter(hrCache.data))
-    const [leaveRange, scheduleRange, lineLinkRange, peopleRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z'])
-    // เดือนที่แต่ละคนมีงานจริง (จากไฟล์ manpower บน Drive) — ใช้กรอง dropdown "ยื่นแทนพนักงาน"/"ผูก LINE" ไม่ให้โชว์คนออกแล้ว/พาร์ทไทม์ที่ไม่ได้ทำเดือนนั้น
-    // ใช้ getHrManpowerSource (personMap รวมกลุ่มออฟฟิศ) ไม่ใช่ getManpowerSource ของ Workforce OT — กันคนกลุ่มนี้หลุดเข้าปฏิทิน OT
+    const [leaveRange, scheduleRange, lineLinkRange, peopleRange, snapshotRange] = await batchGetValues(['hr_leave!A:Z', 'hr_schedule!A:Z', 'hr_line_links!A:Z', 'workforce_people!A:Z', 'workforce_schedule_snapshot!A:Z'])
+    // เดือนที่แต่ละคนมีงานจริงจากตารางปี 2026 ที่เก็บในระบบ ใช้กรอง dropdown โดยไม่เชื่อมไฟล์ภายนอก
     let activeMonths = {}
     try {
-      const manpowerRows = await getHrManpowerSource()
+      const manpowerRows = rowsToObjects(snapshotRange.values || [])
       for (const r of manpowerRows) (activeMonths[r.code] ||= new Set()).add(String(r.date).slice(0, 7))
       activeMonths = Object.fromEntries(Object.entries(activeMonths).map(([code, set]) => [code, [...set]]))
-    } catch (e) { console.error('activeMonths:', e.message) } // ไฟล์ manpower โหลดไม่ได้ก็ไม่ให้ทั้งหน้า HR พัง — แค่ไม่กรองเดือน
+    } catch (e) { console.error('activeMonths:', e.message) }
     const peopleFromSheet = rowsToObjects(peopleRange.values || []).filter((p) => String(p.active) !== '0')
     const officeMapForList = await getOfficePeopleMap()
     const extraPeople = Object.entries(officeMapForList).map(([code, [name, group]]) => ({ code, name, group }))

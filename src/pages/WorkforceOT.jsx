@@ -30,9 +30,9 @@ export default function WorkforceOT({ preview = false }) {
   const [officePeople, setOfficePeople] = useState([])
   const [officeAbsences, setOfficeAbsences] = useState([])
   const groupByName = useMemo(() => Object.fromEntries(people.filter((p) => p.name).map((p) => [p.name, p.group])), [people])
-  // คนที่ถูกลบออกแล้ว (active='0') — กันไม่ให้โผล่ในตัวเลือก "เพิ่มคน OT ใหม่" อีก แม้ชื่อจะยังค้างใน names (จากประวัติ OT เก่า/ไฟล์ SKJ)
+  // คนที่ถูกลบออกแล้ว (active='0') — กันไม่ให้โผล่ในตัวเลือก "เพิ่มคน OT ใหม่" อีก แม้ชื่อจะยังค้างในประวัติเดิม
   const inactiveNames = useMemo(() => new Set(people.filter((p) => p.name && String(p.active) === '0').map((p) => p.name)), [people])
-  const [sourceStatus, setSourceStatus] = useState({ state: 'loading', count: 0, at: '', warnings: [] })
+  const [sourceStatus, setSourceStatus] = useState({ state: 'loading', count: 0 })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -63,7 +63,7 @@ export default function WorkforceOT({ preview = false }) {
         const loadedHistory = JSON.parse(localStorage.getItem('payi-ot-history-preview') || '[]')
         const loadedApprovals = JSON.parse(localStorage.getItem('payi-ot-approvals-preview') || '[]')
         let sourceManpower = []
-        try { const r = await fetch(`${API}&sourceOnly=1`); const d = await r.json(); if (r.ok) { sourceManpower = d.sourceManpower || []; localStorage.setItem(MANPOWER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), rows: sourceManpower })); setSourceStatus({ state: 'ok', count: sourceManpower.length, at: d.sourceUpdatedAt || new Date().toISOString() }) } else setSourceStatus({ state: 'error', count: 0, at: '' }) } catch { setSourceStatus({ state: 'error', count: 0, at: '' }) }
+        try { const r = await fetch(`${API}&sourceOnly=1`); const d = await r.json(); if (r.ok) { sourceManpower = d.sourceManpower || []; localStorage.setItem(MANPOWER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), rows: sourceManpower })); setSourceStatus({ state: 'ok', count: sourceManpower.length }) } else setSourceStatus({ state: 'error', count: 0 }) } catch { setSourceStatus({ state: 'error', count: 0 }) }
         setRows(loadedRows); setManpower([...sourceManpower, ...loadedManpower]); setEvents(loadedEvents); setHistory(loadedHistory); setApprovals(loadedApprovals); setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...sourceManpower.map((row) => row.employee).filter(Boolean), ...loadedManpower.map((row) => row.employee).filter(Boolean)])]); return
       }
       const r = await fetch(API); const d = await r.json()
@@ -80,7 +80,7 @@ export default function WorkforceOT({ preview = false }) {
       setOfficePeople(d.officePeople || [])
       setOfficeAbsences(d.officeAbsences || [])
       setOtLimitsState(d.otLimits || {})
-      setSourceStatus({ state: d.sourceManpower?.length ? 'ok' : 'error', count: d.sourceManpower?.length || 0, at: d.sourceUpdatedAt || new Date().toISOString(), warnings: d.sourceWarnings || [] })
+      setSourceStatus({ state: d.sourceManpower?.length ? 'ok' : 'error', count: d.sourceManpower?.length || 0 })
       setNames((current) => [...new Set([...current, ...loadedRows.map((row) => row.employee).filter(Boolean), ...(d.sourceManpower || []).map((row) => row.employee).filter(Boolean), ...(d.manpower || []).map((row) => row.employee).filter(Boolean)])])
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
@@ -152,7 +152,7 @@ export default function WorkforceOT({ preview = false }) {
   return (
     <div className="workforce-page" style={{ display: 'grid', gap: 10 }}>
       <div style={{ minHeight: 34, display: 'flex', flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <div title={sourceStatus.warnings?.length ? sourceStatus.warnings.join('\n') : undefined} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: sourceStatus.state === 'ok' ? '#16866f' : '#be123c' }}><span style={{ width: 8, height: 8, borderRadius: 99, background: sourceStatus.warnings?.length ? '#d97706' : sourceStatus.state === 'ok' ? '#16866f' : sourceStatus.state === 'loading' ? '#d97706' : '#be123c' }} />{sourceStatus.state === 'ok' ? `Manpower พร้อมใช้ · อัปเดต ${new Date(sourceStatus.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}${sourceStatus.warnings?.length ? ` · ${sourceStatus.warnings.length} เดือนอ่านไม่ได้` : ''}` : sourceStatus.state === 'loading' ? 'กำลังโหลด Manpower…' : 'Manpower เชื่อมต่อไม่สำเร็จ'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: sourceStatus.state === 'ok' ? '#16866f' : '#be123c' }}><span style={{ width: 8, height: 8, borderRadius: 99, background: sourceStatus.state === 'ok' ? '#16866f' : sourceStatus.state === 'loading' ? '#d97706' : '#be123c' }} />{sourceStatus.state === 'ok' ? 'ตาราง Manpower ปี 2026 พร้อมใช้ · ข้อมูลภายในระบบ' : sourceStatus.state === 'loading' ? 'กำลังโหลด Manpower…' : 'โหลดตาราง Manpower ไม่สำเร็จ'}</div>
         <div style={{ display: 'flex', gap: 6 }}>
           {[['calendar','ปฏิทิน'], ...(isBoss ? [['overview','ภาพรวม'], ['summary','สรุป OT']] : [])].map(([id,label]) => <button key={id} onClick={() => { setError(''); setTab(id) }} style={miniTab(tab === id)}>{label}</button>)}
           <button onClick={load} aria-label="รีเฟรช" style={{ border: '1px solid #d7e3ef', background: '#fff', borderRadius: 9, padding: 7, color: '#2474b8', cursor: 'pointer' }}><RefreshCw size={15} /></button>
