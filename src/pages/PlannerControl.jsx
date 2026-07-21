@@ -180,25 +180,30 @@ export default function PlannerControl({ onNavigate }) {
       const byName = new Map(current.map((item) => [normalizeProductName(item.name), item]))
       const configBySku = new Map((plannerData?.config || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
       const dailyBySku = new Map((plannerData?.daily || []).map((row) => [String(row.master_sku).toUpperCase(), row]))
-      // เคยมีปัญหา: สลับไปดูวันอื่นที่ยังไม่เคยกรอก FG/ฟีดวันนี้ แล้วเห็นเลขของวันก่อนหน้าค้างอยู่ (เพราะ fallback ไป saved.stock ข้ามวันแบบไม่ตั้งใจ)
-      // ถ้าดึงข้อมูล Planner ของวันนี้มาได้แล้ว (plannerData ไม่ null) ให้ถือว่า "ไม่มีแถวของวันนี้ = ยังไม่เคยกรอก" ต้องเป็น 0/ว่าง ไม่ใช่เลขจากวันอื่น
+      const latestBySku = new Map(Object.entries(plannerData?.latestBySku || {}).map(([sku, row]) => [sku.toUpperCase(), row]))
+      // เคยมีปัญหา: สลับไปดูวันอื่นที่ยังไม่เคยกรอก FG/ฟีดวันนี้ แล้วเห็นเลขของวันก่อนหน้าค้างอยู่แบบไม่รู้ตัว (ไม่มีป้ายเตือน)
+      // ตอนนี้แก้เป็น "ยกยอด FG จากวันล่าสุดที่มีมาให้อัตโนมัติ" (ไม่ต้องพิมพ์ใหม่ทุกวัน) แต่ติดป้ายเตือนว่าไม่ได้อัปเดตวันนี้ (stockStaleDays)
       // จะ fallback ไป saved เฉพาะตอนยังโหลดจากเซิร์ฟเวอร์ไม่สำเร็จเลย (plannerData เป็น null) เพื่อไม่ให้หน้าจอว่างเปล่าตอนออฟไลน์
       const hasServerData = Boolean(plannerData)
       return mapping.map((mapped) => {
         const saved = bySku.get(mapped.masterSku) || byName.get(normalizeProductName(mapped.displayName)) || {}
         const config = configBySku.get(mapped.masterSku) || {}
         const daily = dailyBySku.get(mapped.masterSku) || {}
+        const hasTodayRow = dailyBySku.has(mapped.masterSku)
+        const carried = latestBySku.get(mapped.masterSku)
+        const stockStaleDays = hasServerData && !hasTodayRow && carried ? Math.max(0, Math.round((new Date(`${selectedDate}T00:00:00`) - new Date(`${carried.date}T00:00:00`)) / 86400000)) : 0
         return plannerProduct(mapped, {
           ...saved,
           reserveDays: config.reserve_days ?? saved.reserveDays,
           safetyPercent: config.safety_percent ?? saved.safetyPercent,
-          stock: daily.fg ?? (hasServerData ? 0 : saved.stock),
+          stock: hasTodayRow ? (Number(daily.fg) || 0) : (hasServerData ? Number(carried?.fg ?? 0) : saved.stock),
+          stockStaleDays,
           dayFeed: daily.planned_feed ?? (hasServerData ? 0 : saved.dayFeed),
           feeders: daily.feeders ? String(daily.feeders).split('·').map((name) => name.trim()).filter(Boolean) : (hasServerData ? [] : saved.feeders),
         })
       })
     })
-  }, [salesSnapshot?.productMapping, plannerData])
+  }, [salesSnapshot?.productMapping, plannerData, selectedDate])
   useEffect(() => {
     const fetchedAt = Number(manpowerSnapshot?.fetchedAt || 0)
     if (fetchedAt && Date.now() - fetchedAt < MANPOWER_REFRESH_MS) return undefined
@@ -345,7 +350,10 @@ export default function PlannerControl({ onNavigate }) {
         <thead><tr style={{ background: '#f1f7fd', color: '#52677a' }}>{['สินค้า','FG','เฉลี่ย/วัน','เผื่อวัน','กันพุ่ง','แนะนำฟีด','ฟีดวันนี้','ยังขาด',''].map((head, index) => <th key={`${head}-${index}`} style={{ padding: '11px 8px', whiteSpace: 'nowrap', textAlign: index === 0 ? 'left' : 'center' }}>{head}</th>)}</tr></thead>
         <tbody>{visible.map((item) => <tr key={item.id} style={{ borderTop: '1px solid #e7eef6', background: item.remaining > 0 ? '#fff' : '#fbfefc' }}>
           <td style={{ ...td, minWidth: 210 }}><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span title={item.abc === 'NEW' ? 'ยังไม่พบยอดขายย้อนหลัง' : `ขาย ${fmt(item.salesUnits90)} ชิ้นใน ${item.salesDays} วัน`} style={{ display: 'inline-grid', placeItems: 'center', minWidth: item.abc === 'NEW' ? 38 : 25, height: 25, padding: '0 5px', borderRadius: 7, background: `${groupColor[item.abc]}16`, color: groupColor[item.abc], fontWeight: 900, fontSize: item.abc === 'NEW' ? 10 : 13 }}>{item.abc}</span><div style={{ minWidth: 0 }}><b style={{ display: 'block', color: '#102a43', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</b><span style={{ color: '#94a3b8', fontSize: 10, fontFamily: 'monospace' }}>{item.masterSku}</span></div></div></td>
-          <td style={{ ...td, textAlign: 'center' }}><LockedNumberInput value={item.stock} onChange={(value) => update(item.id, 'stock', value)} label={`FG ${item.name}`}/></td>
+          <td style={{ ...td, textAlign: 'center' }}>
+            <LockedNumberInput value={item.stock} onChange={(value) => update(item.id, 'stock', value)} label={`FG ${item.name}`} stale={item.stockStaleDays >= 2 ? 'danger' : item.stockStaleDays >= 1 ? 'warning' : null}/>
+            {item.stockStaleDays > 0 && <div style={{ marginTop: 3, fontSize: 10, fontWeight: 800, color: item.stockStaleDays >= 2 ? '#dc2626' : '#b45309' }}>ยกยอด {item.stockStaleDays} วันก่อน</div>}
+          </td>
           <td style={{ ...td, textAlign: 'center' }}>{fmt(item.daily)}</td>
           <td style={{ ...td, textAlign: 'center' }}><LockedDaysSelect value={item.reserveDays} onChange={(value) => update(item.id, 'reserveDays', value)}/></td>
           <td style={{ ...td, textAlign: 'center', color: '#b45309', fontWeight: 850 }}>+{fmt(item.safetyStock)}</td>
@@ -381,12 +389,13 @@ function ManageMappedProducts({ products, excludedSkus, onToggle, onClose }) {
   </div></div>
 }
 
-function LockedNumberInput({ value, onChange, label }) {
+function LockedNumberInput({ value, onChange, label, stale }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value ?? 0))
   useEffect(() => { if (!editing) setDraft(String(value ?? 0)) }, [value, editing])
   const commit = () => { onChange(Math.max(0, Number(draft) || 0)); setEditing(false) }
-  if (!editing) return <button type="button" onClick={() => setEditing(true)} aria-label={`แก้ไข ${label}`} title="กดเพื่อแก้ไข" style={{ width: '100%', minHeight: 38, border: '1px solid #cbd5e1', borderRadius: 8, background: '#e9eef5', color: '#334155', fontWeight: 850, cursor: 'pointer' }}>{fmt(value)}</button>
+  const staleBorder = stale === 'danger' ? '#f87171' : stale === 'warning' ? '#fbbf24' : '#cbd5e1'
+  if (!editing) return <button type="button" onClick={() => setEditing(true)} aria-label={`แก้ไข ${label}`} title={stale ? 'ยกยอดจากวันก่อนหน้า — กดเพื่อยืนยัน/แก้ไขของวันนี้' : 'กดเพื่อแก้ไข'} style={{ width: '100%', minHeight: 38, border: `1px solid ${staleBorder}`, borderWidth: stale ? 2 : 1, borderRadius: 8, background: stale ? (stale === 'danger' ? '#fff1f2' : '#fffbeb') : '#e9eef5', color: '#334155', fontWeight: 850, cursor: 'pointer' }}>{fmt(value)}</button>
   return <input autoFocus type="number" min="0" inputMode="numeric" value={draft} onFocus={(event) => event.currentTarget.select()} onWheel={(event) => event.currentTarget.blur()} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { setDraft(String(value ?? 0)); setEditing(false) } }} aria-label={label} style={{ ...input, width: '100%', minHeight: 38, background: '#fff' }}/>
 }
 

@@ -853,8 +853,17 @@ async function opPlanner(req, res) {
       const date = text(req.query.date).slice(0, 10)
       const [config, allDaily] = await Promise.all([getSheet(PLANNER_CONFIG_SHEET), getSheet(PLANNER_DAILY_SHEET)])
       const daily = date ? allDaily.filter((row) => row.date === date) : allDaily
+      // ค่าล่าสุดต่อ SKU ก่อนหรือเท่ากับวันที่ขอ — ใช้ carry-forward FG ที่ยังไม่กรอกของวันนี้ แทนที่จะให้เห็น 0 เปล่าๆ
+      const latestBySku = {}
+      if (date) {
+        for (const row of allDaily) {
+          if (!row.master_sku || row.date > date) continue
+          const prev = latestBySku[row.master_sku]
+          if (!prev || row.date > prev.date) latestBySku[row.master_sku] = row
+        }
+      }
       res.setHeader('Cache-Control', 'no-store')
-      return res.status(200).json({ success: true, config, daily })
+      return res.status(200).json({ success: true, config, daily, latestBySku })
     }
 
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' })
