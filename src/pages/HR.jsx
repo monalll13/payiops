@@ -44,6 +44,7 @@ export default function HR() {
   const [leaveLock, setLeaveLock] = useState({ locked: false, lockedDates: [] })
   const [empForm, setEmpForm] = useState({ code: '', name: '', group: EMPLOYEE_GROUPS[0] })
   const [showAddEmployee, setShowAddEmployee] = useState(false)
+  const [editEmployees, setEditEmployees] = useState(false)
 
   // เช็คว่าช่วงที่เลือกทำให้บ้านล่างเหลือคนน้อยกว่าขั้นต่ำไหม — เช็คเฉพาะตอนยื่นแทนพนักงาน (มี employee_code)
   useEffect(() => {
@@ -188,7 +189,10 @@ export default function HR() {
         {leaveBalances.length > 0 && <section style={{ ...card, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--payi-text-strong)' }}>วันลาพักร้อนคงเหลือ · ปี {new Date().getFullYear() + 543}</div>
-            {isBoss && <button onClick={() => setShowAddEmployee((v) => !v)} style={{ border: '1px solid var(--payi-mint)', background: showAddEmployee ? 'var(--payi-mint-soft)' : 'var(--payi-surface)', color: 'var(--payi-mint-strong)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{showAddEmployee ? 'ยกเลิก' : '+ เพิ่มพนักงาน'}</button>}
+            {isBoss && <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setEditEmployees((v) => !v)} style={{ border: '1px solid var(--payi-border)', background: editEmployees ? 'var(--payi-danger-bg)' : 'var(--payi-surface)', color: editEmployees ? 'var(--payi-danger)' : 'var(--payi-text-muted)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{editEmployees ? 'เสร็จแล้ว' : 'แก้ไข'}</button>
+              <button onClick={() => setShowAddEmployee((v) => !v)} style={{ border: '1px solid var(--payi-mint)', background: showAddEmployee ? 'var(--payi-mint-soft)' : 'var(--payi-surface)', color: 'var(--payi-mint-strong)', borderRadius: 9, padding: '7px 13px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>{showAddEmployee ? 'ยกเลิก' : '+ เพิ่มพนักงาน'}</button>
+            </div>}
           </div>
           {isBoss && showAddEmployee && <form onSubmit={addEmployee} style={{ padding: '0 20px 16px', display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr)) auto', gap: 10, alignItems: 'end' }}>
             <label style={{ display: 'grid', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--payi-text)' }}>รหัส
@@ -213,7 +217,7 @@ export default function HR() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {g.rows.map((b) => (
                   <div key={b.code} style={{ position: 'relative', border: '1px solid var(--payi-border)', borderRadius: 10, padding: '8px 12px', minWidth: 120 }}>
-                    {isBoss && <button onClick={() => removeEmployee(b.code, b.group, b.name)} aria-label={`ลบ ${b.name}`} title="ลบพนักงาน" style={{ position: 'absolute', top: 4, right: 4, border: 0, background: 'transparent', color: 'var(--payi-text-faint)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 2 }}>×</button>}
+                    {isBoss && editEmployees && <button onClick={() => removeEmployee(b.code, b.group, b.name)} aria-label={`ลบ ${b.name}`} title="ลบพนักงาน" style={{ position: 'absolute', top: 4, right: 4, border: 0, background: 'var(--payi-danger-bg)', color: 'var(--payi-danger)', borderRadius: 999, width: 18, height: 18, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>}
                     <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--payi-text-strong)' }}>{b.name}</div>
                     <div style={{ fontSize: 12, color: b.remaining <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-muted)' }}>เหลือ <b>{b.remaining}</b> / {b.quota} วัน</div>
                   </div>

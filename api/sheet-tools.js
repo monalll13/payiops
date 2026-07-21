@@ -193,13 +193,14 @@ async function vacationBalanceFor(code) {
   return { quota, used, remaining: Math.max(0, quota - used) }
 }
 // สรุปโควตาพักร้อนทุกคน — includeOffice=false ตัดกลุ่มออฟฟิศออก (ผจก.บ้านล่างไม่ต้องเห็น)
+// พาร์ทไทม์ไม่มีโควตาพักร้อน (มีแต่พนักงานประจำ) — ตัดออกจากการ์ดนี้ไปเลย
 async function computeLeaveBalances(leaveRows, includeOffice) {
   const [personMap, quotaMap, officeMap] = await Promise.all([getPersonMap(), getQuotaMap(), includeOffice ? getOfficePeopleMap() : {}])
   const year = currentYearBKK()
   const roster = [
     ...Object.entries(personMap).map(([code, [name, group]]) => ({ code, name, group })),
     ...(includeOffice ? Object.entries(officeMap).map(([code, [name, group]]) => ({ code, name, group })) : []),
-  ]
+  ].filter((p) => p.group !== 'พาร์ทไทม์')
   return roster.map((p) => {
     const used = leaveRows
       .filter((l) => l.status === 'approved' && l.leave_type === 'พักร้อน' && l.username === `mp:${p.code}` && String(l.start_date || '').slice(0, 4) === year)
