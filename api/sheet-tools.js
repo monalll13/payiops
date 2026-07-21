@@ -24,6 +24,8 @@ const XLSX = XLSX_NS.default && typeof XLSX_NS.default.read === 'function' ? XLS
 
 const OT_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'planned_start', 'planned_end', 'planned_minutes', 'actual_start', 'actual_end', 'actual_minutes', 'status', 'reason', 'note', 'created_at', 'closed_at']
 const MANPOWER_HEADERS = ['id', 'date', 'employee', 'team', 'task', 'start_time', 'end_time', 'note', 'created_at']
+// สแนปช็อตตารางจากไฟล์ SKJ ครั้งเดียว — หลัง import แล้วปฏิทิน Workforce OT ใช้ตารางนี้แทน ไม่ดึงไฟล์ Excel บน Drive อีก (ดู action import-manpower-snapshot)
+const SCHEDULE_SNAPSHOT_HEADERS = ['date', 'code', 'employee', 'group', 'fraction']
 const EVENT_HEADERS = ['id', 'title', 'date', 'team', 'note', 'created_at', 'end_date', 'lead_days', 'lag_days']
 const OT_HISTORY_HEADERS = ['id', 'plan_id', 'date', 'employee', 'before_start', 'before_end', 'after_start', 'after_end', 'before_note', 'after_note', 'changed_at', 'changed_by']
 const OT_APPROVAL_HEADERS = ['id', 'month', 'employee', 'actual_minutes', 'approved_at', 'approved_by']
@@ -112,7 +114,7 @@ const PLANNER_CONFIG_SHEET = 'planner_config'
 const PLANNER_DAILY_SHEET = 'planner_daily'
 const PLANNER_CONFIG_HEADERS = ['master_sku', 'enabled', 'reserve_days', 'safety_percent', 'updated_at', 'updated_by']
 const PLANNER_DAILY_HEADERS = ['id', 'date', 'master_sku', 'fg', 'sales_average', 'demand_mode', 'recommended_feed', 'planned_feed', 'feeders', 'updated_at', 'updated_by']
-const WORKFORCE_SHEETS = [['workforce_ot', OT_HEADERS], ['workforce_manpower', MANPOWER_HEADERS], ['workforce_events', EVENT_HEADERS], ['workforce_ot_history', OT_HISTORY_HEADERS], ['workforce_ot_approvals', OT_APPROVAL_HEADERS], ['workforce_people', PEOPLE_HEADERS], ['workforce_ot_limits', OT_LIMIT_HEADERS], ['workforce_ot_approval_history', OT_APPROVAL_HISTORY_HEADERS]]
+const WORKFORCE_SHEETS = [['workforce_ot', OT_HEADERS], ['workforce_manpower', MANPOWER_HEADERS], ['workforce_events', EVENT_HEADERS], ['workforce_ot_history', OT_HISTORY_HEADERS], ['workforce_ot_approvals', OT_APPROVAL_HEADERS], ['workforce_people', PEOPLE_HEADERS], ['workforce_ot_limits', OT_LIMIT_HEADERS], ['workforce_ot_approval_history', OT_APPROVAL_HISTORY_HEADERS], ['workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS]]
 let workforceEnsurePromise
 let workforceCache = { at: 0, data: null }
 const ensureWorkforceSheets = () => workforceEnsurePromise ||= Promise.all(WORKFORCE_SHEETS.map(([name, headers]) => ensureSheet(name, headers)))
@@ -284,13 +286,14 @@ function generateCalendarPresence(personMap, leaveRows) {
   }
   return result
 }
-// ปฏิทินบ้านล่าง — ยืนพื้นด้วยไฟล์ SKJ (คนตั้งตารางไว้ล่วงหน้าถึงสิ้นปีในไฟล์ Excel) แต่ถ้ามีคำขอลาอนุมัติผ่านระบบ (hr_leave) หลังจากนั้น
-// ให้ยึด hr_leave แทน (ตัดคนออกจากวันนั้น แม้ SKJ จะยังเขียนว่ามาทำงาน) — SKJ ไม่อัปเดตเรียลไทม์ hr_leave คือของจริงล่าสุดเสมอ
+// ปฏิทินบ้านล่าง — ยืนพื้นด้วยสแนปช็อตตารางที่ import มาจาก SKJ ครั้งเดียว (action import-manpower-snapshot) ไม่ดึงไฟล์ Excel บน Drive สดๆ อีกแล้ว
+// ถ้ามีคำขอลาอนุมัติผ่านระบบ (hr_leave) หลังจาก import ให้ยึด hr_leave แทน (ตัดคนออกจากวันนั้น แม้สแนปช็อตจะยังเขียนว่ามาทำงาน)
 async function getCalendarPresence(personMap) {
-  const [skjRows, leaveRows] = await Promise.all([getManpowerSource(personMap), getSheet('hr_leave')])
-  if (!skjRows.length) return generateCalendarPresence(personMap, leaveRows) // ไม่มีไฟล์ SKJ เลย — fallback คำนวณเอง
+  const [snapshotRows, leaveRows] = await Promise.all([getSheet('workforce_schedule_snapshot'), getSheet('hr_leave')])
+  if (!snapshotRows.length) return generateCalendarPresence(personMap, leaveRows) // ยังไม่ได้ import สแนปช็อต — fallback คำนวณเอง (ไม่ดึง SKJ)
+  const baseRows = snapshotRows.map((r) => ({ id: `stored-${r.date}-${r.code}`, date: r.date, employee: r.employee, code: r.code, group: r.group, fraction: Number(r.fraction) || 1, source: 'stored' }))
   const absenceByCode = buildLeaveAbsenceMap(leaveRows)
-  return skjRows.filter((r) => !absenceByCode[r.code]?.has(r.date))
+  return baseRows.filter((r) => !absenceByCode[r.code]?.has(r.date))
 }
 let hrManpowerSourceCache = { at: 0, data: null }
 async function getHrManpowerSource() {
@@ -395,6 +398,16 @@ async function opWorkforceInner(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const body = req.body || {}
   const action = String(body.action || '').trim().toLowerCase()
+  if (action === 'import-manpower-snapshot') {
+    if (!requireAdmin(req, res)) return
+    const personMap = await getPersonMap()
+    const skjRows = await getManpowerSource(personMap) // ดึงจาก Drive ครั้งนี้ครั้งเดียว จากนั้น getCalendarPresence จะไม่ดึงอีก
+    if (!skjRows.length) return res.status(400).json({ error: 'ไม่พบข้อมูลจากไฟล์ SKJ (เช็ค MANPOWER_FILE_ID หรือไฟล์ว่าง)' })
+    const rows = skjRows.map((r) => SCHEDULE_SNAPSHOT_HEADERS.map((h) => ({ date: r.date, code: r.code, employee: r.employee, group: r.group, fraction: r.fraction ?? 1 })[h] ?? ''))
+    await overwriteSheet('workforce_schedule_snapshot', SCHEDULE_SNAPSHOT_HEADERS, rows)
+    clearWorkforceCache()
+    return res.status(200).json({ success: true, imported: rows.length })
+  }
   if (action === 'create-plan') {
     const employees = Array.isArray(body.employees) ? body.employees.filter(Boolean) : []
     if (!body.date || !employees.length || !body.planned_start || !body.planned_end) return res.status(400).json({ error: 'กรุณาระบุวันที่ รายชื่อ และเวลา OT' })
