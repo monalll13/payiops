@@ -31,17 +31,24 @@ export default async function handler(req, res) {
       if (!mapped.has(masterSku)) mapped.set(masterSku, { masterSku, displayName })
     }
     const productMapping = [...mapped.values()].sort((a, b) => a.masterSku.localeCompare(b.masterSku, undefined, { numeric: true }))
-    const tabs = meta.sheets.map((sheet) => sheet.properties.title).filter((title) => title.startsWith('raw_orders')).sort().slice(-4)
+    const allTabs = meta.sheets.map((sheet) => sheet.properties.title).filter((title) => title.startsWith('raw_orders')).sort()
+    if (!allTabs.length) return res.status(200).json({ success: true, items: [], productMapping, anchor: '', start: '', days: 90, fetchedAt: new Date().toISOString() })
+
+    // ห้ามเดาว่า 4 tab ท้ายสุด (เรียงตามชื่อ) = 4 เดือนล่าสุดที่มีข้อมูลจริง — import-orders.js/ensureSheet
+    // สร้าง tab เดือนล่วงหน้าไว้ล่วงหน้าได้ (ว่างเปล่า, แค่ header) ซึ่งจะอยู่ท้ายสุดตามชื่อเสมอ
+    // เช็คคอลัมน์ D (วันที่) ของทุก tab ก่อน (เบา แค่คอลัมน์เดียว) แล้วค่อยเลือก 4 tab ที่มีข้อมูลจริงล่าสุด
+    const dateCols = await batchGetValues(allTabs.map((tab) => `${tab}!D:D`))
+    const dataTabs = allTabs.filter((tab, i) => (dateCols[i]?.values || []).length > 1)
+    const tabs = dataTabs.slice(-4)
     if (!tabs.length) return res.status(200).json({ success: true, items: [], productMapping, anchor: '', start: '', days: 90, fetchedAt: new Date().toISOString() })
 
-    const ranges = tabs.flatMap((tab) => [`${tab}!D:D`, `${tab}!J:N`])
-    const values = await batchGetValues(ranges)
+    const productCols = await batchGetValues(tabs.map((tab) => `${tab}!J:N`))
     const raw = []
     let anchor = ''
 
     for (let index = 0; index < tabs.length; index += 1) {
-      const dates = values[index * 2]?.values || []
-      const products = values[index * 2 + 1]?.values || []
+      const dates = dateCols[allTabs.indexOf(tabs[index])]?.values || []
+      const products = productCols[index]?.values || []
       const length = Math.max(dates.length, products.length)
       for (let rowIndex = 1; rowIndex < length; rowIndex += 1) {
         const date = String(dates[rowIndex]?.[0] || '').slice(0, 10)

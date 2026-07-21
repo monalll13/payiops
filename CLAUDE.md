@@ -212,9 +212,26 @@ a new one.
    use. `deriveGroup` was the wrong tool here; don't reuse it for inventory quantities.
    Modeled on the owner's real Excel workflow (`Safety UP177` + monthly `เบิกของ`/`ของเข้า`
    sheets) — see Files section for the mapping. No auto-deduction from sales (owner
-   decision). **Still open before this is real-data-ready:** seed `opening_balance` from
-   the owner's 96-row `Safety UP177` list — needs product-name → `master_sku` matching via
-   `product_aliases` first (nobody has done this mapping yet).
+   decision). ✅ **Seeded with real opening balances (2026-07-21)** — 70 `inventory_items`
+   rows, matched from the owner's `Safety UP177` list to `master_sku` via `product_aliases`
+   (owner confirmed the ambiguous ones by hand — including one correction: เฝือกโป้ง is
+   **PY050** ผ้ารัดหัวแม่เท้าเอียง, not PY033; PY033 is พยุงเท้า/Night Splint only). Notes
+   for future edits:
+   - Some items combine multiple color variants into one SKU's `opening_balance` because
+     `master_sku` doesn't split by color: **PY066** (ถุงเท้าดับกลิ่น ดำ/ขาว/ฟ้า, sum),
+     **PY073** (กันรองเท้ากัด/หลวม ดำ/เนื้อ, sum), **PY051** (a whole Sky/Ocean size×color
+     line, sum). If the owner ever wants per-color stock visibility, these need splitting
+     into their own SKUs first (same limitation `deriveGroup` already has for colors glued
+     without a space).
+   - **PY076** (แผ่นเจลฝ่า) and **ZZ004/ZZ005/ZZ006** (ไม้ดัดเท้า / สมุนไพรแช่เท้า /
+     ถุงมือรองรีดผ้า) exist **only in `inventory_items`, NOT in `product_aliases`** — they
+     won't show up on Products/Claims/Dashboard since those key off `product_aliases`.
+     Add them there too if the owner ever needs sales-side reporting on these.
+   - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
+     ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
+     owner confirmed they belong to the กรอบรูป shop, out of scope here.
+   - `safety_stock` is `0` for all 69 seeded items (no reorder-point data was provided) —
+     owner should set real thresholds per item via the Inventory page's edit action.
 8. ✅ **REMOVED (2026-07-21)** — "PAYI Brain" AI Assistant tab was fake (canned
    if/else replies, no LLM call). Owner decided to delete rather than keep a
    fake-AI page (`AIAssistantView` function, menu item, icon mapping, ternary branch

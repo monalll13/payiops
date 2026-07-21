@@ -114,9 +114,9 @@ const menuGroups = [
   {
     title: 'วางแผนและปฏิบัติการ',
     items: [
-      { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.PlannerControl, dotColor: '#8b5cf6', group: ['Planner Control', 'FeedProducts'] },
       { id: 'Inventory', label: 'Inventory', renderIcon: Icons.Inventory, dotColor: 'var(--payi-danger)' },
       { id: 'Stock Movement', label: 'Stock Movement', renderIcon: Icons.StockMovement },
+      { id: 'Planner Control', label: 'Planner Control', renderIcon: Icons.PlannerControl, dotColor: '#8b5cf6', group: ['Planner Control', 'FeedProducts'] },
       { id: 'Workforce OT', label: 'Manpower & OT', renderIcon: Icons.WorkforceOT, dotColor: '#7dd3fc' },
       { id: 'HR', label: 'พนักงาน (ลา)', renderIcon: Icons.HR, dotColor: '#a78bfa' },
       { id: 'Claims', label: 'Claims', renderIcon: Icons.Claims }

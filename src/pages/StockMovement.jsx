@@ -34,6 +34,8 @@ function toCsv(rows) {
   return lines.join('\n')
 }
 
+const ABC_RANK = { A: 0, B: 1, C: 2 }
+
 export default function StockMovement() {
   const [movements, setMovements] = useState([])
   const [items, setItems] = useState([])
@@ -58,11 +60,23 @@ export default function StockMovement() {
     Promise.all([
       fetch(`/api/sheet-tools?op=inventory&${params.toString()}`).then((r) => r.json()),
       fetch('/api/sheet-tools?op=inventory&view=items').then((r) => r.json()),
+      fetch('/api/planner-sales').then((r) => r.json()).catch(() => null),
     ])
-      .then(([moveData, itemData]) => {
+      .then(([moveData, itemData, planner]) => {
         if (!moveData.success) throw new Error(moveData.error || 'โหลดข้อมูลไม่สำเร็จ')
         setMovements(moveData.movements || [])
-        setItems(itemData.items || [])
+
+        // เรียงสินค้าตาม ABC (จาก /api/planner-sales — ยอดขาย 90 วันล่าสุด) ให้ของขายดี (A)
+        // ขึ้นก่อนตอนเลือกสินค้าบันทึกรายการ — ของที่หยิบบ่อยควรอยู่บนสุด ไม่ใช่เรียงตามชื่อ
+        const abcBySku = new Map((planner?.items || []).map((p) => [String(p.masterSku || '').toUpperCase(), p.abc]))
+        const withAbc = (itemData.items || []).map((it) => ({ ...it, abc: abcBySku.get(String(it.sku).toUpperCase()) || null }))
+        withAbc.sort((a, b) => {
+          const rankA = ABC_RANK[a.abc] ?? 3
+          const rankB = ABC_RANK[b.abc] ?? 3
+          if (rankA !== rankB) return rankA - rankB
+          return a.display_name.localeCompare(b.display_name, 'th')
+        })
+        setItems(withAbc)
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -215,7 +229,7 @@ function AddMovementModal({ items, saving, onClose, onSave }) {
             <select value={sku} onChange={(e) => setSku(e.target.value)} required style={{ ...inputStyle, width: '100%' }}>
               {items.length === 0 && <option value="">ยังไม่มีสินค้า — ไปเพิ่มที่หน้า Inventory ก่อน</option>}
               {items.map((it) => (
-                <option key={it.sku} value={it.sku}>{it.display_name} ({it.sku})</option>
+                <option key={it.sku} value={it.sku}>{it.abc ? `[${it.abc}] ` : ''}{it.display_name} ({it.sku})</option>
               ))}
             </select>
           </div>
