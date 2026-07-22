@@ -259,6 +259,24 @@ a new one.
      the table never silently overwrites the sheet). Row order is ABC asc, then `units90`
      desc (ties broken by name) — same ABC source as `StockMovement.jsx`. Added a "เฉพาะที่
      แนะนำสั่ง" checkbox that filters to rows with `recommendedOrder > 0`.
+   - ✅ **DONE (2026-07-21) — status/recommended-order use the live formula, not just the
+     saved number.** Found right after shipping the above: the status badge and
+     "แนะนำสั่งซื้อ" trigger were still reading the server's `status` field, which is
+     computed server-side from the *stored* `safety_stock` only — so an item could show
+     an auto-computed "ขั้นต่ำ" of e.g. 1,985 while still displaying "ปกติ" and no
+     recommendation, because the sheet's saved `safety_stock` was still 0. `Inventory.jsx`
+     now computes its own `effectiveStatus` (mirrors the server's `statusOf`, but fed
+     `effectiveSafety`) client-side, and both the badge and the KPI "Low Stock" count use
+     that instead. Dropped the "(สูตร)" label text (redundant once the number itself is
+     just always the live one).
+   - ✅ **DONE (2026-07-21) — hide/show items.** Some seeded rows aren't real
+     stock-tracked SKUs (owner spotted them by eye). `active` was already a soft-delete
+     flag in the schema (`truthyActive`/`upsertItem` already supported it) but had no UI.
+     `op=inventory&view=items&includeHidden=1` now always returns everything including
+     inactive rows (with an `active` boolean per item); `Inventory.jsx` filters that down
+     to active-only by default and adds a "แสดงสินค้าที่ซ่อนไว้" checkbox to reveal +
+     restore hidden ones. Hiding is just `upsert-item {sku, active:false}` — fully
+     reversible, never a real delete.
    - ✅ **DONE (2026-07-21) — lead time + ship_freight backfilled for real** on all 70
      seeded items, read straight from the owner's `Safety UP177` file (columns J/K for
      lead_time_production/transport) via openpyxl. The `ship_freight` flag came from

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Boxes, Layers, AlertTriangle, ArrowLeftRight, Plus, Pencil, X } from 'lucide-react'
+import { Boxes, Layers, AlertTriangle, ArrowLeftRight, Plus, Pencil, X, Eye, EyeOff } from 'lucide-react'
 import KpiCard from '../components/KpiCard'
 
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })
@@ -8,6 +8,14 @@ const fmtShortDate = (iso) => {
   const d = new Date(`${iso}T00:00:00`)
   if (isNaN(d)) return iso
   return d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })
+}
+
+// เหมือน statusOf ฝั่ง api/_lib/inventory.js — แต่รับ safety stock ที่คำนวณสดจากสูตร lead time
+// ด้วย (effectiveSafety) ไม่ใช่แค่เลขที่เซฟไว้ในชีต ไม่งั้นสถานะ/แนะนำสั่งซื้อจะไม่ขยับตามสูตรเลย
+const statusOf = (balance, safetyStock) => {
+  if (balance <= 0) return 'หมด'
+  if (safetyStock > 0 && balance <= safetyStock) return 'ใกล้หมด'
+  return 'ปกติ'
 }
 
 const STATUS_STYLE = {
@@ -69,6 +77,7 @@ export default function Inventory() {
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState('')
   const [onlyRecommended, setOnlyRecommended] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
   const [itemModal, setItemModal] = useState(null) // null | 'new' | item object (edit)
   const [moveModal, setMoveModal] = useState(null) // { sku, display_name, unit, type }
 
@@ -76,7 +85,7 @@ export default function Inventory() {
     setLoading(true)
     setError('')
     Promise.all([
-      fetch('/api/sheet-tools?op=inventory&view=items').then((r) => r.json()),
+      fetch('/api/sheet-tools?op=inventory&view=items&includeHidden=1').then((r) => r.json()),
       fetch('/api/planner-sales').then((r) => r.json()).catch(() => null),
     ])
       .then(([d, planner]) => {
@@ -107,16 +116,22 @@ export default function Inventory() {
       const leadTimeTotal = (it.lead_time_production || 0) + (it.lead_time_transport || 0)
       const computedSafety = calcSuggestedSafety(dailyAvg, leadTimeTotal, it.ship_freight)
       const effectiveSafety = computedSafety !== null ? computedSafety : it.safety_stock
-      const recommendedOrder = it.status !== 'ปกติ' && dailyAvg && leadTimeTotal
+      const effectiveStatus = statusOf(it.balance, effectiveSafety)
+      const recommendedOrder = effectiveStatus !== 'ปกติ' && dailyAvg && leadTimeTotal
         ? calcRecommendedOrder(effectiveSafety, it.balance, dailyAvg, leadTimeTotal)
         : null
-      return { ...it, dailyAvg, units90, abc, leadTimeTotal, computedSafety, effectiveSafety, recommendedOrder }
+      return { ...it, dailyAvg, units90, abc, leadTimeTotal, computedSafety, effectiveSafety, effectiveStatus, recommendedOrder }
     })
   }, [items, salesBySku])
 
+  // นับ Low Stock จาก effectiveStatus (สูตรสด) ไม่ใช้ totals.lowStockCount จาก server ตรงๆ
+  // เพราะอันนั้นนับจาก safety_stock ที่เซฟไว้ในชีตเท่านั้น จะไม่ตรงกับสถานะที่โชว์ในตาราง
+  const activeEnriched = useMemo(() => enriched.filter((it) => it.active), [enriched])
+  const lowStockCount = useMemo(() => activeEnriched.filter((it) => it.effectiveStatus !== 'ปกติ').length, [activeEnriched])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let rows = enriched
+    let rows = enriched.filter((it) => showHidden || it.active)
     if (q) rows = rows.filter((it) => it.display_name.toLowerCase().includes(q) || String(it.sku).toLowerCase().includes(q))
     if (onlyRecommended) rows = rows.filter((it) => (it.recommendedOrder || 0) > 0)
     return [...rows].sort((a, b) => {
@@ -126,7 +141,26 @@ export default function Inventory() {
       if (b.units90 !== a.units90) return b.units90 - a.units90
       return a.display_name.localeCompare(b.display_name, 'th')
     })
-  }, [enriched, query, onlyRecommended])
+  }, [enriched, query, onlyRecommended, showHidden])
+
+  const setItemHidden = async (sku, hidden) => {
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/sheet-tools?op=inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upsert-item', sku, active: !hidden }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'บันทึกไม่สำเร็จ')
+      load()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const saveItem = async (payload) => {
     setSaving(true)
@@ -177,7 +211,7 @@ export default function Inventory() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
         <KpiCard title="Total Products" value={fmt(totals.totalProducts)} subtitle="รายการสินค้า" icon={Boxes} trend={null} />
         <KpiCard title="Total Stock" value={fmt(totals.totalStock)} subtitle="รวมทุกหน่วย" icon={Layers} trend={null} />
-        <KpiCard title="Low Stock" value={fmt(totals.lowStockCount)} subtitle="รายการใกล้หมด/หมด" icon={AlertTriangle} trend={null} />
+        <KpiCard title="Low Stock" value={fmt(lowStockCount)} subtitle="รายการใกล้หมด/หมด" icon={AlertTriangle} trend={null} />
         <KpiCard title="Transactions" value={fmt(totals.transactionsToday)} subtitle="วันนี้" icon={ArrowLeftRight} trend={null} />
       </div>
 
@@ -188,6 +222,10 @@ export default function Inventory() {
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', cursor: 'pointer' }}>
               <input type="checkbox" checked={onlyRecommended} onChange={(e) => setOnlyRecommended(e.target.checked)} />
               เฉพาะที่แนะนำสั่ง
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+              แสดงสินค้าที่ซ่อนไว้
             </label>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาสินค้า..." style={{ ...inputStyle, width: 220 }} />
             <button
@@ -227,8 +265,8 @@ export default function Inventory() {
                     <td style={{ padding: '10px' }}>
                       {it.abc && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--payi-text-faint)' }}>{it.abc}</span>}
                     </td>
-                    <td style={{ padding: '10px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}</div>
+                    <td style={{ padding: '10px', opacity: it.active ? 1 : 0.5 }}>
+                      <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}{!it.active && ' (ซ่อนอยู่)'}</div>
                       <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', fontFamily: 'monospace' }}>{it.sku}</div>
                     </td>
                     <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: it.balance <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-strong)' }}>{fmt(it.balance)}</td>
@@ -238,13 +276,13 @@ export default function Inventory() {
                         title="กดเพื่อแก้ไข"
                         style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: autoSafety ? 'var(--payi-mint-strong)' : 'var(--payi-text-muted)', fontWeight: autoSafety ? 800 : 400 }}
                       >
-                        {fmt(it.effectiveSafety)}{autoSafety && <span style={{ fontSize: 10, marginLeft: 3 }}>(สูตร)</span>}
+                        {fmt(it.effectiveSafety)}
                       </button>
                     </td>
                     <td style={{ padding: '10px', color: 'var(--payi-text-muted)' }}>{it.unit}</td>
                     <td style={{ padding: '10px' }}>
-                      <StatusBadge status={it.status} />
-                      {it.status !== 'ปกติ' && it.expected_arrival && (
+                      <StatusBadge status={it.effectiveStatus} />
+                      {it.effectiveStatus !== 'ปกติ' && it.expected_arrival && (
                         <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', marginTop: 4 }}>
                           รอของ {fmtShortDate(it.expected_arrival)}
                         </div>
@@ -259,9 +297,18 @@ export default function Inventory() {
                     </td>
                     <td style={{ padding: '10px' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'in' })} title="รับเข้า" style={iconBtnStyle('var(--payi-success)')}>+</button>
-                        <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'out' })} title="เบิกออก" style={iconBtnStyle('var(--payi-danger)')}>−</button>
-                        <button onClick={() => setItemModal(it)} title="แก้ไข" style={iconBtnStyle('var(--payi-text-muted)')}><Pencil size={13} /></button>
+                        {it.active ? (
+                          <>
+                            <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'in' })} title="รับเข้า" style={iconBtnStyle('var(--payi-success)')}>+</button>
+                            <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'out' })} title="เบิกออก" style={iconBtnStyle('var(--payi-danger)')}>−</button>
+                            <button onClick={() => setItemModal(it)} title="แก้ไข" style={iconBtnStyle('var(--payi-text-muted)')}><Pencil size={13} /></button>
+                            <button onClick={() => setItemHidden(it.sku, true)} title="ซ่อนสินค้านี้ (ไม่ได้ใช้ track สต็อก)" style={iconBtnStyle('var(--payi-text-muted)')}><EyeOff size={13} /></button>
+                          </>
+                        ) : (
+                          <button onClick={() => setItemHidden(it.sku, false)} title="ยกเลิกซ่อน" style={{ ...iconBtnStyle('var(--payi-mint-strong)'), width: 'auto', padding: '0 10px', gap: 6, display: 'flex', alignItems: 'center' }}>
+                            <Eye size={13} /> กู้คืน
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

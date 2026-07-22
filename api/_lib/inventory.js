@@ -31,7 +31,7 @@ function statusOf(balance, safetyStock) {
   return 'ปกติ'
 }
 
-async function loadItemsWithBalance() {
+async function loadItemsWithBalance({ includeHidden = false } = {}) {
   await ensureInventorySheets()
   const [items, movements] = await Promise.all([getSheet(ITEMS_SHEET), getSheet(MOVEMENTS_SHEET)])
   const bySku = new Map()
@@ -43,8 +43,10 @@ async function loadItemsWithBalance() {
   const today = todayBKK()
   const transactionsToday = movements.filter((m) => isoDate(m.date) === today).length
 
-  const activeItems = items.filter((it) => it.sku && truthyActive(it.active))
-  const rows = activeItems.map((it) => {
+  // ซ่อนสินค้าที่ไม่ได้ใช้ track สต็อกจริง (active=0) ออกจากรายการ/ยอดรวมปกติ —
+  // ยังกู้คืนได้เสมอ ไม่ใช่ลบทิ้ง (includeHidden=1 ไว้ดู/กู้คืนจากหน้า Inventory)
+  const visibleItems = items.filter((it) => it.sku && (includeHidden || truthyActive(it.active)))
+  const rows = visibleItems.map((it) => {
     const balance = num(it.opening_balance) + (bySku.get(String(it.sku)) || 0)
     const safetyStock = num(it.safety_stock)
     return {
@@ -59,16 +61,18 @@ async function loadItemsWithBalance() {
       lead_time_production: num(it.lead_time_production),
       lead_time_transport: num(it.lead_time_transport),
       ship_freight: String(it.ship_freight) === '1' || String(it.ship_freight).toLowerCase() === 'true',
+      active: truthyActive(it.active),
     }
   })
   rows.sort((a, b) => a.display_name.localeCompare(b.display_name, 'th'))
 
+  const activeRows = rows.filter((r) => r.active)
   return {
     items: rows,
     totals: {
-      totalProducts: rows.length,
-      totalStock: rows.reduce((s, r) => s + r.balance, 0),
-      lowStockCount: rows.filter((r) => r.status !== 'ปกติ').length,
+      totalProducts: activeRows.length,
+      totalStock: activeRows.reduce((s, r) => s + r.balance, 0),
+      lowStockCount: activeRows.filter((r) => r.status !== 'ปกติ').length,
       transactionsToday,
     },
   }
@@ -199,7 +203,7 @@ export default async function opInventory(req, res) {
         })
         return res.status(200).json({ success: true, movements: rows })
       }
-      const data = await loadItemsWithBalance()
+      const data = await loadItemsWithBalance({ includeHidden: req.query.includeHidden === '1' })
       return res.status(200).json({ success: true, ...data })
     }
 
