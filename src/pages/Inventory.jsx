@@ -277,7 +277,15 @@ export default function Inventory() {
                   return (
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
                     <td style={{ padding: '10px' }}>
-                      {it.abc && <span style={{ fontSize: 11, fontWeight: 800, color: it.ship_freight ? 'var(--payi-success)' : 'var(--payi-text-faint)' }}>{it.abc}</span>}
+                      {it.abc && (
+                        <span style={{
+                          fontSize: 11, fontWeight: 800, padding: it.ship_freight ? '2px 7px' : 0, borderRadius: 999,
+                          background: it.ship_freight ? '#fde047' : 'transparent',
+                          color: it.ship_freight ? '#713f12' : 'var(--payi-text-faint)',
+                        }}>
+                          {it.abc}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '10px', opacity: it.active ? 1 : 0.5 }}>
                       <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}{!it.active && ' (ซ่อนอยู่)'}</div>
