@@ -218,30 +218,32 @@ a new one.
    (owner confirmed the ambiguous ones by hand — including one correction: เฝือกโป้ง is
    **PY050** ผ้ารัดหัวแม่เท้าเอียง, not PY033; PY033 is พยุงเท้า/Night Splint only). Notes
    for future edits:
-   - ✅ **DONE (2026-07-22) — split the color-combined SKUs into real separate rows.**
-     Owner's actual stock sheet tracks colors as separate line items even when they share
-     one nominal `master_sku`, so `deriveGroup`-style combining was wrong for inventory
-     counting. Split using the owner's original per-color quantities (no data loss, zero
-     real `stock_movements` existed against the combined rows yet): **PY066** (ถุงเท้า
-     ดับกลิ่น ดำ) → added **PY066-B** (ขาว) and **PY066-C** (ฟ้าเบบี้บลู); **PY073**
-     (กันรองเท้ากัด/หลวม ดำ) → added **PY073-B** (เนื้อ) — same `-B`/`-C` suffix convention
-     already used by `PY047`/`PY047-B`. **PY051** (Sky/Ocean, 10 size×color variants) is
-     still one combined line — same split treatment needed but wasn't done yet (10-way
-     split needs new SKU codes with no natural naming, owner hasn't weighed in).
-   - ✅ **DONE (2026-07-22) — PY076 added to `product_aliases`** (business=Payi,
-     platform=Shopee placeholder, alias=display name) so it shows on Products/Claims/
-     Dashboard. **ZZ004/ZZ005/ZZ006 still NOT added** — turned out **ZZ003 in
-     `product_aliases` already means "ถุงมือรองรีดผ้า"** (a real historically-sold,
-     discontinued SKU) which conflicts with the owner's instruction to give ถุงมือรองรีด
-     a *new* ZZ006 code instead of reusing ZZ003. Also PY055/PY056 already exist as real
-     master_sku for ไม้ดัดเท้า/สมุนไพรแช่เท้า, so ZZ004/ZZ005 would create duplicate-name
-     catalog entries under different codes. Owner confirmed **ZZ prefix = discontinued/
-     no-longer-sold products** — flagged this collision back to the owner rather than
-     silently deciding; not resolved yet.
-   - **Mirott (3 flavors: สูตรเย็น/สูตรร้อน/ออริจินอล)** — owner says it's discontinued,
-     needs a new ZZ code (continuing from ZZ006 → ZZ007/8/9), but scope (one code for all
-     3 flavors vs one each) wasn't confirmed. No quantity data exists for it either
-     (blank in the original pasted stock list). Not built yet.
+   - ✅ **DONE (2026-07-22) — split the color/size-combined SKUs into real separate rows.**
+     Owner's actual stock sheet tracks color/size as separate line items even when they'd
+     nominally share one `master_sku`, so `deriveGroup`-style combining was wrong for
+     inventory counting. Split using the owner's original per-variant quantities (no data
+     loss, zero real `stock_movements` existed against any combined row): **PY066**
+     (ถุงเท้าดับกลิ่น ดำ) → added **PY066-B** (ขาว), **PY066-C** (ฟ้าเบบี้บลู); **PY073**
+     (กันรองเท้ากัด/หลวม ดำ) → added **PY073-B** (เนื้อ); **PY051** (Sky/Ocean line) → split
+     into 10 rows **PY051, PY051-B .. PY051-J** (5 Sky sizes + 5 Ocean sizes) — owner said
+     reusing the same base SKU with suffixes is fine, don't need distinct new codes. `-B`/
+     `-C`/etc suffix convention was already established by `PY047`/`PY047-B`.
+   - ✅ **DONE (2026-07-22) — ZZ004-ZZ009 created + added to `product_aliases`.** Owner
+     confirmed: it's fine that these duplicate display names already used by
+     `PY055`/`PY056`/`ZZ003` under different codes — **ZZ prefix means discontinued/
+     no-longer-sold**, a deliberately separate catalog identity from the historically-sold
+     SKU even when the product name is the same. `ZZ004` ไม้ดัดเท้า, `ZZ005` สมุนไพรแช่เท้า,
+     `ZZ006` ถุงมือรองรีดผ้า, `ZZ007/008/009` Mirott สูตรเย็น/สูตรร้อน/ออริจินอล (opening
+     balance 0 for all three — no quantity data ever existed for Mirott, blank in the
+     original pasted stock list). All 9 + `PY076` now show up on Products/Claims/
+     Dashboard via `product_aliases` (business=Payi, platform=Shopee placeholder alias).
+   - **Gotcha:** `appendRows` to `product_aliases` intermittently landed with the last 4
+     columns blank on the very next read (once for a single-row append; a later 6-row
+     append was fine) — cause not fully root-caused, suspect a transient Sheets API/cache
+     timing issue rather than a real code bug. **Always verify with a fresh GET right after
+     any append to `product_aliases`** (or any large shared sheet) and repair via
+     read-modify-write if it happened, same as done here — don't assume the API response
+     saying `ok:true` means the data landed correctly.
    - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
