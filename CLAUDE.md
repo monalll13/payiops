@@ -259,6 +259,18 @@ a new one.
      the table never silently overwrites the sheet). Row order is ABC asc, then `units90`
      desc (ties broken by name) — same ABC source as `StockMovement.jsx`. Added a "เฉพาะที่
      แนะนำสั่ง" checkbox that filters to rows with `recommendedOrder > 0`.
+   - ✅ **DONE (2026-07-21) — lead time + ship_freight backfilled for real** on all 70
+     seeded items, read straight from the owner's `Safety UP177` file (columns J/K for
+     lead_time_production/transport) via openpyxl. The `ship_freight` flag came from
+     reading cell **fill color** on column A ("เขียว=leadtime เรือ" — theme color 9 =
+     sea-freight rows) rather than any cell value, since that's how the owner's original
+     sheet actually encodes it. Without this the "แนะนำสั่งซื้อ" column was empty for
+     every real item (no lead time = formula has nothing to compute from) — this is why
+     it looked broken. **Also found and wiped a data-integrity bug while fixing this:**
+     `reorder_date`/`expected_arrival` had the exact same bogus timestamp duplicated
+     across 69/70 rows (an artifact from earlier test-and-reset cycles this session, not
+     real owner data — never chase the root cause further than confirming stock
+     quantities were untouched; just clear it and move on).
 8. ✅ **REMOVED (2026-07-21)** — "PAYI Brain" AI Assistant tab was fake (canned
    if/else replies, no LLM call). Owner decided to delete rather than keep a
    fake-AI page (`AIAssistantView` function, menu item, icon mapping, ternary branch
