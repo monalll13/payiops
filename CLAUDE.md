@@ -283,7 +283,35 @@ a new one.
      ครีมนวดเท้า/PY027, ลูกกลิ้งนวดเท้า/PY028, or both combined; `PY071` [Set นิ้วโป้งเท้า
      24 ชม.] → ซิลิโคนคั่นนิ้วโป้ง/PY043, ผ้ารัดหัวแม่เท้า/PY050, or both combined. All 3
      known Set SKUs now fully decomposed (38 `set_recipes` rows total).
-   - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
+   - ✅ **DONE (2026-07-22) — Set SKUs now keep their own sales too, not just decompose.**
+     Owner clarified: a real Set (PY067/069/071) needs its **own** ABC/sales tracked (to
+     know if the Set itself sells well) *in addition to* feeding component demand for
+     production/ordering ("บ้านล่าง" feed planning) — the original design silently dropped
+     the Set's own entry once decomposed, which was wrong. `set_recipes` gained a 5th
+     column `keep_set_sales` (blank/`1` = also keep the Set's own row, default — matches
+     PY067/069/071; `0` = fully redirect, no self-tracking) so this is configurable per
+     recipe row without a code change.
+   - ✅ **DONE (2026-07-22) — SKU_REDIRECTS + fixed a real catalog mixup found via SKU
+     audit.** Two issues surfaced while spot-checking: (1) `PY065` (ถุงเท้าสปาสีชมพู,
+     588 real units/90d) had **zero** rows in `product_aliases` despite selling — turned
+     out **`PY041` was already the correct, long-established code** for this exact
+     product (6 real alias rows across Shopee/TikTok/Lazada/Outlet/Claims) — `PY065` was
+     a stray duplicate code from some import. Renamed the `inventory_items` row to
+     `PY041` (zero real `stock_movements` existed, safe) and added a small
+     `SKU_REDIRECTS = { PY065: 'PY041' }` map in `planner-sales.js` so historical *and*
+     future `raw_orders` rows still tagged `PY065` by Shopee/TikTok keep counting under
+     `PY041` — renaming in our system doesn't change what the platforms send us, so this
+     redirect is required for the rename to actually work, not just cosmetic. (2) `PY075`
+     (บอลเทาปุ่ม) had a **second, unrelated product mixed into the same `master_sku`** in
+     `product_aliases`: `[Set คลายเส้น]` — actually เก้าอี้มหัศจรรย์ (`PY026`) sold in
+     Standard/Set Pro/Premium quantity tiers (1/2/3 chairs, Set Pro & Premium also bundle
+     in `PY028` ลูกกลิ้งนวดเท้า and `PY027` ครีมนวดเท้า) — contaminating both PY075's and
+     PY026's real sales numbers. Fixed via the same `set_recipes` mechanism (6 rows,
+     `keep_set_sales=0` since this isn't a real Set line, just a mislabeled listing) —
+     verified live: PY075 dropped 124→52 units/90d (real ball-only sales), PY026 gained
+     the redirected chair units (1923→1995). **`SKU_REDIRECTS` is a hardcoded map for now
+     (one entry)** — fine at this scale, but if renames become frequent, move it to a
+     Sheets tab like `set_recipes` instead of requiring a code deploy per rename. (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
    - `safety_stock` is `0` for all 69 seeded items (no reorder-point data was provided) —
