@@ -304,6 +304,9 @@ body {
   .app-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
+  .app-two-col-fixed {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 @media (max-width: 560px) {
@@ -313,5 +316,9 @@ body {
   }
   .app-kpi-grid {
     grid-template-columns: 1fr !important;
+  }
+  .app-side-drawer {
+    width: 100vw !important;
+    padding: 20px !important;
   }
 }

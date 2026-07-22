@@ -189,7 +189,7 @@ function AlertsSection({ alerts }) {
 function TrendingCard({ title, items, isUp }) {
   if (!items || items.length === 0) return null;
   return (
-    <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, padding: '20px', flex: 1 }}>
+    <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, padding: '20px', flex: '1 1 260px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         {isUp ? <TrendingUp size={18} color="var(--payi-success)" /> : <TrendingDown size={18} color="var(--payi-danger)" />}
         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--payi-text-strong)' }}>{title}</span>
@@ -251,12 +251,12 @@ function ProductInsightDrawer({ isOpen, onClose, selectedSku }) {
         }}
       />
 
-      <div className="payi-drawer-slide-in" style={{
+      <div className="payi-drawer-slide-in app-side-drawer" style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
-        width: '460px', backgroundColor: 'var(--payi-surface)',
+        width: '460px', maxWidth: '100vw', backgroundColor: 'var(--payi-surface)',
         boxShadow: '-10px 0 40px rgba(15, 23, 42, 0.08)',
         zIndex: 999, display: 'flex', flexDirection: 'column',
-        padding: '32px', boxSizing: 'border-box'
+        padding: '32px', boxSizing: 'border-box', overflowY: 'auto'
       }}>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
@@ -969,7 +969,7 @@ export default function App() {
             <AlertsSection alerts={alerts} />
 
             {/* 2. TRENDING ROW */}
-            <div style={{ display: 'flex', gap: 18, marginBottom: 28 }}>
+            <div className="app-two-col" style={{ display: 'flex', gap: 18, marginBottom: 28, flexWrap: 'wrap' }}>
               {/* Trending Up Card */}
               <TrendingCard title="Trending Up 🔥" items={trendingUp} isUp={true} />
 
@@ -1111,8 +1111,8 @@ export default function App() {
             </div>
 
             {/* TOP PERFORMANCE SKUs TABLE */}
-            <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, overflow: 'hidden', marginBottom: 40, boxShadow: '0 4px 20px rgba(0,0,0,0.01)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
+            <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 16, overflowX: 'auto', marginBottom: 40, boxShadow: '0 4px 20px rgba(0,0,0,0.01)' }}>
+              <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: 'var(--payi-surface-muted)', borderBottom: '1px solid var(--payi-border)' }}>
                     <th style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--payi-text)', fontSize: 11, textAlign: 'center' }}>SKU</th>
