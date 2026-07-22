@@ -204,7 +204,7 @@ export default function ProductDashboard() {
       {/* Product table */}
       <Card title="ตารางสินค้าทั้งหมด" sub={`${periodLabel(activeMonth)} · ${filtered.length} กลุ่ม · คลิกเพื่อดูรายละเอียดและ SKU ในกลุ่ม`}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--payi-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 <th style={thStyle}>สินค้า</th>
