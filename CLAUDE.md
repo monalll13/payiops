@@ -459,17 +459,47 @@ a new one.
 10. ✅ **DONE (2026-07-22) — mobile-responsive pass across the whole app**, owner request
     ("ทั้งแอพ"). Nav shell first: sidebar is locked permanently expanded on desktop (owner
     asked to stop the old hover-to-expand behavior — see `sidebarExpanded` in `App.jsx`,
-    now a constant `true` not state); at `<=860px` it becomes an off-canvas drawer toggled
-    by a hamburger button (`.payi-hamburger-btn`, only visible in that breakpoint), with a
-    tap-outside backdrop and auto-close on menu selection. **The drawer's open/close is
-    driven by an inline `transform` tied to a `window.innerWidth` resize-listener state
-    (`isMobileViewport`), not a CSS class + transition** — a plain CSS transition on that
-    property got stuck mid-animation during testing (computed style never reached its
-    target despite correct class/specificity, reproducible via direct DOM manipulation in
-    the browser tooling here) — dropping the transition (instant toggle) fixed it
-    immediately. Root cause not fully understood (suspected compositor-thread sync issue
-    specific to this testing harness) — worth revisiting if animation is wanted later, but
-    don't just add `transition: transform ...ms` back without re-testing carefully.
+    now a constant `true` not state).
+    - **v1 (superseded same day)**: mobile got an off-canvas drawer (sidebar slid in from a
+      hamburger button). Its open/close was driven by inline `transform` tied to
+      `isMobileViewport`/`mobileNavOpen` state rather than a CSS class + transition — a
+      plain CSS transition on that property got stuck mid-animation in this testing
+      environment (computed style never reached its target despite correct class/
+      specificity). Then a **second bug** in the same v1: the backdrop's `z-index` was
+      *higher* than the drawer's on mobile because a CSS `!important` media-query rule
+      wasn't reliably overriding the sidebar's inline `zIndex:20` — the backdrop sat on
+      top and every menu tap was silently swallowed. Owner caught this live ("กด side bar
+      แล้ว มีอะไรมาบัง กดไม่ได้").
+    - ✅ **v2 (current, 2026-07-22) — replaced the drawer entirely with a bottom tab bar**,
+      owner request: "เอา side bar มาทำเป็นเมนู แท็ปข้างล่างทำเหมือนแอพธนาคาร" (reference:
+      soft rounded glassmorphic banking-app UI). Given the two v1 bugs both traced back to
+      **trusting CSS `!important` to override inline styles / trigger transitions
+      reliably in this environment**, v2 avoids that pattern entirely: which nav renders
+      (desktop `.payi-sidebar-nav` vs mobile `.payi-bottom-tabbar`) is decided by a plain
+      JS conditional (`{!isMobileViewport && <sidebar/>}` / `{isMobileViewport &&
+      <tabbar/>}`) driven by the existing `window.innerWidth` resize-listener state — CSS
+      in `theme.css` is pure styling only now, no show/hide `!important` fights possible.
+      **New mobile-only chrome:**
+      - `.payi-bottom-tabbar` — floating frosted-glass pill (`backdrop-filter: blur`,
+        translucent white, rounded, soft shadow) fixed to the bottom, 4 curated most-used
+        tabs (`MOBILE_TAB_CANDIDATES` in `App.jsx`: หน้าหลัก/สต็อก/เคลม/แพลน, filtered by
+        `canAccessTab` per role same as the sidebar) + a 5th "เมนู" button. Active tab gets
+        a mint→green gradient pill behind its icon (`.payi-bottom-tab-icon.active`).
+      - "เมนู" opens `.payi-more-sheet` — a bottom sheet (slide-up animation) listing the
+        *full* `visibleMenuGroups` (same data/grouping as the desktop sidebar, so nothing
+        is unreachable on mobile), backdrop-tap or item-tap to close.
+      - `.payi-main-content` gets `padding-bottom: 108px` on mobile so page content clears
+        the floating tab bar.
+      - Page header (`pageMeta` eyebrow/title/subtitle) gets a soft rounded gradient card
+        on mobile only (`isMobileViewport` ternary inline, not CSS) — mint→green gradient,
+        white text, matching the banking-app reference look. Desktop header unchanged.
+        Search/notification/user-chip row deliberately left in its normal white style
+        below the gradient card (not restyled) to avoid a large risky diff re-theming
+        every child element for contrast.
+      Owner explicitly scoped this as "เท่าที่ปรับได้ไม่พัง" (as much polish as fits
+      without breaking things) — did **not** attempt a full glassmorphic re-theme of every
+      page's internal cards/tables, just the nav chrome + header, which was the concrete
+      ask.
     New shared CSS classes in `theme.css` for the common two-column/KPI-grid layout pattern
     used across pages — collapse at `860px`/`560px`:
     - `app-kpi-grid` — any fixed `repeat(N, ...)` grid (KPI cards, form fields, etc.)

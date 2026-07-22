@@ -138,6 +138,14 @@ const menuGroups = [
   }
 ]
 
+// bottom tab bar มือถือ — 4 อันที่ใช้บ่อยสุด (พื้นที่นิ้วโป้งจำกัด) ที่เหลือเข้าถึงผ่านปุ่ม "เมนู" (sheet เต็ม visibleMenuGroups)
+const MOBILE_TAB_CANDIDATES = [
+  { id: 'Executive', label: 'หน้าหลัก', renderIcon: Icons.Executive, group: ['Executive', 'Monthly'] },
+  { id: 'Inventory', label: 'สต็อก', renderIcon: Icons.Inventory },
+  { id: 'Claims', label: 'เคลม', renderIcon: Icons.Claims },
+  { id: 'Planner Control', label: 'แพลน', renderIcon: Icons.PlannerControl, group: ['Planner Control', 'FeedProducts'] },
+]
+
 // แท็บย่อยของ Dashboard ใหญ่ที่ยุบมาจากหลายหน้า (render เดิมของแต่ละหน้ายังอยู่ครบ)
 const SALES_SUBTABS = [['Executive', 'ภาพรวม'], ['Monthly', 'รายเดือน']]
 const PRODUCT_SUBTABS = [['Products', 'ภาพรวมสินค้า'], ['ProductTrends', '% เปลี่ยนแปลง']]
@@ -360,6 +368,8 @@ export default function App() {
   const visibleMenuGroups = menuGroups
     .map((group) => ({ ...group, items: group.items.filter((item) => canAccessTab(currentRole, item.id)) }))
     .filter((group) => group.items.length > 0)
+  // แถบล่างมือถือ — เลือกมาแค่ 4 อันที่ใช้บ่อยสุด (พื้นที่จำกัด) ที่เหลือกดปุ่ม "เมนู" เปิด sheet ดูทั้งหมด
+  const mobileTabItems = MOBILE_TAB_CANDIDATES.filter((item) => canAccessTab(currentRole, item.id))
   const firstAllowedTab = currentRole === 'staff' ? STAFF_TABS[0] : 'Executive'
   const [activeTab, setActiveTab] = useState(() => {
     try {
@@ -382,10 +392,9 @@ export default function App() {
 
   // sidebar ล็อคขยายไว้ตลอด (เดิมย่อเหลือแค่ไอคอน เอาเมาส์ชี้ถึงขยาย — owner ขอให้ล็อคไว้ ไม่ต้องเก็บแล้ว)
   const sidebarExpanded = true
-  // มือถือ (<=860px, ดูใน theme.css): sidebar กลายเป็นลิ้นชักเลื่อนออก ปิดไว้โดย default
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  // เปิด/ปิดลิ้นชักคุม transform ผ่าน inline style (React set ใหม่ทุก render) แทนพึ่ง CSS class
-  // toggle ล้วนๆ — เจอ Chromium ไม่ยอม re-trigger transition ตอนสลับ class เฉยๆ บางจังหวะ
+  // มือถือ (<=860px, ดูใน theme.css): sidebar ทั้งแถบซ่อนไปเลย ใช้ bottom tab bar + more sheet แทน
+  // (ของเดิมเป็นลิ้นชักเลื่อนออกจาก sidebar — owner ขอเปลี่ยนเป็นแท็บล่างสไตล์แอพธนาคาร)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth <= 860)
   useEffect(() => {
     const onResize = () => setIsMobileViewport(window.innerWidth <= 860)
@@ -695,26 +704,18 @@ export default function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
-      {/* มือถือ: ฉากหลังจางๆ ปิดลิ้นชักเมนูตอนแตะข้างนอก */}
-      {mobileNavOpen && (
-        <div className="payi-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
-      )}
-
-      {/* SIDEBAR NAVIGATION — ล็อคขยายไว้ตลอด (desktop) / ลิ้นชักเลื่อนออกตอนกดแฮมเบอร์เกอร์ (มือถือ) */}
+      {/* SIDEBAR NAVIGATION — desktop เท่านั้น (ล็อคขยายไว้ตลอด) มือถือใช้ bottom tab bar แทนทั้งหมด
+          เช็ค isMobileViewport ใน JS ตรงๆ ไม่พึ่ง CSS display:none ล้วนๆ — เจอ !important ไม่ยอม
+          ทับ inline บางจังหวะในสภาพแวดล้อมทดสอบนี้มาแล้วรอบนึง (ดู commit ก่อนหน้าเรื่อง sidebar
+          z-index/backdrop บังเมนู) เลี่ยงบั๊กคลาสเดียวกันซ้ำโดยไม่ render เลยแทน */}
+      {!isMobileViewport && (
       <div
         className="payi-sidebar-nav"
         style={{
           width: sidebarExpanded ? 240 : 68, height: '100vh', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
           display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0,
           boxShadow: sidebarExpanded ? '18px 0 48px rgba(15, 23, 42, 0.08)' : '18px 0 48px rgba(15, 23, 42, 0.04)',
-          overflow: 'hidden',
-          // z-index/position ต้องคุมทาง inline ด้วย ไม่พึ่ง CSS !important อย่างเดียว —
-          // เจอ Chromium ในสภาพแวดล้อมทดสอบนี้ไม่ยอม apply !important ทับ inline ให้บางจังหวะ
-          // (เจอปัญหาคล้ายกันตอนทำ transform ของลิ้นชักนี้ก่อนหน้า) ทำให้ backdrop (z 55) บัง
-          // เมนูจริง (ตอนนั้น z แค่ 20) กดเมนูไม่ติดเลยบนมือถือ
-          ...(isMobileViewport
-            ? { position: 'fixed', zIndex: 60, transform: mobileNavOpen ? 'translateX(0)' : 'translateX(-110%)' }
-            : { position: 'sticky', zIndex: 20, transition: 'width 180ms ease, box-shadow 180ms ease' }),
+          overflow: 'hidden', position: 'sticky', zIndex: 20, transition: 'width 180ms ease, box-shadow 180ms ease',
         }}
       >
         <div style={{ marginBottom: 10, paddingLeft: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -743,7 +744,7 @@ export default function App() {
                   <button
                     key={item.id}
                     title={sidebarExpanded ? undefined : item.label}
-                    onClick={() => { setActiveTab(item.id); setMobileNavOpen(false) }}
+                    onClick={() => setActiveTab(item.id)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: sidebarExpanded ? 'space-between' : 'center', flex: '1 1 0', width: '100%', padding: sidebarExpanded ? '7px 9px' : '7px 0', minHeight: 32, border: 'none', borderRadius: 7,
                       backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
@@ -768,26 +769,20 @@ export default function App() {
           ))}
         </div>
       </div>
+      )}
 
       {/* MAIN CONTENT AREA */}
       <div className="payi-main-content" style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: isLinksHubMode ? '32px 34px 40px' : '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
 
-        {/* แฮมเบอร์เกอร์ — โชว์แค่มือถือ (CSS ซ่อนตอนจอกว้าง) */}
-        <button
-          className="payi-hamburger-btn"
-          onClick={() => setMobileNavOpen(true)}
-          aria-label="เปิดเมนู"
-          style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 20px rgba(16,24,40,0.04)', marginBottom: 14, cursor: 'pointer' }}
-        >
-          <Menu size={18} color="var(--payi-text-muted)" />
-        </button>
-
-        {/* HEADER TOP ROW */}
+        {/* HEADER TOP ROW — มือถือ: กล่องหัวไล่สีมนๆ สไตล์แอพธนาคาร / desktop: เหมือนเดิม */}
         {!isLinksHubMode && <div className="payi-topbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--payi-text-muted)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
-            <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: 'var(--payi-surface-dark)', marginBottom: 4 }}>{pageMeta.title}</div>
-            <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>{pageMeta.subtitle}</div>
+          <div style={isMobileViewport ? {
+            width: '100%', background: 'linear-gradient(120deg, var(--payi-mint) 0%, #34d399 100%)',
+            borderRadius: 24, padding: '18px 20px 20px', boxShadow: '0 14px 30px rgba(37,99,235,0.18)', boxSizing: 'border-box',
+          } : undefined}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: isMobileViewport ? 'rgba(255,255,255,0.78)' : 'var(--payi-text-muted)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
+            <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: isMobileViewport ? '#fff' : 'var(--payi-surface-dark)', marginBottom: 4 }}>{pageMeta.title}</div>
+            <div style={{ fontSize: 13, color: isMobileViewport ? 'rgba(255,255,255,0.88)' : 'var(--payi-text-muted)' }}>{pageMeta.subtitle}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div className="payi-topbar-search" style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: '10px 12px', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}>
@@ -1202,14 +1197,68 @@ export default function App() {
       </div>
 
       {/* PRODUCT INSIGHT SIDE DRAWER */}
-      <ProductInsightDrawer 
-        isOpen={isDrawerOpen} 
+      <ProductInsightDrawer
+        isOpen={isDrawerOpen}
         onClose={() => {
           setIsDrawerOpen(false);
           setSelectedSkuData(null);
-        }} 
+        }}
         selectedSku={selectedSkuData}
       />
+
+      {/* BOTTOM TAB BAR — มือถือเท่านั้น (เช็ค isMobileViewport ตรงๆ เหตุผลเดียวกับ sidebar ด้านบน) แทน sidebar ทั้งหมด สไตล์แอพธนาคาร ลอยมนใส */}
+      {isMobileViewport && (
+      <nav className="payi-bottom-tabbar">
+        {mobileTabItems.map((item) => {
+          const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
+          const Icon = item.renderIcon
+          return (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className="payi-bottom-tab" aria-label={item.label}>
+              <span className={isActive ? 'payi-bottom-tab-icon active' : 'payi-bottom-tab-icon'}><Icon size={19} /></span>
+              <span className="payi-bottom-tab-label" style={{ color: isActive ? 'var(--payi-mint-strong)' : undefined, fontWeight: isActive ? 800 : 650 }}>{item.label}</span>
+            </button>
+          )
+        })}
+        <button onClick={() => setMobileMoreOpen(true)} className="payi-bottom-tab" aria-label="เมนูเพิ่มเติม">
+          <span className={mobileMoreOpen ? 'payi-bottom-tab-icon active' : 'payi-bottom-tab-icon'}><Menu size={19} /></span>
+          <span className="payi-bottom-tab-label" style={{ color: mobileMoreOpen ? 'var(--payi-mint-strong)' : undefined, fontWeight: mobileMoreOpen ? 800 : 650 }}>เมนู</span>
+        </button>
+      </nav>
+      )}
+
+      {/* MORE SHEET — มือถือ: รายการเมนูทั้งหมด เลื่อนขึ้นจากล่าง แทนที่ sidebar drawer เดิม */}
+      {mobileMoreOpen && (
+        <div className="payi-more-backdrop" onClick={() => setMobileMoreOpen(false)}>
+          <div className="payi-more-sheet" onClick={(e) => e.stopPropagation()}>
+            <div style={{ width: 40, height: 4, borderRadius: 999, background: 'var(--payi-border)', margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 15, fontWeight: 850, color: 'var(--payi-text-strong)', marginBottom: 14 }}>เมนูทั้งหมด</div>
+            {visibleMenuGroups.map((group) => (
+              <div key={group.title} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--payi-text-faint)', letterSpacing: '.06em', marginBottom: 6, textTransform: 'uppercase' }}>{group.title}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {group.items.map((item) => {
+                    const isActive = item.group ? item.group.includes(activeTab) : activeTab === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => { setActiveTab(item.id); setMobileMoreOpen(false) }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px', border: 'none', borderRadius: 12,
+                          background: isActive ? 'var(--payi-mint-soft)' : 'transparent', color: isActive ? 'var(--payi-mint-strong)' : 'var(--payi-text-strong)',
+                          fontSize: 14, fontWeight: isActive ? 800 : 650, textAlign: 'left', cursor: 'pointer',
+                        }}
+                      >
+                        <item.renderIcon size={18} />
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
     </div>
   )
