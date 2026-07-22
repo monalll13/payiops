@@ -6,7 +6,7 @@ import {
   AlertTriangle, AlertCircle, ArrowRight, X, Sparkles, TrendingDown, Loader2,
   LayoutDashboard, UploadCloud, Radar, Megaphone, CalendarClock, Boxes,
   ArrowLeftRight, Users, ShieldAlert, BookOpen, Link2,
-  Code2, Settings as SettingsIcon, CalendarCheck,
+  Code2, Settings as SettingsIcon, CalendarCheck, Menu,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -382,6 +382,16 @@ export default function App() {
 
   // sidebar ล็อคขยายไว้ตลอด (เดิมย่อเหลือแค่ไอคอน เอาเมาส์ชี้ถึงขยาย — owner ขอให้ล็อคไว้ ไม่ต้องเก็บแล้ว)
   const sidebarExpanded = true
+  // มือถือ (<=860px, ดูใน theme.css): sidebar กลายเป็นลิ้นชักเลื่อนออก ปิดไว้โดย default
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // เปิด/ปิดลิ้นชักคุม transform ผ่าน inline style (React set ใหม่ทุก render) แทนพึ่ง CSS class
+  // toggle ล้วนๆ — เจอ Chromium ไม่ยอม re-trigger transition ตอนสลับ class เฉยๆ บางจังหวะ
+  const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth <= 860)
+  useEffect(() => {
+    const onResize = () => setIsMobileViewport(window.innerWidth <= 860)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // DATE FILTER STATES
   const [datePreset, setDatePreset] = useState('all')
@@ -685,13 +695,22 @@ export default function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
-      {/* SIDEBAR NAVIGATION — ล็อคขยายไว้ตลอด */}
+      {/* มือถือ: ฉากหลังจางๆ ปิดลิ้นชักเมนูตอนแตะข้างนอก */}
+      {mobileNavOpen && (
+        <div className="payi-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />
+      )}
+
+      {/* SIDEBAR NAVIGATION — ล็อคขยายไว้ตลอด (desktop) / ลิ้นชักเลื่อนออกตอนกดแฮมเบอร์เกอร์ (มือถือ) */}
       <div
+        className="payi-sidebar-nav"
         style={{
           width: sidebarExpanded ? 240 : 68, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
           display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0,
           boxShadow: sidebarExpanded ? '18px 0 48px rgba(15, 23, 42, 0.08)' : '18px 0 48px rgba(15, 23, 42, 0.04)',
-          overflow: 'hidden', transition: 'width 180ms ease, box-shadow 180ms ease', zIndex: 20,
+          overflow: 'hidden', zIndex: 20,
+          ...(isMobileViewport
+            ? { transform: mobileNavOpen ? 'translateX(0)' : 'translateX(-110%)' }
+            : { transition: 'width 180ms ease, box-shadow 180ms ease' }),
         }}
       >
         <div style={{ marginBottom: 10, paddingLeft: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -720,7 +739,7 @@ export default function App() {
                   <button
                     key={item.id}
                     title={sidebarExpanded ? undefined : item.label}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => { setActiveTab(item.id); setMobileNavOpen(false) }}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: sidebarExpanded ? 'space-between' : 'center', flex: '1 1 0', width: '100%', padding: sidebarExpanded ? '7px 9px' : '7px 0', minHeight: 32, border: 'none', borderRadius: 7,
                       backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
@@ -747,17 +766,27 @@ export default function App() {
       </div>
 
       {/* MAIN CONTENT AREA */}
-      <div style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: isLinksHubMode ? '32px 34px 40px' : '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
-        
+      <div className="payi-main-content" style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: isLinksHubMode ? '32px 34px 40px' : '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
+
+        {/* แฮมเบอร์เกอร์ — โชว์แค่มือถือ (CSS ซ่อนตอนจอกว้าง) */}
+        <button
+          className="payi-hamburger-btn"
+          onClick={() => setMobileNavOpen(true)}
+          aria-label="เปิดเมนู"
+          style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 20px rgba(16,24,40,0.04)', marginBottom: 14, cursor: 'pointer' }}
+        >
+          <Menu size={18} color="var(--payi-text-muted)" />
+        </button>
+
         {/* HEADER TOP ROW */}
-        {!isLinksHubMode && <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
+        {!isLinksHubMode && <div className="payi-topbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--payi-text-muted)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
             <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: 'var(--payi-surface-dark)', marginBottom: 4 }}>{pageMeta.title}</div>
             <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>{pageMeta.subtitle}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: '10px 12px', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}>
+            <div className="payi-topbar-search" style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: '10px 12px', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}>
               <Search size={16} color="var(--payi-text-muted)" />
               <input
                 placeholder="ค้นหา SKU หรือแคมเปญ"
@@ -805,7 +834,7 @@ export default function App() {
         <Suspense fallback={<ModuleFallback />}>
         {(activeTab === 'Executive') ? (
           <div style={{ width: '100%' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
               {[
                 { title: 'Total Revenue', value: `THB ${fmt(totalRevenue)}`, subtitle: rangeLabel, note: `(รวมยกเลิก/ตีคืน THB ${fmt(totalGrossRevenue)})`, icon: DollarSign, trend: fmtTrend(revenueTrend), isPositive: revenueTrend === null || revenueTrend >= 0 },
                 { title: 'Orders', value: fmt(totalOrders), subtitle: rangeLabel, icon: ShoppingBag, trend: fmtTrend(ordersTrend), isPositive: ordersTrend === null || ordersTrend >= 0 },
@@ -907,7 +936,7 @@ export default function App() {
             {/* LOADING SKELETON */}
             {isFetching && !dashData && (
               <div style={{ position: 'relative', pointerEvents: 'none' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 18, marginBottom: 24 }}>
+                <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 18, marginBottom: 24 }}>
                   {[1,2,3,4].map(i => <div key={i} className="payi-skeleton" style={{ height: 170 }} />)}
                 </div>
                 <div className="payi-skeleton" style={{ height: 290, marginBottom: 24 }} />

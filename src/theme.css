@@ -270,3 +270,48 @@ body {
   .planner-workflow { grid-template-columns: 1fr !important; }
   .planner-form-grid, .planner-detail-grid { grid-template-columns: 1fr !important; }
 }
+
+/* ---------- app shell: mobile nav (sidebar becomes a slide-out drawer) ---------- */
+.payi-hamburger-btn {
+  display: none;
+}
+
+.payi-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .payi-sidebar-nav {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 240px !important;
+    z-index: 60;
+  }
+  .payi-hamburger-btn {
+    display: inline-flex !important;
+  }
+  .payi-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 55;
+  }
+  .payi-main-content {
+    padding: 16px !important;
+  }
+  .app-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .payi-topbar-search {
+    width: 100% !important;
+    order: 3;
+  }
+  .app-kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
