@@ -67,8 +67,6 @@ const calcRecommendedOrder = (safetyStock, balance, dailyAvg, leadTimeTotal) => 
   return Math.max(0, Math.round(safetyStock - projectedAtArrival))
 }
 
-const ABC_RANK = { A: 0, B: 1, C: 2 }
-
 export default function Inventory() {
   const [data, setData] = useState(null)
   const [salesBySku, setSalesBySku] = useState(new Map()) // sku -> { dailyAverage, abc, units90 }
@@ -135,13 +133,7 @@ export default function Inventory() {
     let rows = enriched.filter((it) => showHidden || it.active)
     if (q) rows = rows.filter((it) => it.display_name.toLowerCase().includes(q) || String(it.sku).toLowerCase().includes(q))
     if (onlyRecommended) rows = rows.filter((it) => (it.recommendedOrder || 0) > 0)
-    return [...rows].sort((a, b) => {
-      const rankA = ABC_RANK[a.abc] ?? 3
-      const rankB = ABC_RANK[b.abc] ?? 3
-      if (rankA !== rankB) return rankA - rankB
-      if (b.units90 !== a.units90) return b.units90 - a.units90
-      return a.display_name.localeCompare(b.display_name, 'th')
-    })
+    return [...rows].sort((a, b) => String(a.sku).localeCompare(String(b.sku), undefined, { numeric: true }))
   }, [enriched, query, onlyRecommended, showHidden])
 
   const setItemHidden = async (sku, hidden) => {
