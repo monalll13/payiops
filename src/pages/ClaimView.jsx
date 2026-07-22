@@ -366,7 +366,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
           {detail && !loading && (
             <>
               {/* KPI Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
                 {[
                   { label: 'เคสเคลมทั้งหมด', value: fmtC(detail.totalCount), color: '#2563eb', bg: '#eff6ff' },
                   { label: 'มูลค่าความเสียหาย', value: `฿${fmtC(detail.totalValue)}`, color: '#dc2626', bg: '#fef2f2' },
@@ -381,7 +381,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
               {/* สรุปตามเหตุผล */}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>สาเหตุของการเคลม</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                   {[
                     { key: 'damaged',     label: '🔴 เสียหาย',     color: FLAG_COLORS.damaged },
                     { key: 'incomplete',  label: '🟡 ส่งไม่ครบ',   color: FLAG_COLORS.incomplete },
@@ -412,8 +412,8 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10 }}>
                     รายการเคลมทั้งหมด ({fmtC(detail.records.length)} รายการ)
                   </div>
-                  <div style={{ overflowX: 'visible' }}>
-                    <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', minWidth: 640, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 11 }}>
                       <thead>
                         <tr style={{ background: '#f8fafc', color: '#64748b' }}>
                           <th style={{ padding: '8px 10px', textAlign: 'left', width: 92 }}>วันที่</th>
@@ -846,7 +846,7 @@ export default function ClaimView() {
           )}
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', minWidth: 600, borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
                 <th style={{ padding: '10px 14px', textAlign: 'left' }}>#</th>
