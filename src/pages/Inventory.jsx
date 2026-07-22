@@ -287,7 +287,18 @@ export default function Inventory() {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--payi-text-faint)', fontSize: 13 }}>ยังไม่มีสินค้าในระบบ — กด "เพิ่มสินค้า" เพื่อเริ่มต้น</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', minWidth: 1040, borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '5%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '16%' }} />
+              </colgroup>
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--payi-text-muted)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <th style={{ padding: '8px 10px' }}>ABC</th>
@@ -320,8 +331,8 @@ export default function Inventory() {
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: '10px', opacity: it.active ? 1 : 0.5 }}>
-                      <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}{!it.active && ' (ซ่อนอยู่)'}</div>
+                    <td style={{ padding: '10px', opacity: it.active ? 1 : 0.5, overflow: 'hidden' }}>
+                      <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={it.display_name}>{it.display_name}{!it.active && ' (ซ่อนอยู่)'}</div>
                       <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', fontFamily: 'monospace' }}>{it.sku}</div>
                     </td>
                     <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: it.balance <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-strong)' }}>{fmt(it.balance)}</td>
@@ -345,11 +356,11 @@ export default function Inventory() {
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: '10px' }}>
+                    <td style={{ padding: '10px', overflow: 'hidden' }}>
                       <button
                         onClick={() => setItemModal(it)}
-                        title="กดเพื่อแก้ไข"
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: 'var(--payi-text)', minHeight: 18, maxWidth: 180, display: 'block', textAlign: 'left', whiteSpace: 'normal' }}
+                        title={it.reorder_date || 'กดเพื่อแก้ไข'}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: 'var(--payi-text)', width: '100%', display: 'block', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       >
                         {it.reorder_date || ''}
                       </button>
