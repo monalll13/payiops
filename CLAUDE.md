@@ -190,7 +190,8 @@ a new one.
 3. ✅ **DONE — Claims mobile manager view** (`ManagerClaimsPrototype.jsx` +
    `api/manager-claims.js`, real data, claim rate = claims ÷ units via shared
    `deriveGroup`, RuRu mascot mood auto from alert count, small-sample guard
-   `MIN_UNITS = 100`). Thresholds (`RED = 1.0`, `AMBER = 0.2`) still owner-unconfirmed.
+   `MIN_UNITS = 100`). ✅ Thresholds (`RED = 1.0`, `AMBER = 0.2`) **confirmed correct by
+   owner (2026-07-22)**.
    Open: period selector (currently all-time), drill-down to actual claim records.
 4. ✅ **DONE — Dashboard IA split** — `Dashboard สรุปยอดขาย` (Executive/Monthly) and
    `Dashboard สินค้า` (Products/ProductTrends) are both live, separate top-level menu
@@ -217,16 +218,30 @@ a new one.
    (owner confirmed the ambiguous ones by hand — including one correction: เฝือกโป้ง is
    **PY050** ผ้ารัดหัวแม่เท้าเอียง, not PY033; PY033 is พยุงเท้า/Night Splint only). Notes
    for future edits:
-   - Some items combine multiple color variants into one SKU's `opening_balance` because
-     `master_sku` doesn't split by color: **PY066** (ถุงเท้าดับกลิ่น ดำ/ขาว/ฟ้า, sum),
-     **PY073** (กันรองเท้ากัด/หลวม ดำ/เนื้อ, sum), **PY051** (a whole Sky/Ocean size×color
-     line, sum). If the owner ever wants per-color stock visibility, these need splitting
-     into their own SKUs first (same limitation `deriveGroup` already has for colors glued
-     without a space).
-   - **PY076** (แผ่นเจลฝ่า) and **ZZ004/ZZ005/ZZ006** (ไม้ดัดเท้า / สมุนไพรแช่เท้า /
-     ถุงมือรองรีดผ้า) exist **only in `inventory_items`, NOT in `product_aliases`** — they
-     won't show up on Products/Claims/Dashboard since those key off `product_aliases`.
-     Add them there too if the owner ever needs sales-side reporting on these.
+   - ✅ **DONE (2026-07-22) — split the color-combined SKUs into real separate rows.**
+     Owner's actual stock sheet tracks colors as separate line items even when they share
+     one nominal `master_sku`, so `deriveGroup`-style combining was wrong for inventory
+     counting. Split using the owner's original per-color quantities (no data loss, zero
+     real `stock_movements` existed against the combined rows yet): **PY066** (ถุงเท้า
+     ดับกลิ่น ดำ) → added **PY066-B** (ขาว) and **PY066-C** (ฟ้าเบบี้บลู); **PY073**
+     (กันรองเท้ากัด/หลวม ดำ) → added **PY073-B** (เนื้อ) — same `-B`/`-C` suffix convention
+     already used by `PY047`/`PY047-B`. **PY051** (Sky/Ocean, 10 size×color variants) is
+     still one combined line — same split treatment needed but wasn't done yet (10-way
+     split needs new SKU codes with no natural naming, owner hasn't weighed in).
+   - ✅ **DONE (2026-07-22) — PY076 added to `product_aliases`** (business=Payi,
+     platform=Shopee placeholder, alias=display name) so it shows on Products/Claims/
+     Dashboard. **ZZ004/ZZ005/ZZ006 still NOT added** — turned out **ZZ003 in
+     `product_aliases` already means "ถุงมือรองรีดผ้า"** (a real historically-sold,
+     discontinued SKU) which conflicts with the owner's instruction to give ถุงมือรองรีด
+     a *new* ZZ006 code instead of reusing ZZ003. Also PY055/PY056 already exist as real
+     master_sku for ไม้ดัดเท้า/สมุนไพรแช่เท้า, so ZZ004/ZZ005 would create duplicate-name
+     catalog entries under different codes. Owner confirmed **ZZ prefix = discontinued/
+     no-longer-sold products** — flagged this collision back to the owner rather than
+     silently deciding; not resolved yet.
+   - **Mirott (3 flavors: สูตรเย็น/สูตรร้อน/ออริจินอล)** — owner says it's discontinued,
+     needs a new ZZ code (continuing from ZZ006 → ZZ007/8/9), but scope (one code for all
+     3 flavors vs one each) wasn't confirmed. No quantity data exists for it either
+     (blank in the original pasted stock list). Not built yet.
    - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
