@@ -704,8 +704,9 @@ const dropdownItemStyle = {
 
 const primaryBtnStyle = {
   border: 'none',
-  borderRadius: 8,
-  background: 'var(--payi-mint)',
+  borderRadius: 10,
+  background: 'var(--payi-gradient-primary)',
+  boxShadow: '0 8px 18px rgba(37,99,235,0.22)',
   color: '#fff',
   padding: '10px 12px',
   fontSize: 12,

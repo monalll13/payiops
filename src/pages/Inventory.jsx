@@ -30,7 +30,7 @@ function StatusBadge({ status }) {
 // ฟอร์มกลาง ใช้ทั้งเพิ่มสินค้าใหม่ และรับเข้า/เบิกออกด่วนจากตาราง
 function Modal({ title, onClose, children }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)', display: 'grid', placeItems: 'center', zIndex: 999 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.28)', backdropFilter: 'blur(3px)', display: 'grid', placeItems: 'center', zIndex: 999 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--payi-surface)', borderRadius: 16, padding: 24, width: 420, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(15,23,42,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--payi-text-strong)' }}>{title}</div>
@@ -259,7 +259,7 @@ export default function Inventory() {
         <KpiCard title="Transactions" value={fmt(totals.transactionsToday)} subtitle="วันนี้" icon={ArrowLeftRight} trend={null} />
       </div>
 
-      <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 20 }}>
+      <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 20, padding: 20, boxShadow: '0 14px 36px rgba(15,23,42,0.05)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)' }}>สินค้า ({filtered.length} รายการ)</div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -274,7 +274,7 @@ export default function Inventory() {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาสินค้า..." style={{ ...inputStyle, width: 220 }} />
             <button
               onClick={() => setItemModal('new')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--payi-gradient-primary)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }}
             >
               <Plus size={14} /> เพิ่มสินค้า
             </button>
@@ -557,7 +557,7 @@ function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
             )}
           </div>
         )}
-        <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+        <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-gradient-primary)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1, boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }}>
           {saving ? 'กำลังบันทึก...' : 'บันทึก'}
         </button>
       </form>
@@ -609,7 +609,7 @@ function MovementModal({ target, saving, onClose, onSave }) {
           <label style={labelStyle}>หมายเหตุ</label>
           <input value={note} onChange={(e) => setNote(e.target.value)} style={inputStyle} placeholder="ไม่บังคับ" />
         </div>
-        <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+        <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-gradient-primary)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1, boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }}>
           {saving ? 'กำลังบันทึก...' : 'บันทึก'}
         </button>
       </form>

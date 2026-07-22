@@ -324,7 +324,7 @@ function SkuDetailPanel({ masterSku, productKey, displayName, skuCount, startDat
     <div
       onClick={handleBackdrop}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.38)', backdropFilter: 'blur(3px)', zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
       }}
     >
@@ -491,7 +491,7 @@ function AllSkusModal({ topSkus, onClose, onSelectSku }) {
     <div
       onClick={handleBackdrop}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 999,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.38)', backdropFilter: 'blur(3px)', zIndex: 999,
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
       }}
     >
@@ -737,7 +737,7 @@ export default function ClaimView() {
             <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} /> รีเฟรช
           </button>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--payi-gradient-primary)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 18px rgba(37,99,235,0.22)' }}>
             <Upload size={14} /> {importing ? 'กำลังนำเข้าไฟล์...' : 'Import Excel ใบเคลม'}
             <input type="file" accept=".xlsx,.xls" onChange={handleImport} style={{ display: 'none' }} disabled={importing} />
           </label>
@@ -905,7 +905,7 @@ export default function ClaimView() {
       {mapTarget && (() => {
         const query = mapSearch.trim().toLowerCase()
         const matches = mapOptions.filter(p => !query || p.master_sku.toLowerCase().includes(query) || p.display_name.toLowerCase().includes(query)).slice(0, 40)
-        return <div onClick={e => { if (e.target === e.currentTarget && !mapSaving) setMapTarget('') }} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        return <div onClick={e => { if (e.target === e.currentTarget && !mapSaving) setMapTarget('') }} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(15,23,42,.36)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ width: 'min(620px, 100%)', maxHeight: '80vh', background: '#fff', borderRadius: 14, boxShadow: '0 20px 50px rgba(15,23,42,.25)', padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><div><div style={{ fontWeight: 800 }}>เพิ่ม Map สินค้า</div><div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{mapTarget}</div></div><button disabled={mapSaving} onClick={() => setMapTarget('')} style={{ border: 0, background: 'transparent', cursor: 'pointer' }}><X size={18} /></button></div>
             <input autoFocus value={mapSearch} onChange={e => setMapSearch(e.target.value)} placeholder="กรอกชื่อสินค้า หรือ Master SKU เช่น PY001" style={{ border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 12px', fontSize: 13 }} />

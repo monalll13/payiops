@@ -746,22 +746,24 @@ export default function App() {
                     title={sidebarExpanded ? undefined : item.label}
                     onClick={() => setActiveTab(item.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', justifyContent: sidebarExpanded ? 'space-between' : 'center', flex: '1 1 0', width: '100%', padding: sidebarExpanded ? '7px 9px' : '7px 0', minHeight: 32, border: 'none', borderRadius: 7,
-                      backgroundColor: isActive ? '#eaf3ff' : 'transparent', color: isActive ? '#0b63d8' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
+                      display: 'flex', alignItems: 'center', justifyContent: sidebarExpanded ? 'space-between' : 'center', flex: '1 1 0', width: '100%', padding: sidebarExpanded ? '7px 9px' : '7px 0', minHeight: 32, border: 'none', borderRadius: 10,
+                      background: isActive ? 'linear-gradient(135deg, var(--payi-mint) 0%, #34d399 100%)' : 'transparent',
+                      boxShadow: isActive ? '0 6px 16px rgba(37,99,235,0.24)' : 'none',
+                      color: isActive ? '#fff' : '#0f172a', cursor: 'pointer', fontSize: '13.5px', lineHeight: 1.1, fontWeight: isActive ? '850' : '700', textAlign: 'left', transition: 'background 140ms ease, color 140ms ease'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{ color: isActive ? '#2563eb' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}><item.renderIcon size={16} /></span>
+                      <span style={{ color: isActive ? '#fff' : '#334155', display: 'flex', alignItems: 'center', flexShrink: 0 }}><item.renderIcon size={16} /></span>
                       {sidebarExpanded && (
                         <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
                           {item.helper && (
-                            <span style={{ fontSize: 8.5, lineHeight: 1, color: '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
+                            <span style={{ fontSize: 8.5, lineHeight: 1, color: isActive ? 'rgba(255,255,255,0.82)' : '#64748b', whiteSpace: 'nowrap' }}>{item.helper}</span>
                           )}
                         </span>
                       )}
                     </div>
-                    {sidebarExpanded && item.dotColor && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: item.dotColor, marginRight: '6px', flexShrink: 0 }} />}
+                    {sidebarExpanded && item.dotColor && !isActive && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: item.dotColor, marginRight: '6px', flexShrink: 0 }} />}
                   </button>
                 )
               })}
@@ -774,18 +776,18 @@ export default function App() {
       {/* MAIN CONTENT AREA */}
       <div className="payi-main-content" style={{ flex: 1, minHeight: '100vh', overflow: 'auto', padding: isLinksHubMode ? '32px 34px 40px' : '24px 32px 40px', boxSizing: 'border-box', width: '100%' }}>
 
-        {/* HEADER TOP ROW — มือถือ: กล่องหัวไล่สีมนๆ สไตล์แอพธนาคาร / desktop: เหมือนเดิม */}
+        {/* HEADER TOP ROW — กล่องหัวไล่สีมนๆ สไตล์แอพธนาคาร ทั้ง desktop และมือถือ */}
         {!isLinksHubMode && <div className="payi-topbar" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 18, marginBottom: 18, alignItems: 'center' }}>
-          <div style={isMobileViewport ? {
-            width: '100%', background: 'linear-gradient(120deg, var(--payi-mint) 0%, #34d399 100%)',
-            borderRadius: 24, padding: '18px 20px 20px', boxShadow: '0 14px 30px rgba(37,99,235,0.18)', boxSizing: 'border-box',
-          } : undefined}>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: isMobileViewport ? 'rgba(255,255,255,0.78)' : 'var(--payi-text-muted)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
-            <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: isMobileViewport ? '#fff' : 'var(--payi-surface-dark)', marginBottom: 4 }}>{pageMeta.title}</div>
-            <div style={{ fontSize: 13, color: isMobileViewport ? 'rgba(255,255,255,0.88)' : 'var(--payi-text-muted)' }}>{pageMeta.subtitle}</div>
+          <div style={{
+            width: isMobileViewport ? '100%' : 'auto', background: 'linear-gradient(120deg, var(--payi-mint) 0%, #34d399 100%)',
+            borderRadius: isMobileViewport ? 24 : 20, padding: isMobileViewport ? '18px 20px 20px' : '16px 26px', boxShadow: '0 14px 30px rgba(37,99,235,0.18)', boxSizing: 'border-box',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.78)', marginBottom: 6 }}>{pageMeta.eyebrow}</div>
+            <div style={{ fontSize: 28, fontWeight: 850, letterSpacing: 0, color: '#fff', marginBottom: 4 }}>{pageMeta.title}</div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.88)' }}>{pageMeta.subtitle}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div className="payi-topbar-search" style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 8, padding: '10px 12px', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}>
+            <div className="payi-topbar-search" style={{ display: 'flex', alignItems: 'center', gap: 10, width: 280, background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 999, padding: '10px 14px', boxShadow: '0 8px 20px rgba(16,24,40,0.06)' }}>
               <Search size={16} color="var(--payi-text-muted)" />
               <input
                 placeholder="ค้นหา SKU หรือแคมเปญ"
@@ -794,7 +796,7 @@ export default function App() {
                 style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', fontSize: 13, color: 'var(--payi-surface-dark)', background: 'transparent' }}
               />
             </div>
-            <button title="Notifications" style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 20px rgba(16,24,40,0.04)' }}><Bell size={18} color="var(--payi-text-muted)" /></button>
+            <button title="Notifications" style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(14px)', border: '1px solid rgba(255,255,255,0.6)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 20px rgba(16,24,40,0.06)' }}><Bell size={18} color="var(--payi-mint-strong)" /></button>
             <button
               title="ออกจากระบบ"
               onClick={() => {
@@ -805,8 +807,10 @@ export default function App() {
                   window.location.reload()
                 }
               }}
-              style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1px solid var(--payi-border)', borderRadius: 8, padding: '9px 12px', background: 'var(--payi-surface)', boxShadow: '0 8px 20px rgba(16,24,40,0.04)', color: 'var(--payi-surface-dark)', cursor: 'pointer' }}>
-              <UserCircle2 size={20} color="var(--payi-text-muted)" />
+              style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1px solid rgba(255,255,255,0.6)', borderRadius: 999, padding: '9px 14px 9px 9px', background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(14px)', boxShadow: '0 8px 20px rgba(16,24,40,0.06)', color: 'var(--payi-surface-dark)', cursor: 'pointer' }}>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--payi-gradient-primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <UserCircle2 size={16} color="#fff" />
+              </span>
               <span style={{ fontSize: 13, fontWeight: 700 }}>
                 {(() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null')?.name || 'Nook' } catch { return 'Nook' } })()}
               </span>
@@ -852,7 +856,7 @@ export default function App() {
                       )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', flexShrink: 0 }}>
-                      <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--payi-mint-soft)', color: 'var(--payi-mint-strong)', display: 'grid', placeItems: 'center' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 12, background: 'var(--payi-gradient-primary)', color: '#fff', display: 'grid', placeItems: 'center', boxShadow: '0 6px 14px rgba(37,99,235,0.24)' }}>
                         <Icon size={17} />
                       </div>
                       {item.trend && (

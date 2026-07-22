@@ -341,7 +341,7 @@ const inputStyle = {
   borderRadius: 8, padding: '9px 11px', fontSize: 13, color: 'var(--payi-text-strong)', outline: 'none',
 }
 const primaryBtn = {
-  border: 0, borderRadius: 8, padding: '9px 16px', background: 'var(--payi-mint)', color: '#fff',
+  border: 0, borderRadius: 10, padding: '9px 16px', background: 'var(--payi-gradient-primary)', boxShadow: '0 8px 18px rgba(37,99,235,0.22)', color: '#fff',
   fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
 }
 const iconBtn = {

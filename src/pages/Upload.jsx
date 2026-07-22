@@ -87,7 +87,7 @@ function MapProductModal({ productName, variation, business, platform, onClose, 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.32)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={onClose}>
       <div className="payi-glass-card" style={{ width: 420, maxWidth: '92vw', padding: 22 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--payi-text-strong)' }}>จับคู่สินค้า</div>

@@ -71,7 +71,7 @@ function Root() {
         <div style={{ textAlign: 'center', display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--payi-text-strong)' }}>เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</div>
           <div style={{ fontSize: 13, color: 'var(--payi-text-muted)' }}>เช็คอินเทอร์เน็ต หรือค่า env บนเซิร์ฟเวอร์ (Google key / SHEET_ID) แล้วลองใหม่</div>
-          <button onClick={() => window.location.reload()} style={{ border: 0, borderRadius: 10, padding: '10px 18px', background: 'var(--payi-mint)', color: '#fff', fontWeight: 800, cursor: 'pointer', justifySelf: 'center' }}>ลองใหม่</button>
+          <button onClick={() => window.location.reload()} style={{ border: 0, borderRadius: 10, padding: '10px 18px', background: 'var(--payi-gradient-primary)', boxShadow: '0 8px 18px rgba(37,99,235,0.22)', color: '#fff', fontWeight: 800, cursor: 'pointer', justifySelf: 'center' }}>ลองใหม่</button>
         </div>
       </div>
     )

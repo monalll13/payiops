@@ -200,7 +200,7 @@ export default function LinksHub() {
               style={{ border: 0, outline: 0, background: 'transparent', width: '100%', fontSize: 13.5, color: '#0f172a' }}
             />
           </div>
-          <button onClick={() => setAdding((value) => !value)} style={{ height: 42, border: 0, borderRadius: 8, background: '#2563eb', color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', fontWeight: 850, cursor: 'pointer', boxShadow: '0 12px 26px rgba(37, 99, 235, 0.22)' }}>
+          <button onClick={() => setAdding((value) => !value)} style={{ height: 42, border: 0, borderRadius: 8, background: 'var(--payi-gradient-primary)', color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', fontWeight: 850, cursor: 'pointer', boxShadow: '0 12px 26px rgba(37, 99, 235, 0.22)' }}>
             <Plus size={17} /> Add Link
           </button>
           <button onClick={() => setEditMode((value) => !value)} style={{ height: 42, border: '1px solid #dbe3ef', borderRadius: 8, background: editMode ? '#eff6ff' : '#ffffff', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', fontWeight: 800, cursor: 'pointer' }}>
@@ -217,7 +217,7 @@ export default function LinksHub() {
           <input placeholder="ชื่อลิงก์ *" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} style={fieldStyle} />
           <input placeholder="URL *" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} style={fieldStyle} />
           <input placeholder="คำอธิบาย" value={form.desc} onChange={(event) => setForm({ ...form, desc: event.target.value })} style={fieldStyle} />
-          <button onClick={addLink} style={{ height: 38, border: 0, borderRadius: 8, background: '#2563eb', color: '#ffffff', fontSize: 13, fontWeight: 850, padding: '0 16px', cursor: 'pointer' }}>บันทึก</button>
+          <button onClick={addLink} style={{ height: 38, border: 0, borderRadius: 8, background: 'var(--payi-gradient-primary)', color: '#ffffff', fontSize: 13, fontWeight: 850, padding: '0 16px', cursor: 'pointer' }}>บันทึก</button>
         </div>
       )}
 

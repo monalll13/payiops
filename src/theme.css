@@ -60,6 +60,11 @@
   --payi-danger-bg: #fef2f2;
   --payi-warning: #d97706;
   --payi-warning-bg: #fffbeb;
+
+  /* -- soft rounded/gradient "banking app" accent, added 2026-07-22 for the
+        mobile bottom-tab-bar redesign, then extended to desktop CTAs/cards -- */
+  --payi-gradient-primary: linear-gradient(135deg, var(--payi-mint) 0%, #34d399 100%);
+  --payi-gradient-soft: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(52, 211, 153, 0.14) 100%);
 }
 
 /* ---------- base page background ---------- */
@@ -133,7 +138,7 @@ body {
 .payi-glass-card {
   background: var(--payi-glass);
   border: 1px solid var(--payi-line);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--payi-shadow);
   backdrop-filter: blur(18px);
 }
@@ -175,14 +180,17 @@ body {
 }
 
 .payi-btn-primary {
-  background: var(--payi-mint);
+  background: var(--payi-gradient-primary);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.22);
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
 .payi-btn-primary:hover {
-  background: var(--payi-mint-strong);
+  filter: brightness(1.04);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
 }
 
 .payi-table th,
@@ -303,11 +311,11 @@ body {
   gap: 2px;
   padding: 8px 6px;
   border-radius: 26px;
-  background: rgba(255, 255, 255, 0.72);
+  background: linear-gradient(160deg, rgba(219, 234, 254, 0.82) 0%, rgba(255, 255, 255, 0.82) 55%, rgba(209, 250, 229, 0.7) 100%);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 16px 40px rgba(37, 99, 235, 0.16);
 }
 
 .payi-bottom-tab {
@@ -329,15 +337,16 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 14px;
-  color: var(--payi-text-muted);
-  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  color: var(--payi-mint-strong);
+  background: rgba(37, 99, 235, 0.08);
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
 .payi-bottom-tab-icon.active {
   background: linear-gradient(135deg, var(--payi-mint) 0%, #34d399 100%);
   color: #fff;
   transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.32);
 }
 
 .payi-bottom-tab-label {

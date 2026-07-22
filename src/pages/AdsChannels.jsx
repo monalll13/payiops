@@ -363,7 +363,7 @@ function pillStyle(active) {
   }
 }
 const primaryBtn = {
-  border: 'none', borderRadius: 8, background: 'var(--payi-mint)', color: '#fff', padding: '10px 16px',
+  border: 'none', borderRadius: 10, background: 'var(--payi-gradient-primary)', boxShadow: '0 8px 18px rgba(37,99,235,0.22)', color: '#fff', padding: '10px 16px',
   fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
 }
 const cellInput = {
