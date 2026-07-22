@@ -407,6 +407,30 @@ a new one.
      change after editing (auto-computed vs stored-value styling) — owner wanted it to stay
      visually consistent; dropped the conditional color, now always
      `var(--payi-text-muted)`.
+   - ✅ **DONE (2026-07-22) — consolidated balance correction + reorder tracking into the
+     single edit popup, per owner feedback that the row's icon toolbar had gotten too
+     crowded** (`+`/`−`/ปรับยอดคงเหลือ/แก้ไข/ซ่อน — 5 icons). Removed the standalone
+     `ปรับยอดคงเหลือ` icon and `BalanceCorrectionModal`, and the standalone
+     `ReorderModal` (opened from the "วันเติมสินค้า/รอเช็ค" table cell) — both are now
+     sections inside `ItemModal` (the same popup opened by the pencil "แก้ไข" icon and by
+     clicking that table cell). Row toolbar is back to 4 icons. `ItemModal`'s `submit()`
+     now bundles an optional `balanceCorrection` object into its payload;
+     `saveItem()` in `Inventory.jsx` does the `upsert-item` call first, then a second
+     `add-movement` (`type: 'adjust'`) call if a correction was entered — still two
+     separate API calls under the hood, just one form for the owner. Also **changed
+     `reorder_date` from a date picker to a free-text field** (owner: orders often ship
+     in multiple partial lots, a single date can't represent that) — renamed the label to
+     match the table column ("วันเติมสินค้า/รอเช็ค") and dropped the separate
+     `expected_arrival` date field it used to show (was a second, mostly-empty date
+     concept the owner never asked to keep). **Backend change to match:**
+     `api/_lib/inventory.js` `upsertItem()` used to run `reorder_date` through `isoDate()`
+     — a free-text string like "สั่งแล้ว 2 ล็อต รออีก 300" isn't parseable as a date, so
+     `isoDate()` silently returned `''` and the whole field appeared to "not save" (it
+     saved a blank string). Fixed to store `reorder_date` as a trimmed raw string, no date
+     parsing. Confirmed via direct API test post-fix. `expected_arrival`/`reorder_qty`/
+     `reorder_note` columns still exist in the sheet (harmless, just unused by the UI now)
+     — didn't remove them since `ITEMS_HEADERS` is append-only positional, not worth a
+     migration for 3 dead columns.
    - **Found while testing the above (2026-07-22): 10 inventory items were already
      hidden (`active:'0'`) in the live sheet without the owner asking for it** — `ZZ002,
      PY025, PY026, ZZ004–ZZ009, PY034`, all sharing `updated_at` timestamps clustered in a

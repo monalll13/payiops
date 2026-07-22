@@ -128,7 +128,7 @@ async function upsertItem(body, actorName) {
       safety_stock: num(body.safety_stock),
       opening_balance: num(body.opening_balance),
       opening_date: isoDate(body.opening_date) || todayBKK(),
-      reorder_date: body.reorder_date ? isoDate(body.reorder_date) : '',
+      reorder_date: body.reorder_date ? String(body.reorder_date).trim() : '',
       expected_arrival: body.expected_arrival ? isoDate(body.expected_arrival) : '',
       reorder_qty: body.reorder_qty || '',
       reorder_note: body.reorder_note || '',
@@ -146,8 +146,9 @@ async function upsertItem(body, actorName) {
     if (body.unit !== undefined) row.unit = body.unit
     if (body.safety_stock !== undefined) row.safety_stock = num(body.safety_stock)
     if (body.opening_balance !== undefined) row.opening_balance = num(body.opening_balance)
-    // วันสั่ง/เช็คของ + วันคาดว่าจะเข้า — เคลียร์ได้ (ส่ง '' มา) ตอนของเข้าแล้วไม่ต้องรอ/ติดตามต่อ
-    if (body.reorder_date !== undefined) row.reorder_date = body.reorder_date ? isoDate(body.reorder_date) : ''
+    // วันเติมสินค้า/รอเช็ค — ข้อความอิสระ (ไม่ใช่วันที่) เพราะบางทีสั่งหลายล็อต ของเข้าไม่พร้อมกัน
+    // เขียนบรรยายได้เลย เช่น "สั่ง 2 ล็อต ล็อตแรกมาแล้ว 200/500 รออีก 300 ต้นเดือน" — เคลียร์ได้ (ส่ง '' มา)
+    if (body.reorder_date !== undefined) row.reorder_date = body.reorder_date ? String(body.reorder_date).trim() : ''
     if (body.expected_arrival !== undefined) row.expected_arrival = body.expected_arrival ? isoDate(body.expected_arrival) : ''
     if (body.reorder_qty !== undefined) row.reorder_qty = body.reorder_qty
     if (body.reorder_note !== undefined) row.reorder_note = body.reorder_note
