@@ -456,6 +456,54 @@ a new one.
    to extend.
 9. `SOPs` menu tab still has no implementation (same generic placeholder Inventory/Stock
    Movement used to hit) — lower priority, but flag if the owner asks about it.
+10. ✅ **DONE (2026-07-22) — mobile-responsive pass across the whole app**, owner request
+    ("ทั้งแอพ"). Nav shell first: sidebar is locked permanently expanded on desktop (owner
+    asked to stop the old hover-to-expand behavior — see `sidebarExpanded` in `App.jsx`,
+    now a constant `true` not state); at `<=860px` it becomes an off-canvas drawer toggled
+    by a hamburger button (`.payi-hamburger-btn`, only visible in that breakpoint), with a
+    tap-outside backdrop and auto-close on menu selection. **The drawer's open/close is
+    driven by an inline `transform` tied to a `window.innerWidth` resize-listener state
+    (`isMobileViewport`), not a CSS class + transition** — a plain CSS transition on that
+    property got stuck mid-animation during testing (computed style never reached its
+    target despite correct class/specificity, reproducible via direct DOM manipulation in
+    the browser tooling here) — dropping the transition (instant toggle) fixed it
+    immediately. Root cause not fully understood (suspected compositor-thread sync issue
+    specific to this testing harness) — worth revisiting if animation is wanted later, but
+    don't just add `transition: transform ...ms` back without re-testing carefully.
+    New shared CSS classes in `theme.css` for the common two-column/KPI-grid layout pattern
+    used across pages — collapse at `860px`/`560px`:
+    - `app-kpi-grid` — any fixed `repeat(N, ...)` grid (KPI cards, form fields, etc.)
+    - `app-two-col-fixed` — `content + fixed-px-sidebar` layouts (charts, Links Hub)
+    - `app-side-drawer` — right-side slide-in panels, caps to `100vw` at `<=560px`
+    Applied page-by-page, verified at 375px viewport (no page-level horizontal overflow,
+    all real data renders) for every real page in the app:
+    - Dashboard (`Executive`/`Monthly`), Products (`Dashboard สินค้า`/`% เปลี่ยนแปลง`)
+    - Inventory + Stock Movement (mostly already safe — `table-layout:fixed` + colgroup +
+      `overflowX:auto` + modals capped at 92vw already; just added table minWidths)
+    - **Claims — found and fixed a real bug**, not just a squeeze: the SKU detail panel's
+      claim-records table had `overflowX: 'visible'` (not `'auto'`) with
+      `tableLayout:'fixed'` and no `minWidth` — on narrow screens this genuinely mangled
+      the columns illegibly instead of scrolling. Also two hardcoded fixed-column KPI/
+      reason grids collapsed via `app-kpi-grid`.
+    - Marketing Radar (hero + aside 340px-fixed layout, Event History fixed-5-col rows —
+      Kanban board itself deliberately left horizontally scrollable, same UX as a mobile
+      Trello board) + Ads & Channels
+    - Planner Control + Feed Products — already fine (`.planner-kpis`/`.planner-form-grid`
+      classes from an earlier session were already wired up and working)
+    - Workforce OT (`.workforce-kpis`/`.workforce-form-grid` already wired from an earlier
+      session) + HR — already fine, no changes needed
+    - Upload, Settings, Dev Hub — already fine (auto-fit grids / scrollable tables)
+    - **Links Hub — found real overflow bugs**: add-link form, 6-col "Core Modules" grid,
+      main-content+336px-aside split, and the 3-col link grid all used `minmax(150–230px,
+      1fr)` with no upper collapse, forcing horizontal scroll on phones. Fixed with the
+      shared classes above.
+    - `ContentOSPrototype.jsx` (explicitly a non-functional UI prototype, see its own note
+      above) has dense fixed grids too but no *hard* overflow bug at 375px since its
+      tracks mostly use `minmax(0, ...)` (shrinks instead of forcing scroll) — deliberately
+      left as-is given its prototype status, not worth a deep pass on unused UI.
+      `ManagerClaimsPrototype.jsx` and `HRMobile.jsx` are separate mobile-only routes
+      (reached via URL query param, not the sidebar) — already mobile-first by design,
+      out of scope for this pass.
 
 ## Gotchas
 
