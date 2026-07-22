@@ -252,6 +252,7 @@ export default function Inventory() {
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>ขั้นต่ำ</th>
                   <th style={{ padding: '8px 10px' }}>หน่วย</th>
                   <th style={{ padding: '8px 10px' }}>สถานะ</th>
+                  <th style={{ padding: '8px 10px' }}>วันเติมสินค้า/รอเช็ค</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>แนะนำสั่งซื้อ</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>จัดการ</th>
                 </tr>
@@ -287,6 +288,15 @@ export default function Inventory() {
                           รอของ {fmtShortDate(it.expected_arrival)}
                         </div>
                       )}
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                      <button
+                        onClick={() => setItemModal(it)}
+                        title="กดเพื่อแก้ไข"
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: it.reorder_date ? 'var(--payi-text)' : 'var(--payi-text-faint)' }}
+                      >
+                        {it.reorder_date ? fmtShortDate(it.reorder_date) : '— กรอก —'}
+                      </button>
                     </td>
                     <td style={{ padding: '10px', textAlign: 'right' }}>
                       {recommendedOrder !== null && (
