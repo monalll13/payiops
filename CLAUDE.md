@@ -244,6 +244,19 @@ a new one.
      any append to `product_aliases`** (or any large shared sheet) and repair via
      read-modify-write if it happened, same as done here — don't assume the API response
      saying `ok:true` means the data landed correctly.
+   - ✅ **DONE (2026-07-22) — sales/ABC fallback for the self-split color/size SKUs.**
+     `PY066-B/-C`, `PY073-B`, `PY051-B..J` have no direct sales match — `raw_orders` was
+     never split by color/size for these, only the base `master_sku` (e.g. `PY066`) was
+     ever recorded, so `planner-sales.js` has nothing to look up under the suffixed code.
+     `Inventory.jsx` now falls back: when a SKU has no direct match but its base (sku with
+     the trailing `-X` stripped) does, it splits the base's `dailyAverage`/`units90`
+     across every sibling in that base group proportionally by current `balance` share
+     (equal split if all balances are 0). This is a real product with real sales, but a
+     **statistical estimate, not a true per-color breakdown** — the ABC badge shows a `≈`
+     prefix (with a tooltip) on every row using an estimated number, so it's visibly
+     different from a direct match. `ZZ004-ZZ009` and `PY076` still correctly show no
+     data (genuinely no sales — discontinued or never sold under that code), which is
+     expected and not a bug.
    - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.

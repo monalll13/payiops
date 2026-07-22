@@ -106,12 +106,49 @@ export default function Inventory() {
 
   // ผูกยอดขาย 90 วัน + ABC เข้ากับแต่ละสินค้า แล้วคำนวณขั้นต่ำแนะนำ/แนะนำสั่งซื้อสดๆ ที่นี่ที่เดียว
   // (ตารางกับ modal แก้ไขใช้ตัวเลขชุดเดียวกัน ไม่แยกคำนวณคนละที่)
+  //
+  // SKU ที่แยกสี/ไซส์เอง (เช่น PY066-B, PY051-C) ไม่มียอดขายของตัวเองตรงๆ เพราะ raw_orders
+  // บันทึกรวมเป็น master_sku ฐานเดียว (PY066) มาตั้งแต่ต้น ไม่เคยแยกสีตอนขาย — fallback โดย
+  // เฉลี่ยยอดของฐานตามสัดส่วนคงเหลือ (balance) ของแต่ละตัวในกลุ่ม ดีกว่าไม่มีข้อมูลเลย
+  // แต่เป็นการประมาณ ไม่ใช่ยอดขายจริงแยกสี
+  const baseSkuOf = (sku) => sku.replace(/-[A-Z]$/, '')
+  const allocatedSales = useMemo(() => {
+    const childrenByBase = new Map()
+    for (const it of items) {
+      const sku = String(it.sku).toUpperCase()
+      if (salesBySku.has(sku)) continue
+      const base = baseSkuOf(sku)
+      if (base === sku || !salesBySku.has(base)) continue
+      if (!childrenByBase.has(base)) childrenByBase.set(base, [])
+      childrenByBase.get(base).push(it)
+    }
+    const result = new Map()
+    for (const [base, children] of childrenByBase) {
+      const baseItem = items.find((it) => String(it.sku).toUpperCase() === base)
+      const group = baseItem ? [baseItem, ...children] : children
+      const baseSales = salesBySku.get(base)
+      const totalBalance = group.reduce((s, it) => s + (it.balance || 0), 0)
+      for (const it of group) {
+        const share = totalBalance > 0 ? (it.balance || 0) / totalBalance : 1 / group.length
+        result.set(String(it.sku).toUpperCase(), {
+          dailyAverage: Math.round(baseSales.dailyAverage * share * 10) / 10,
+          units90: Math.round(baseSales.units90 * share),
+          abc: baseSales.abc,
+          estimated: true,
+        })
+      }
+    }
+    return result
+  }, [items, salesBySku])
+
   const enriched = useMemo(() => {
     return items.map((it) => {
-      const sales = salesBySku.get(String(it.sku).toUpperCase())
+      const sku = String(it.sku).toUpperCase()
+      const sales = salesBySku.get(sku) || allocatedSales.get(sku)
       const dailyAvg = sales?.dailyAverage || 0
       const units90 = sales?.units90 || 0
       const abc = sales?.abc || null
+      const salesEstimated = Boolean(sales?.estimated)
       const leadTimeTotal = (it.lead_time_production || 0) + (it.lead_time_transport || 0)
       const computedSafety = calcSuggestedSafety(dailyAvg, leadTimeTotal, it.ship_freight)
       const effectiveSafety = computedSafety !== null ? computedSafety : it.safety_stock
@@ -119,9 +156,9 @@ export default function Inventory() {
       const recommendedOrder = effectiveStatus !== 'ปกติ' && dailyAvg && leadTimeTotal
         ? calcRecommendedOrder(effectiveSafety, it.balance, dailyAvg, leadTimeTotal)
         : null
-      return { ...it, dailyAvg, units90, abc, leadTimeTotal, computedSafety, effectiveSafety, effectiveStatus, recommendedOrder }
+      return { ...it, dailyAvg, units90, abc, salesEstimated, leadTimeTotal, computedSafety, effectiveSafety, effectiveStatus, recommendedOrder }
     })
-  }, [items, salesBySku])
+  }, [items, salesBySku, allocatedSales])
 
   // นับ Low Stock จาก effectiveStatus (สูตรสด) ไม่ใช้ totals.lowStockCount จาก server ตรงๆ
   // เพราะอันนั้นนับจาก safety_stock ที่เซฟไว้ในชีตเท่านั้น จะไม่ตรงกับสถานะที่โชว์ในตาราง
@@ -278,12 +315,15 @@ export default function Inventory() {
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
                     <td style={{ padding: '10px' }}>
                       {it.abc && (
-                        <span style={{
-                          fontSize: 11, fontWeight: 800, padding: it.ship_freight ? '2px 7px' : 0, borderRadius: 999,
-                          background: it.ship_freight ? '#fde047' : 'transparent',
-                          color: it.ship_freight ? '#713f12' : 'var(--payi-text-faint)',
-                        }}>
-                          {it.abc}
+                        <span
+                          title={it.salesEstimated ? 'ประมาณจากยอดขายรวมของ SKU หลัก แบ่งตามสัดส่วนคงเหลือ ไม่ใช่ยอดขายแยกจริง' : undefined}
+                          style={{
+                            fontSize: 11, fontWeight: 800, padding: it.ship_freight ? '2px 7px' : 0, borderRadius: 999,
+                            background: it.ship_freight ? '#fde047' : 'transparent',
+                            color: it.ship_freight ? '#713f12' : 'var(--payi-text-faint)',
+                          }}
+                        >
+                          {it.salesEstimated ? '≈' : ''}{it.abc}
                         </span>
                       )}
                     </td>
