@@ -380,8 +380,8 @@ export default function App() {
     } catch {}
   }, [activeTab])
 
-  // sidebar ย่อเหลือแค่ไอคอนโดย default กันหน้าจอรก — เอาเมาส์ชี้แล้วค่อยขยายออกมาโชว์ label
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  // sidebar ล็อคขยายไว้ตลอด (เดิมย่อเหลือแค่ไอคอน เอาเมาส์ชี้ถึงขยาย — owner ขอให้ล็อคไว้ ไม่ต้องเก็บแล้ว)
+  const sidebarExpanded = true
 
   // DATE FILTER STATES
   const [datePreset, setDatePreset] = useState('all')
@@ -685,10 +685,8 @@ export default function App() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f7fbff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: 'var(--payi-text-strong)' }}>
       
-      {/* SIDEBAR NAVIGATION — ย่อเหลือแค่ไอคอนโดย default, เอาเมาส์ชี้แล้วขยายออกมาโชว์ label */}
+      {/* SIDEBAR NAVIGATION — ล็อคขยายไว้ตลอด */}
       <div
-        onMouseEnter={() => setSidebarExpanded(true)}
-        onMouseLeave={() => setSidebarExpanded(false)}
         style={{
           width: sidebarExpanded ? 240 : 68, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
           display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0,
