@@ -232,6 +232,23 @@ a new one.
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
    - `safety_stock` is `0` for all 69 seeded items (no reorder-point data was provided) —
      owner should set real thresholds per item via the Inventory page's edit action.
+   - ✅ **DONE (2026-07-21) — reorder tracking + auto safety-stock formula**, matching the
+     owner's real Excel workflow (`Safety UP177` columns G–N). `inventory_items` gained
+     (appended at the end, per the header-order lesson below): `reorder_date`,
+     `expected_arrival` (manual — "did we already order this, when's it landing", shown
+     as a small note under the status badge), `lead_time_production`, `lead_time_transport`,
+     `ship_freight` (boolean). When lead time is filled in on the edit modal, `safety_stock`
+     auto-fills via `dailyAvg × (leadTimeTotal + leadTimeTotal/2 if ship_freight)` — the
+     owner's sea-freight rows get an extra 50% buffer since boat lead times are long/variable
+     (ROP is folded into this single SS number, no separate ROP field). Still fully editable
+     after auto-fill, doesn't lock. `dailyAvg` comes from `/api/planner-sales`, joined
+     client-side in `Inventory.jsx` (same pattern as the ABC join in `StockMovement.jsx`).
+     Also added a **"แนะนำสั่งซื้อ"** column (Inventory table), shown only for non-"ปกติ"
+     rows: `recommended_order = max(0, safety_stock − (balance − dailyAvg × leadTimeTotal))`.
+     **Gotcha hit while building this:** first attempt inserted the 3 new lead-time columns
+     into the MIDDLE of `ITEMS_HEADERS` — corrupted all 70 existing rows (data stayed at old
+     column positions, header row didn't) until repaired from the known-good seed data.
+     Same rule as `claims.js`: **always append new columns at the end, never insert mid-sheet.**
 8. ✅ **REMOVED (2026-07-21)** — "PAYI Brain" AI Assistant tab was fake (canned
    if/else replies, no LLM call). Owner decided to delete rather than keep a
    fake-AI page (`AIAssistantView` function, menu item, icon mapping, ternary branch

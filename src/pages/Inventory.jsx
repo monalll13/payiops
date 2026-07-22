@@ -45,8 +45,23 @@ function Modal({ title, onClose, children }) {
 const inputStyle = { width: '100%', border: '1px solid var(--payi-border)', borderRadius: 10, padding: '9px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }
 const labelStyle = { fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', marginBottom: 5, display: 'block' }
 
+// SS = ยอดขายเฉลี่ย/วัน × (lead time total + ครึ่งนึงถ้าเป็นของเรือ) — สูตรจากไฟล์ Safety UP177 เดิม
+// เรือใช้เวลานานและแปรผัน เผื่อเพิ่มอีกครึ่งของ lead time ไปเลย (ROP รวมอยู่ใน SS ตัวนี้แล้ว ไม่แยกช่อง)
+const calcSuggestedSafety = (dailyAvg, leadTimeTotal, shipFreight) => {
+  if (!dailyAvg || !leadTimeTotal) return null
+  const days = leadTimeTotal + (shipFreight ? leadTimeTotal / 2 : 0)
+  return Math.round(dailyAvg * days)
+}
+
+// แนะนำสั่งซื้อ = ควรมี(SS) - ของที่คาดว่าจะเหลือตอนของมาถึง (คงเหลือตอนนี้ - ใช้ไประหว่างรอ)
+const calcRecommendedOrder = (safetyStock, balance, dailyAvg, leadTimeTotal) => {
+  const projectedAtArrival = balance - dailyAvg * leadTimeTotal
+  return Math.max(0, Math.round(safetyStock - projectedAtArrival))
+}
+
 export default function Inventory() {
   const [data, setData] = useState(null)
+  const [dailyAvgBySku, setDailyAvgBySku] = useState(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -57,9 +72,15 @@ export default function Inventory() {
   const load = useCallback(() => {
     setLoading(true)
     setError('')
-    fetch('/api/sheet-tools?op=inventory&view=items')
-      .then((r) => r.json())
-      .then((d) => { if (!d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ'); setData(d) })
+    Promise.all([
+      fetch('/api/sheet-tools?op=inventory&view=items').then((r) => r.json()),
+      fetch('/api/planner-sales').then((r) => r.json()).catch(() => null),
+    ])
+      .then(([d, planner]) => {
+        if (!d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
+        setData(d)
+        setDailyAvgBySku(new Map((planner?.items || []).map((p) => [String(p.masterSku || '').toUpperCase(), p.dailyAverage || 0])))
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
@@ -159,11 +180,18 @@ export default function Inventory() {
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>ขั้นต่ำ</th>
                   <th style={{ padding: '8px 10px' }}>หน่วย</th>
                   <th style={{ padding: '8px 10px' }}>สถานะ</th>
+                  <th style={{ padding: '8px 10px', textAlign: 'right' }}>แนะนำสั่งซื้อ</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>จัดการ</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((it) => (
+                {filtered.map((it) => {
+                  const dailyAvg = dailyAvgBySku.get(String(it.sku).toUpperCase()) || 0
+                  const leadTimeTotal = (it.lead_time_production || 0) + (it.lead_time_transport || 0)
+                  const recommendedOrder = it.status !== 'ปกติ' && dailyAvg && leadTimeTotal
+                    ? calcRecommendedOrder(it.safety_stock, it.balance, dailyAvg, leadTimeTotal)
+                    : null
+                  return (
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
                     <td style={{ padding: '10px' }}>
                       <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}</div>
@@ -180,6 +208,13 @@ export default function Inventory() {
                         </div>
                       )}
                     </td>
+                    <td style={{ padding: '10px', textAlign: 'right' }}>
+                      {recommendedOrder !== null && (
+                        <span style={{ fontWeight: 800, color: recommendedOrder > 0 ? 'var(--payi-mint-strong)' : 'var(--payi-text-faint)' }}>
+                          {recommendedOrder > 0 ? `+${fmt(recommendedOrder)}` : '-'}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: '10px' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                         <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'in' })} title="รับเข้า" style={iconBtnStyle('var(--payi-success)')}>+</button>
@@ -188,7 +223,8 @@ export default function Inventory() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -198,6 +234,7 @@ export default function Inventory() {
       {itemModal && (
         <ItemModal
           initial={itemModal === 'new' ? null : itemModal}
+          dailyAvg={itemModal === 'new' ? 0 : dailyAvgBySku.get(String(itemModal.sku).toUpperCase()) || 0}
           saving={saving}
           onClose={() => setItemModal(null)}
           onSave={saveItem}
@@ -222,7 +259,7 @@ const iconBtnStyle = (color) => ({
   fontSize: 16, fontWeight: 800, cursor: 'pointer', lineHeight: 1,
 })
 
-function ItemModal({ initial, saving, onClose, onSave }) {
+function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
   const isEdit = Boolean(initial)
   const [sku, setSku] = useState(initial?.sku || '')
   const [displayName, setDisplayName] = useState(initial?.display_name || '')
@@ -231,13 +268,30 @@ function ItemModal({ initial, saving, onClose, onSave }) {
   const [openingBalance, setOpeningBalance] = useState(isEdit ? '' : '0')
   const [reorderDate, setReorderDate] = useState(initial?.reorder_date || '')
   const [expectedArrival, setExpectedArrival] = useState(initial?.expected_arrival || '')
+  const [leadProd, setLeadProd] = useState(initial?.lead_time_production ?? '')
+  const [leadTransport, setLeadTransport] = useState(initial?.lead_time_transport ?? '')
+  const [shipFreight, setShipFreight] = useState(initial?.ship_freight ?? false)
+
+  // แก้ lead time/ทางเรือแล้ว คำนวณขั้นต่ำแนะนำให้ใหม่อัตโนมัติ (ยังแก้เลขเองทับได้เสมอ)
+  const leadTimeTotal = (Number(leadProd) || 0) + (Number(leadTransport) || 0)
+  const suggestedSafety = calcSuggestedSafety(dailyAvg, leadTimeTotal, shipFreight)
+  useEffect(() => {
+    if (suggestedSafety !== null) setSafetyStock(suggestedSafety)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadProd, leadTransport, shipFreight])
 
   const submit = (e) => {
     e.preventDefault()
     if (!sku.trim() || !displayName.trim()) return
     const payload = { sku: sku.trim(), display_name: displayName.trim(), unit, safety_stock: safetyStock }
     if (!isEdit) payload.opening_balance = openingBalance
-    if (isEdit) { payload.reorder_date = reorderDate; payload.expected_arrival = expectedArrival }
+    if (isEdit) {
+      payload.reorder_date = reorderDate
+      payload.expected_arrival = expectedArrival
+      payload.lead_time_production = leadProd
+      payload.lead_time_transport = leadTransport
+      payload.ship_freight = shipFreight
+    }
     onSave(payload)
   }
 
@@ -262,6 +316,30 @@ function ItemModal({ initial, saving, onClose, onSave }) {
             <input type="number" value={safetyStock} onChange={(e) => setSafetyStock(e.target.value)} style={inputStyle} placeholder="0" />
           </div>
         </div>
+        {isEdit && (
+          <div style={{ background: 'var(--payi-surface-muted)', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)' }}>Lead time (ไว้คำนวณขั้นต่ำแนะนำอัตโนมัติ)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={labelStyle}>ผลิต (วัน)</label>
+                <input type="number" value={leadProd} onChange={(e) => setLeadProd(e.target.value)} style={inputStyle} placeholder="0" />
+              </div>
+              <div>
+                <label style={labelStyle}>ขนส่ง (วัน)</label>
+                <input type="number" value={leadTransport} onChange={(e) => setLeadTransport(e.target.value)} style={inputStyle} placeholder="0" />
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={shipFreight} onChange={(e) => setShipFreight(e.target.checked)} />
+              ส่งทางเรือ (เผื่อเวลาเพิ่มอีกครึ่งของ lead time)
+            </label>
+            <div style={{ fontSize: 11, color: 'var(--payi-text-faint)' }}>
+              {dailyAvg
+                ? `ยอดขายเฉลี่ย ${dailyAvg.toFixed(1)}/วัน${suggestedSafety !== null ? ` — แนะนำขั้นต่ำ ${suggestedSafety}` : ' — กรอก lead time เพื่อคำนวณ'}`
+                : 'ไม่มีข้อมูลยอดขาย 90 วันล่าสุดของ SKU นี้ — คำนวณอัตโนมัติไม่ได้ ต้องกรอกขั้นต่ำเอง'}
+            </div>
+          </div>
+        )}
         {!isEdit && (
           <div>
             <label style={labelStyle}>ยอดคงเหลือเริ่มต้น</label>

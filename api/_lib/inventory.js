@@ -9,7 +9,7 @@ import { isoDate } from './dates.js'
 const ITEMS_SHEET = 'inventory_items'
 const MOVEMENTS_SHEET = 'stock_movements'
 // ต่อท้ายรายการเดิมเท่านั้น (ห้ามแทรกกลาง) — แถวเดิมใน Sheet อิงตำแหน่งคอลัมน์เดิมอยู่ เหมือน claims sheet
-const ITEMS_HEADERS = ['sku', 'display_name', 'unit', 'safety_stock', 'opening_balance', 'opening_date', 'active', 'created_at', 'updated_at', 'reorder_date', 'expected_arrival']
+const ITEMS_HEADERS = ['sku', 'display_name', 'unit', 'safety_stock', 'opening_balance', 'opening_date', 'active', 'created_at', 'updated_at', 'reorder_date', 'expected_arrival', 'lead_time_production', 'lead_time_transport', 'ship_freight']
 const MOVEMENTS_HEADERS = ['id', 'date', 'sku', 'type', 'qty', 'note', 'created_by', 'created_at']
 const MOVEMENT_TYPES = new Set(['in', 'out', 'adjust'])
 
@@ -56,6 +56,9 @@ async function loadItemsWithBalance() {
       status: statusOf(balance, safetyStock),
       reorder_date: it.reorder_date || '',
       expected_arrival: it.expected_arrival || '',
+      lead_time_production: num(it.lead_time_production),
+      lead_time_transport: num(it.lead_time_transport),
+      ship_freight: String(it.ship_freight) === '1' || String(it.ship_freight).toLowerCase() === 'true',
     }
   })
   rows.sort((a, b) => a.display_name.localeCompare(b.display_name, 'th'))
@@ -121,6 +124,9 @@ async function upsertItem(body, actorName) {
       opening_date: isoDate(body.opening_date) || todayBKK(),
       reorder_date: body.reorder_date ? isoDate(body.reorder_date) : '',
       expected_arrival: body.expected_arrival ? isoDate(body.expected_arrival) : '',
+      lead_time_production: num(body.lead_time_production),
+      lead_time_transport: num(body.lead_time_transport),
+      ship_freight: body.ship_freight ? '1' : '0',
       active: '1',
       created_at: now,
       updated_at: now,
@@ -135,6 +141,9 @@ async function upsertItem(body, actorName) {
     // วันสั่ง/เช็คของ + วันคาดว่าจะเข้า — เคลียร์ได้ (ส่ง '' มา) ตอนของเข้าแล้วไม่ต้องรอ/ติดตามต่อ
     if (body.reorder_date !== undefined) row.reorder_date = body.reorder_date ? isoDate(body.reorder_date) : ''
     if (body.expected_arrival !== undefined) row.expected_arrival = body.expected_arrival ? isoDate(body.expected_arrival) : ''
+    if (body.lead_time_production !== undefined) row.lead_time_production = num(body.lead_time_production)
+    if (body.lead_time_transport !== undefined) row.lead_time_transport = num(body.lead_time_transport)
+    if (body.ship_freight !== undefined) row.ship_freight = body.ship_freight ? '1' : '0'
     if (body.active !== undefined) row.active = body.active ? '1' : '0'
     row.updated_at = now
   }
