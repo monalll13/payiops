@@ -135,7 +135,7 @@ backing code. Lower priority (see TODO #9).
 - `claims-import.js` — POST parsed xlsx into `claims` (`requireAuth`)
 - `import-orders.js` (`?view=log` + POST map→alias-match→dedup→route to `raw_orders_YYYY_MM` + log; DELETE by import batch) (`requireDev` — dev-only, this is the destructive one)
 - `manager-claims.js` — mobile manager claim-rate view (`requireManager`)
-- `planner-sales.js` — ABC classification + 90-day sales average, 6h in-memory cache (`requireAuth`)
+- `planner-sales.js` — ABC classification + 90-day sales average, 6h in-memory cache (`requireAuth`). Decomposes Set/bundle SKU sales into real component demand via `set_recipes` sheet — see Files section
 - `marketing.js` (`?kind=events|inputs` — multiplexes `_lib/marketingEvents.js` / `_lib/marketingInputs.js`, each with its own `requireManager`)
 - `sheet-tools.js` (`?op=summary|sheet|append|overwrite|workforce|planner|hr|inventory|line-webhook`) — the biggest file; HR, workforce/OT, planner CRUD, generic sheet tools, and the LINE webhook all live here to stay under the function cap. `line-webhook` op is unauthenticated (verified via LINE signature instead, see `_lib/line.js`). `op=inventory` (added 2026-07-21) delegates to `_lib/inventory.js` — not in the staff op-whitelist (`summary`/`workforce`/`planner`), so Inventory/Stock Movement are dev+boss only for now, same as it's currently absent from `STAFF_TABS`
 - `auth.js` — login/setup/create-user/list-users/delete-user (deliberately NOT behind `requireAuth` — it IS the auth entrypoint)
@@ -257,6 +257,28 @@ a new one.
      different from a direct match. `ZZ004-ZZ009` and `PY076` still correctly show no
      data (genuinely no sales — discontinued or never sold under that code), which is
      expected and not a bug.
+   - ✅ **DONE (2026-07-22) — Set-product sales decomposition (`set_recipes` sheet).**
+     `product_aliases` has real Set/bundle SKUs (`PY067` [Set สุดคุ้ม], `PY069`
+     [Set ลดปวดเท้า], `PY071` [Set นิ้วโป้งเท้า 24 ชม.]) that sell in real volume (PY067 was
+     ABC-**A**, 1,548 units/90d) but aren't physical stock items themselves — before this,
+     their sales were completely invisible to the real component SKUs' ABC/dailyAverage,
+     understating true demand badly (e.g. `PY036` มาตรฐาน went from ABC-A/no-recommendation
+     to correctly showing "ใกล้หมด" + a real +5,138 recommended order once counted).
+     `planner-sales.js` now reads a new `set_recipes` sheet (`set_sku`, `variation_name`,
+     `component_sku`, `qty_per_unit`) and widened its `raw_orders` read from `J:N` to
+     `I:N` to also pull `variation_name` (needed because **the component breakdown
+     depends on which variation was ordered**, not just the set SKU — e.g. PY067's
+     `variation_name` encodes both shape ("วงรี"/"มาตรฐาน"/...) and pack size ("Set 10/20/30
+     ชิ้น"), plus a mixed "Set จัดให้" variation that's an actual multi-component recipe
+     scaled ×1/×2/×3 by size). When an order row's `(set_sku, variation_name)` matches a
+     `set_recipes` entry, that row is replaced with its decomposed component rows (qty ×
+     `qty_per_unit`) before aggregation — the Set SKU itself then correctly drops out of
+     `items` (it's not a real stocked thing). Unmatched variations silently keep counting
+     under the raw Set SKU (safe fallback — no data loss, just not decomposed yet).
+     **Only `PY067` has recipes seeded so far** (30 rows, verified against real
+     `variation_name` values pulled live from `raw_orders_2026_07` before seeding — do
+     that verification step again for any new set, exact-string matching is unforgiving).
+     `PY069`/`PY071` still need their recipes from the owner.
    - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.

@@ -1,7 +1,13 @@
 // GET /api/planner-sales
 // ABC และยอดเฉลี่ยต่อวันจากจำนวนชิ้นขาย 90 วันล่าสุด (ยึดวันล่าสุดที่มีข้อมูล)
 import { requireAuth } from './_lib/auth.js'
-import { batchGetValues, getMeta, getSheet } from './_lib/sheets.js'
+import { batchGetValues, getMeta, getSheet, ensureSheet } from './_lib/sheets.js'
+
+// สินค้า Set (เช่น PY067 [Set สุดคุ้ม]) ไม่ใช่ของจริงที่ track สต็อก — ต้อง "แตก" ยอดขาย Set
+// ไปเป็นยอดของ SKU จริงที่อยู่ข้างในตาม variation_name ของออเดอร์ (บอกไซส์/สูตรผสม) ก่อนคำนวณ
+// ABC/ยอดเฉลี่ย ไม่งั้น SKU จริงจะโดนนับยอดขายต่ำกว่าจริงมาก (Set สุดคุ้มขาย ABC-A เลย)
+const SET_RECIPES_SHEET = 'set_recipes'
+const SET_RECIPES_HEADERS = ['set_sku', 'variation_name', 'component_sku', 'qty_per_unit']
 
 // ABC ไม่จำเป็นต้องไล่อ่าน raw_orders ทุกครั้งที่เปิดหน้า — 6 ชม. ลดทั้งเวลาและ Sheets quota
 const CACHE_MS = 6 * 60 * 60 * 1000
@@ -22,7 +28,19 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [meta, aliases] = await Promise.all([getMeta(), getSheet('product_aliases')])
+    await ensureSheet(SET_RECIPES_SHEET, SET_RECIPES_HEADERS)
+    const [meta, aliases, setRecipeRows] = await Promise.all([getMeta(), getSheet('product_aliases'), getSheet(SET_RECIPES_SHEET)])
+    const recipesByKey = new Map() // `${set_sku}|${variation_name}` -> [{component_sku, qty_per_unit}]
+    for (const row of setRecipeRows) {
+      const setSku = String(row.set_sku || '').trim().toUpperCase()
+      const variation = String(row.variation_name || '').trim()
+      const componentSku = String(row.component_sku || '').trim().toUpperCase()
+      const qtyPerUnit = Number(row.qty_per_unit) || 0
+      if (!setSku || !variation || !componentSku || qtyPerUnit <= 0) continue
+      const key = `${setSku}|${variation}`
+      if (!recipesByKey.has(key)) recipesByKey.set(key, [])
+      recipesByKey.get(key).push({ componentSku, qtyPerUnit })
+    }
     const mapped = new Map()
     for (const row of aliases) {
       const masterSku = String(row.master_sku || '').trim().toUpperCase()
@@ -42,7 +60,8 @@ export default async function handler(req, res) {
     const tabs = dataTabs.slice(-4)
     if (!tabs.length) return res.status(200).json({ success: true, items: [], productMapping, anchor: '', start: '', days: 90, fetchedAt: new Date().toISOString() })
 
-    const productCols = await batchGetValues(tabs.map((tab) => `${tab}!J:N`))
+    // I:N แทน J:N เดิม — เพิ่มคอลัมน์ variation_name (I) เข้ามาด้วย เพื่อแตกยอด Set ตาม variation
+    const productCols = await batchGetValues(tabs.map((tab) => `${tab}!I:N`))
     const raw = []
     let anchor = ''
 
@@ -53,13 +72,25 @@ export default async function handler(req, res) {
       for (let rowIndex = 1; rowIndex < length; rowIndex += 1) {
         const date = String(dates[rowIndex]?.[0] || '').slice(0, 10)
         const row = products[rowIndex] || []
-        const masterSku = String(row[0] || '').trim()
-        const name = String(row[1] || masterSku).trim()
-        const qty = parseInt(row[2], 10) || 0
+        const variationName = String(row[0] || '').trim()
+        const masterSku = String(row[1] || '').trim()
+        const name = String(row[2] || masterSku).trim()
+        const qty = parseInt(row[3], 10) || 0
         // แพลนฟีดอ้างอิงงานที่ออกทั้งหมด จึงนับจำนวนชิ้นรวมสถานะยกเลิก/ตีคืนด้วย
         if (!date || !name || qty <= 0) continue
         if (date > anchor) anchor = date
-        raw.push({ date, masterSku, name, qty })
+
+        // สินค้า Set — แตกเป็นยอดของ SKU จริงข้างในตาม variation ถ้ามีสูตรอยู่ ไม่งั้นนับเป็น
+        // Set เองตามเดิม (กันเคส variation ใหม่ที่ยังไม่ได้เพิ่มสูตร ไม่ให้ข้อมูลหายไปเฉยๆ)
+        const recipe = recipesByKey.get(`${masterSku.toUpperCase()}|${variationName}`)
+        if (recipe) {
+          for (const { componentSku, qtyPerUnit } of recipe) {
+            const componentName = mapped.get(componentSku)?.displayName || componentSku
+            raw.push({ date, masterSku: componentSku, name: componentName, qty: qty * qtyPerUnit })
+          }
+        } else {
+          raw.push({ date, masterSku, name, qty })
+        }
       }
     }
 
