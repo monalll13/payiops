@@ -278,7 +278,11 @@ a new one.
      **Only `PY067` has recipes seeded so far** (30 rows, verified against real
      `variation_name` values pulled live from `raw_orders_2026_07` before seeding — do
      that verification step again for any new set, exact-string matching is unforgiving).
-     `PY069`/`PY071` still need their recipes from the owner.
+     ✅ **DONE (2026-07-22) — `PY069`/`PY071` recipes added too** (8 rows, same
+     verify-against-real-`variation_name`-first approach): `PY069` [Set ลดปวดเท้า] →
+     ครีมนวดเท้า/PY027, ลูกกลิ้งนวดเท้า/PY028, or both combined; `PY071` [Set นิ้วโป้งเท้า
+     24 ชม.] → ซิลิโคนคั่นนิ้วโป้ง/PY043, ผ้ารัดหัวแม่เท้า/PY050, or both combined. All 3
+     known Set SKUs now fully decomposed (38 `set_recipes` rows total).
    - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
