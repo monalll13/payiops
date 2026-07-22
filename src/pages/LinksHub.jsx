@@ -210,7 +210,7 @@ export default function LinksHub() {
       </div>
 
       {adding && (
-        <div style={{ background: '#ffffff', border: '1px solid #dbe3ef', borderRadius: 12, boxShadow: '0 18px 44px rgba(15, 23, 42, 0.08)', padding: 16, marginBottom: 20, display: 'grid', gridTemplateColumns: '150px repeat(3, minmax(150px, 1fr)) auto', gap: 10, alignItems: 'center' }}>
+        <div className="app-kpi-grid" style={{ background: '#ffffff', border: '1px solid #dbe3ef', borderRadius: 12, boxShadow: '0 18px 44px rgba(15, 23, 42, 0.08)', padding: 16, marginBottom: 20, display: 'grid', gridTemplateColumns: '150px repeat(3, minmax(150px, 1fr)) auto', gap: 10, alignItems: 'center' }}>
           <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} style={fieldStyle}>
             {Object.keys(GROUP_STYLES).map((category) => <option key={category}>{category}</option>)}
           </select>
@@ -254,7 +254,7 @@ export default function LinksHub() {
 
       <section style={{ marginBottom: 24 }}>
         <h2 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 900 }}>Core Modules</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(150px, 1fr))', gap: 14 }}>
+        <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(150px, 1fr))', gap: 14 }}>
           {CORE_MODULES.map((module) => {
             const Icon = module.icon
             return (
@@ -271,8 +271,8 @@ export default function LinksHub() {
         </div>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 336px', gap: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(3, minmax(230px, 1fr))' : '1fr', gap: 14, alignContent: 'start' }}>
+      <div className="app-two-col-fixed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 336px', gap: 16 }}>
+        <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(3, minmax(230px, 1fr))' : '1fr', gap: 14, alignContent: 'start' }}>
           {Object.entries(grouped).map(([group, items]) => {
             const groupStyle = GROUP_STYLES[group] || GROUP_STYLES['Tools & Productivity']
             const GroupIcon = groupStyle.icon
