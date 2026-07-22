@@ -704,13 +704,17 @@ export default function App() {
       <div
         className="payi-sidebar-nav"
         style={{
-          width: sidebarExpanded ? 240 : 68, height: '100vh', position: 'sticky', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
+          width: sidebarExpanded ? 240 : 68, height: '100vh', top: 0, background: '#ffffff', borderRight: '1px solid #e2e8f0',
           display: 'flex', flexDirection: 'column', padding: '12px 11px 10px', boxSizing: 'border-box', flexShrink: 0,
           boxShadow: sidebarExpanded ? '18px 0 48px rgba(15, 23, 42, 0.08)' : '18px 0 48px rgba(15, 23, 42, 0.04)',
-          overflow: 'hidden', zIndex: 20,
+          overflow: 'hidden',
+          // z-index/position ต้องคุมทาง inline ด้วย ไม่พึ่ง CSS !important อย่างเดียว —
+          // เจอ Chromium ในสภาพแวดล้อมทดสอบนี้ไม่ยอม apply !important ทับ inline ให้บางจังหวะ
+          // (เจอปัญหาคล้ายกันตอนทำ transform ของลิ้นชักนี้ก่อนหน้า) ทำให้ backdrop (z 55) บัง
+          // เมนูจริง (ตอนนั้น z แค่ 20) กดเมนูไม่ติดเลยบนมือถือ
           ...(isMobileViewport
-            ? { transform: mobileNavOpen ? 'translateX(0)' : 'translateX(-110%)' }
-            : { transition: 'width 180ms ease, box-shadow 180ms ease' }),
+            ? { position: 'fixed', zIndex: 60, transform: mobileNavOpen ? 'translateX(0)' : 'translateX(-110%)' }
+            : { position: 'sticky', zIndex: 20, transition: 'width 180ms ease, box-shadow 180ms ease' }),
         }}
       >
         <div style={{ marginBottom: 10, paddingLeft: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
