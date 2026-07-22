@@ -311,7 +311,18 @@ a new one.
      verified live: PY075 dropped 124→52 units/90d (real ball-only sales), PY026 gained
      the redirected chair units (1923→1995). **`SKU_REDIRECTS` is a hardcoded map for now
      (one entry)** — fine at this scale, but if renames become frequent, move it to a
-     Sheets tab like `set_recipes` instead of requiring a code deploy per rename. (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
+     Sheets tab like `set_recipes` instead of requiring a code deploy per rename.
+   - ✅ **DONE (2026-07-22) — `product_aliases` catalog cleanup**, safe/cosmetic only:
+     fixed a stray typo duplicate (`PY047` had one row spelled "ผ้านุุ่่ม" with doubled
+     combining vowel marks — merged to the correct "ผ้านุ่ม" spelling); relabeled the 3
+     `PY075` "[Set คลายเส้น]" rows' `display_name` to make clear they're the mislabeled
+     เก้าอี้มหัศจรรย์ listing, not real บอลเทาปุ่ม variants. **Deliberately did NOT touch
+     `master_sku` or `alias_key` on either fix** — `import-orders.js` resolves master_sku
+     for new imports by matching `alias_key` exactly (see `aliasByKey` in that file);
+     changing or deleting those fields would silently orphan future orders of that exact
+     listing (master_sku would come back blank on import). Only `display_name` is safe to
+     edit freely.
+   - Decor/gift items from the pasted stock list (ถุงทอง, นกยูงเรซิ่น, เรือสำเภาทองเรซิ่น,
      ปลามังกรเรซิ่น, ม้าทองเรซิ่น, ต้นไทร, เรซิ่นกระทิง) were **deliberately excluded** —
      owner confirmed they belong to the กรอบรูป shop, out of scope here.
    - `safety_stock` is `0` for all 69 seeded items (no reorder-point data was provided) —
