@@ -199,7 +199,7 @@ export default function MarketingRadar() {
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(280px, 0.8fr)', gap: 16 }}>
+      <div className="app-two-col-fixed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(280px, 0.8fr)', gap: 16 }}>
         <section style={{ background: 'var(--payi-surface-dark)', color: '#fff', borderRadius: 8, padding: 22, minHeight: 168, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
             <div>
@@ -213,7 +213,7 @@ export default function MarketingRadar() {
               <RefreshCw size={17} className={saving ? 'payi-spin' : ''} />
             </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 24 }}>
+          <div className="app-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 24 }}>
             <Metric label="Waiting" value={radar.waiting?.length || 0} />
             <Metric label="Live" value={radar.live?.length || 0} />
             <Metric label="Due to check" value={(radar.check7?.length || 0) + (radar.check30?.length || 0)} />
@@ -253,7 +253,7 @@ export default function MarketingRadar() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'start' }}>
+      <div className="app-two-col-fixed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'start' }}>
         {view === 'board' ? (
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(160px, 1fr))', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
             {COLUMNS.map((column) => (
@@ -321,9 +321,11 @@ export default function MarketingRadar() {
 
       <section className="payi-glass-card" style={{ padding: 16, borderRadius: 8 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)', marginBottom: 12 }}>Event History</div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {events.slice(0, 30).map((event) => <TimelineRow key={event.event_id} event={event} onEdit={startEdit} onDelete={deleteEvent} />)}
-          {!events.length && <EmptyLine text="ยังไม่มีเหตุการณ์การตลาด เริ่มจากจดสินค้าใหม่ แก้รูป หรือลงคลิปได้เลย" />}
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ display: 'grid', gap: 8, minWidth: 560 }}>
+            {events.slice(0, 30).map((event) => <TimelineRow key={event.event_id} event={event} onEdit={startEdit} onDelete={deleteEvent} />)}
+            {!events.length && <EmptyLine text="ยังไม่มีเหตุการณ์การตลาด เริ่มจากจดสินค้าใหม่ แก้รูป หรือลงคลิปได้เลย" />}
+          </div>
         </div>
       </section>
     </div>

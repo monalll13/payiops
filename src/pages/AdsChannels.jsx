@@ -250,7 +250,7 @@ export default function AdsChannels() {
         </ResponsiveContainer>
       </Card>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 16 }}>
+      <div className="app-two-col-fixed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 16 }}>
         {/* Ads by store */}
         <Card title={`Ads แยกร้าน · ${selMonth ? monthLabel(selMonth) : ''}`} sub="เดือนที่เลือกด้านบน">
           {adsByStore.length ? (
