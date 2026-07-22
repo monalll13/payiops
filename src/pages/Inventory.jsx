@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Boxes, Layers, AlertTriangle, ArrowLeftRight, Plus, Pencil, X, Eye, EyeOff } from 'lucide-react'
+import { Boxes, Layers, AlertTriangle, ArrowLeftRight, Plus, Pencil, X, Eye, EyeOff, ClipboardCheck } from 'lucide-react'
 import KpiCard from '../components/KpiCard'
 
 const fmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })
@@ -79,6 +79,7 @@ export default function Inventory() {
   const [itemModal, setItemModal] = useState(null) // null | 'new' | item object (edit)
   const [moveModal, setMoveModal] = useState(null) // { sku, display_name, unit, type }
   const [reorderModal, setReorderModal] = useState(null) // item object
+  const [correctModal, setCorrectModal] = useState(null) // item object
 
   const load = useCallback(() => {
     setLoading(true)
@@ -167,7 +168,7 @@ export default function Inventory() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    let rows = enriched.filter((it) => showHidden || it.active)
+    let rows = enriched.filter((it) => (showHidden ? !it.active : it.active))
     if (q) rows = rows.filter((it) => it.display_name.toLowerCase().includes(q) || String(it.sku).toLowerCase().includes(q))
     if (onlyRecommended) rows = rows.filter((it) => (it.recommendedOrder || 0) > 0)
     return [...rows].sort((a, b) => String(a.sku).localeCompare(String(b.sku), undefined, { numeric: true }))
@@ -224,6 +225,26 @@ export default function Inventory() {
       const json = await res.json()
       if (!json.success) throw new Error(json.error || 'บันทึกไม่สำเร็จ')
       setReorderModal(null)
+      load()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveCorrection = async (payload) => {
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/sheet-tools?op=inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add-movement', ...payload }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'บันทึกไม่สำเร็จ')
+      setCorrectModal(null)
       load()
     } catch (e) {
       setError(e.message)
@@ -310,7 +331,6 @@ export default function Inventory() {
               <tbody>
                 {filtered.map((it) => {
                   const recommendedOrder = it.recommendedOrder
-                  const autoSafety = it.computedSafety !== null && it.computedSafety !== it.safety_stock
                   return (
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
                     <td style={{ padding: '10px' }}>
@@ -336,7 +356,7 @@ export default function Inventory() {
                       <button
                         onClick={() => setItemModal(it)}
                         title="กดเพื่อแก้ไข"
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: autoSafety ? 'var(--payi-mint-strong)' : 'var(--payi-text-muted)', fontWeight: autoSafety ? 800 : 400 }}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: 'var(--payi-text-muted)' }}
                       >
                         {fmt(it.effectiveSafety)}
                       </button>
@@ -372,6 +392,7 @@ export default function Inventory() {
                           <>
                             <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'in' })} title="รับเข้า" style={iconBtnStyle('var(--payi-success)')}>+</button>
                             <button onClick={() => setMoveModal({ sku: it.sku, display_name: it.display_name, unit: it.unit, type: 'out' })} title="เบิกออก" style={iconBtnStyle('var(--payi-danger)')}>−</button>
+                            <button onClick={() => setCorrectModal(it)} title="ปรับยอดคงเหลือ (นับสต็อกจริงไม่ตรง)" style={iconBtnStyle('var(--payi-text-muted)')}><ClipboardCheck size={13} /></button>
                             <button onClick={() => setItemModal(it)} title="แก้ไข" style={iconBtnStyle('var(--payi-text-muted)')}><Pencil size={13} /></button>
                             <button onClick={() => setItemHidden(it.sku, true)} title="ซ่อนสินค้านี้ (ไม่ได้ใช้ track สต็อก)" style={iconBtnStyle('var(--payi-text-muted)')}><EyeOff size={13} /></button>
                           </>
@@ -416,6 +437,15 @@ export default function Inventory() {
           saving={saving}
           onClose={() => setReorderModal(null)}
           onSave={saveReorder}
+        />
+      )}
+
+      {correctModal && (
+        <BalanceCorrectionModal
+          target={correctModal}
+          saving={saving}
+          onClose={() => setCorrectModal(null)}
+          onSave={saveCorrection}
         />
       )}
     </div>
@@ -619,6 +649,53 @@ function ReorderModal({ target, saving, onClose, onSave }) {
             {saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </button>
         </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ปรับยอดคงเหลือให้ตรงกับที่นับได้จริง — คำนวณส่วนต่างให้เอง แล้วบันทึกเป็นรายการ "ปรับยอด"
+// เข้า stock_movements เหมือนเดิม (ประวัติแยกดูได้ที่หน้า Stock Movement) ไม่ใช่ field แยกใหม่
+function BalanceCorrectionModal({ target, saving, onClose, onSave }) {
+  const [actualQty, setActualQty] = useState(target.balance)
+  const [note, setNote] = useState('')
+
+  const delta = actualQty === '' ? 0 : Number(actualQty) - target.balance
+
+  const submit = (e) => {
+    e.preventDefault()
+    if (!delta) return
+    onSave({
+      sku: target.sku,
+      type: 'adjust',
+      qty: delta,
+      date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
+      note: note.trim() || `ปรับยอดจากนับสต็อกจริง (เดิม ${fmt(target.balance)} → ${fmt(Number(actualQty))})`,
+    })
+  }
+
+  return (
+    <Modal title={`ปรับยอดคงเหลือ — ${target.display_name}`} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ fontSize: 12, color: 'var(--payi-text-muted)' }}>
+          ในระบบตอนนี้: <b style={{ color: 'var(--payi-text-strong)' }}>{fmt(target.balance)} {target.unit}</b>
+        </div>
+        <div>
+          <label style={labelStyle}>นับจริงได้เท่าไหร่ ({target.unit})</label>
+          <input type="number" value={actualQty} onChange={(e) => setActualQty(e.target.value)} required style={inputStyle} />
+        </div>
+        {delta !== 0 && (
+          <div style={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'var(--payi-success)' : 'var(--payi-danger)' }}>
+            ส่วนต่าง: {delta > 0 ? '+' : ''}{fmt(delta)} {target.unit}
+          </div>
+        )}
+        <div>
+          <label style={labelStyle}>หมายเหตุ</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} style={inputStyle} placeholder="ไม่บังคับ — ถ้าไม่กรอกจะบันทึกอัตโนมัติ" />
+        </div>
+        <button type="submit" disabled={saving || !delta} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving || !delta ? 0.6 : 1 }}>
+          {saving ? 'กำลังบันทึก...' : 'บันทึกยอดใหม่'}
+        </button>
       </form>
     </Modal>
   )

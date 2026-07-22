@@ -392,6 +392,36 @@ a new one.
      across 69/70 rows (an artifact from earlier test-and-reset cycles this session, not
      real owner data — never chase the root cause further than confirming stock
      quantities were untouched; just clear it and move on).
+   - ✅ **DONE (2026-07-22) — balance correction (stock-take reconciliation).** New
+     "ปรับยอดคงเหลือ" icon button (`ClipboardCheck`) on each Inventory row opens
+     `BalanceCorrectionModal` — owner enters the actual counted quantity, the modal shows
+     the delta live, and on save it posts the existing `add-movement` action with
+     `type: 'adjust'` (no schema/backend change needed). This means every correction is
+     already a separate, visible entry in Stock Movement history (satisfies "บันทึกแยก
+     ประวัติการแก้ไข") rather than silently overwriting `opening_balance`. Auto-generated
+     note (`ปรับยอดจากนับสต็อกจริง (เดิม X → Y)`) if the owner leaves the note blank.
+   - ✅ **DONE (2026-07-22) — fixed two UI bugs the owner flagged with screenshots:**
+     (1) "แสดงสินค้าที่ซ่อนไว้" checkbox was showing ALL items (hidden + active) when
+     checked instead of hidden-only — filter logic was `showHidden || it.active`, fixed to
+     `showHidden ? !it.active : it.active`. (2) ขั้นต่ำ (safety stock) button color used to
+     change after editing (auto-computed vs stored-value styling) — owner wanted it to stay
+     visually consistent; dropped the conditional color, now always
+     `var(--payi-text-muted)`.
+   - **Found while testing the above (2026-07-22): 10 inventory items were already
+     hidden (`active:'0'`) in the live sheet without the owner asking for it** — `ZZ002,
+     PY025, PY026, ZZ004–ZZ009, PY034`, all sharing `updated_at` timestamps clustered in a
+     ~2-minute window (`08:53:45`–`08:55:39` UTC same day), almost certainly an accidental
+     bulk action from earlier in this session rather than 10 deliberate individual hides.
+     Notably **PY026 (เก้าอี้มหัศจรรย์) has a live recommended-order alert** — being hidden
+     meant the owner wouldn't have seen it. Restored all 10 to `active:true` and verified.
+     Root cause of the "restore script looked like it failed" confusion while fixing this:
+     **not a bug** — rapid-fire sequential `upsert-item` POSTs (each does a full
+     read-modify-write of the whole sheet) can return `success:true` before the Sheets API
+     write is queryable back, so an immediate verification GET can read stale data. Adding
+     a ~400ms delay between writes and waiting ~1.5s before verifying fixed it. Same
+     underlying pattern as the earlier `appendRows`-to-`product_aliases` blank-columns
+     gotcha — treat immediate-read-after-write on Sheets as eventually consistent, not
+     synchronous, for any bulk operation.
 8. ✅ **REMOVED (2026-07-21)** — "PAYI Brain" AI Assistant tab was fake (canned
    if/else replies, no LLM call). Owner decided to delete rather than keep a
    fake-AI page (`AIAssistantView` function, menu item, icon mapping, ternary branch
