@@ -277,6 +277,14 @@ a new one.
      to active-only by default and adds a "แสดงสินค้าที่ซ่อนไว้" checkbox to reveal +
      restore hidden ones. Hiding is just `upsert-item {sku, active:false}` — fully
      reversible, never a real delete.
+   - ✅ **DONE (2026-07-21) — reorder popup + polish.** `reorder_date` moved out of the
+     main edit modal into its own small `ReorderModal` (opened from the "วันเติมสินค้า/
+     รอเช็ค" cell) — added `reorder_qty` and `reorder_note` alongside it (appended at the
+     end of `ITEMS_HEADERS`, same append-only rule) since the owner needs to log how much
+     was ordered and any note, not just the date. Empty cell shows nothing (no placeholder
+     text). ABC letter renders green when `ship_freight` is true. Swapped column order so
+     "แนะนำสั่งซื้อ" comes before "วันเติมสินค้า/รอเช็ค", and gave it its own color
+     (`#c2410c`) distinct from the ขั้นต่ำ column's mint auto-calc highlight.
    - ✅ **DONE (2026-07-21) — lead time + ship_freight backfilled for real** on all 70
      seeded items, read straight from the owner's `Safety UP177` file (columns J/K for
      lead_time_production/transport) via openpyxl. The `ship_freight` flag came from

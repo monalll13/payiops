@@ -80,6 +80,7 @@ export default function Inventory() {
   const [showHidden, setShowHidden] = useState(false)
   const [itemModal, setItemModal] = useState(null) // null | 'new' | item object (edit)
   const [moveModal, setMoveModal] = useState(null) // { sku, display_name, unit, type }
+  const [reorderModal, setReorderModal] = useState(null) // item object
 
   const load = useCallback(() => {
     setLoading(true)
@@ -182,6 +183,26 @@ export default function Inventory() {
     }
   }
 
+  const saveReorder = async (payload) => {
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch('/api/sheet-tools?op=inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upsert-item', ...payload }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'บันทึกไม่สำเร็จ')
+      setReorderModal(null)
+      load()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const saveMovement = async (payload) => {
     setSaving(true)
     setError('')
@@ -252,8 +273,8 @@ export default function Inventory() {
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>ขั้นต่ำ</th>
                   <th style={{ padding: '8px 10px' }}>หน่วย</th>
                   <th style={{ padding: '8px 10px' }}>สถานะ</th>
-                  <th style={{ padding: '8px 10px' }}>วันเติมสินค้า/รอเช็ค</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>แนะนำสั่งซื้อ</th>
+                  <th style={{ padding: '8px 10px' }}>วันเติมสินค้า/รอเช็ค</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>จัดการ</th>
                 </tr>
               </thead>
@@ -264,7 +285,7 @@ export default function Inventory() {
                   return (
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
                     <td style={{ padding: '10px' }}>
-                      {it.abc && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--payi-text-faint)' }}>{it.abc}</span>}
+                      {it.abc && <span style={{ fontSize: 11, fontWeight: 800, color: it.ship_freight ? 'var(--payi-success)' : 'var(--payi-text-faint)' }}>{it.abc}</span>}
                     </td>
                     <td style={{ padding: '10px', opacity: it.active ? 1 : 0.5 }}>
                       <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}{!it.active && ' (ซ่อนอยู่)'}</div>
@@ -289,21 +310,21 @@ export default function Inventory() {
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '10px' }}>
-                      <button
-                        onClick={() => setItemModal(it)}
-                        title="กดเพื่อแก้ไข"
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: it.reorder_date ? 'var(--payi-text)' : 'var(--payi-text-faint)' }}
-                      >
-                        {it.reorder_date ? fmtShortDate(it.reorder_date) : '— กรอก —'}
-                      </button>
-                    </td>
                     <td style={{ padding: '10px', textAlign: 'right' }}>
                       {recommendedOrder !== null && (
-                        <span style={{ fontWeight: 800, color: recommendedOrder > 0 ? 'var(--payi-mint-strong)' : 'var(--payi-text-faint)' }}>
+                        <span style={{ fontWeight: 800, color: recommendedOrder > 0 ? '#c2410c' : 'var(--payi-text-faint)' }}>
                           {recommendedOrder > 0 ? `+${fmt(recommendedOrder)}` : '-'}
                         </span>
                       )}
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                      <button
+                        onClick={() => setReorderModal(it)}
+                        title="กดเพื่อกรอกวันสั่ง/จำนวน/หมายเหตุ"
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: 'var(--payi-text)', minHeight: 18, minWidth: 40, display: 'block', textAlign: 'left' }}
+                      >
+                        {it.reorder_date ? fmtShortDate(it.reorder_date) : ''}
+                      </button>
                     </td>
                     <td style={{ padding: '10px' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -348,6 +369,15 @@ export default function Inventory() {
           onSave={saveMovement}
         />
       )}
+
+      {reorderModal && (
+        <ReorderModal
+          target={reorderModal}
+          saving={saving}
+          onClose={() => setReorderModal(null)}
+          onSave={saveReorder}
+        />
+      )}
     </div>
   )
 }
@@ -371,7 +401,6 @@ function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
     initial?.computedSafety ?? initial?.safety_stock ?? ''
   )
   const [openingBalance, setOpeningBalance] = useState(isEdit ? '' : '0')
-  const [reorderDate, setReorderDate] = useState(initial?.reorder_date || '')
   const [expectedArrival, setExpectedArrival] = useState(initial?.expected_arrival || '')
 
   // แก้ lead time/ทางเรือแล้ว คำนวณขั้นต่ำแนะนำให้ใหม่อัตโนมัติ (ยังแก้เลขเองทับได้เสมอ)
@@ -388,7 +417,6 @@ function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
     const payload = { sku: sku.trim(), display_name: displayName.trim(), unit, safety_stock: safetyStock }
     if (!isEdit) payload.opening_balance = openingBalance
     if (isEdit) {
-      payload.reorder_date = reorderDate
       payload.expected_arrival = expectedArrival
       payload.lead_time_production = leadProd
       payload.lead_time_transport = leadTransport
@@ -449,15 +477,9 @@ function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
           </div>
         )}
         {isEdit && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={labelStyle}>วันที่สั่ง/เช็คของ</label>
-              <input type="date" value={reorderDate} onChange={(e) => setReorderDate(e.target.value)} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>วันที่คาดว่าจะเข้า</label>
-              <input type="date" value={expectedArrival} onChange={(e) => setExpectedArrival(e.target.value)} style={inputStyle} />
-            </div>
+          <div>
+            <label style={labelStyle}>วันที่คาดว่าจะเข้า</label>
+            <input type="date" value={expectedArrival} onChange={(e) => setExpectedArrival(e.target.value)} style={inputStyle} />
           </div>
         )}
         <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
@@ -515,6 +537,48 @@ function MovementModal({ target, saving, onClose, onSave }) {
         <button type="submit" disabled={saving} style={{ marginTop: 6, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
           {saving ? 'กำลังบันทึก...' : 'บันทึก'}
         </button>
+      </form>
+    </Modal>
+  )
+}
+
+function ReorderModal({ target, saving, onClose, onSave }) {
+  const [reorderDate, setReorderDate] = useState(target.reorder_date || '')
+  const [reorderQty, setReorderQty] = useState(target.reorder_qty || '')
+  const [reorderNote, setReorderNote] = useState(target.reorder_note || '')
+
+  const submit = (e) => {
+    e.preventDefault()
+    onSave({ sku: target.sku, reorder_date: reorderDate, reorder_qty: reorderQty, reorder_note: reorderNote })
+  }
+
+  const clear = () => onSave({ sku: target.sku, reorder_date: '', reorder_qty: '', reorder_note: '' })
+
+  return (
+    <Modal title={`วันเติมสินค้า/รอเช็ค — ${target.display_name}`} onClose={onClose}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label style={labelStyle}>วันที่สั่ง/เช็คของ</label>
+          <input type="date" value={reorderDate} onChange={(e) => setReorderDate(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>จำนวนที่สั่ง ({target.unit})</label>
+          <input type="number" value={reorderQty} onChange={(e) => setReorderQty(e.target.value)} style={inputStyle} placeholder="ไม่บังคับ" />
+        </div>
+        <div>
+          <label style={labelStyle}>หมายเหตุ</label>
+          <input value={reorderNote} onChange={(e) => setReorderNote(e.target.value)} style={inputStyle} placeholder="ไม่บังคับ" />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {target.reorder_date && (
+            <button type="button" onClick={clear} disabled={saving} style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', color: 'var(--payi-text-muted)', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              ล้างค่า
+            </button>
+          )}
+          <button type="submit" disabled={saving} style={{ flex: 1, background: 'var(--payi-mint)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+          </button>
+        </div>
       </form>
     </Modal>
   )
