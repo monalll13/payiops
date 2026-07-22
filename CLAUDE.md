@@ -249,6 +249,16 @@ a new one.
      into the MIDDLE of `ITEMS_HEADERS` — corrupted all 70 existing rows (data stayed at old
      column positions, header row didn't) until repaired from the known-good seed data.
      Same rule as `claims.js`: **always append new columns at the end, never insert mid-sheet.**
+   - ✅ **DONE (2026-07-21) — Inventory table now applies the formula live**, not just
+     inside the edit modal. `Inventory.jsx` builds one `enriched` array (items ×
+     `/api/planner-sales`) so the table, sort, filter, and edit modal all read the same
+     numbers — no separate calculation paths to drift apart. Specifically: the "ขั้นต่ำ"
+     cell shows `effectiveSafety` (computed value when lead time is set, else the stored
+     manual one) marked "(สูตร)" when it differs from what's saved, and is itself a button
+     that opens the edit modal (server-side `safety_stock` only updates on actual save —
+     the table never silently overwrites the sheet). Row order is ABC asc, then `units90`
+     desc (ties broken by name) — same ABC source as `StockMovement.jsx`. Added a "เฉพาะที่
+     แนะนำสั่ง" checkbox that filters to rows with `recommendedOrder > 0`.
 8. ✅ **REMOVED (2026-07-21)** — "PAYI Brain" AI Assistant tab was fake (canned
    if/else replies, no LLM call). Owner decided to delete rather than keep a
    fake-AI page (`AIAssistantView` function, menu item, icon mapping, ternary branch

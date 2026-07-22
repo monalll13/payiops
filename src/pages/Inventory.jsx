@@ -59,13 +59,16 @@ const calcRecommendedOrder = (safetyStock, balance, dailyAvg, leadTimeTotal) => 
   return Math.max(0, Math.round(safetyStock - projectedAtArrival))
 }
 
+const ABC_RANK = { A: 0, B: 1, C: 2 }
+
 export default function Inventory() {
   const [data, setData] = useState(null)
-  const [dailyAvgBySku, setDailyAvgBySku] = useState(new Map())
+  const [salesBySku, setSalesBySku] = useState(new Map()) // sku -> { dailyAverage, abc, units90 }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState('')
+  const [onlyRecommended, setOnlyRecommended] = useState(false)
   const [itemModal, setItemModal] = useState(null) // null | 'new' | item object (edit)
   const [moveModal, setMoveModal] = useState(null) // { sku, display_name, unit, type }
 
@@ -79,7 +82,7 @@ export default function Inventory() {
       .then(([d, planner]) => {
         if (!d.success) throw new Error(d.error || 'โหลดข้อมูลไม่สำเร็จ')
         setData(d)
-        setDailyAvgBySku(new Map((planner?.items || []).map((p) => [String(p.masterSku || '').toUpperCase(), p.dailyAverage || 0])))
+        setSalesBySku(new Map((planner?.items || []).map((p) => [String(p.masterSku || '').toUpperCase(), p])))
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -93,11 +96,37 @@ export default function Inventory() {
   const items = data?.items || []
   const totals = data?.totals || { totalProducts: 0, totalStock: 0, lowStockCount: 0, transactionsToday: 0 }
 
+  // ผูกยอดขาย 90 วัน + ABC เข้ากับแต่ละสินค้า แล้วคำนวณขั้นต่ำแนะนำ/แนะนำสั่งซื้อสดๆ ที่นี่ที่เดียว
+  // (ตารางกับ modal แก้ไขใช้ตัวเลขชุดเดียวกัน ไม่แยกคำนวณคนละที่)
+  const enriched = useMemo(() => {
+    return items.map((it) => {
+      const sales = salesBySku.get(String(it.sku).toUpperCase())
+      const dailyAvg = sales?.dailyAverage || 0
+      const units90 = sales?.units90 || 0
+      const abc = sales?.abc || null
+      const leadTimeTotal = (it.lead_time_production || 0) + (it.lead_time_transport || 0)
+      const computedSafety = calcSuggestedSafety(dailyAvg, leadTimeTotal, it.ship_freight)
+      const effectiveSafety = computedSafety !== null ? computedSafety : it.safety_stock
+      const recommendedOrder = it.status !== 'ปกติ' && dailyAvg && leadTimeTotal
+        ? calcRecommendedOrder(effectiveSafety, it.balance, dailyAvg, leadTimeTotal)
+        : null
+      return { ...it, dailyAvg, units90, abc, leadTimeTotal, computedSafety, effectiveSafety, recommendedOrder }
+    })
+  }, [items, salesBySku])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return items
-    return items.filter((it) => it.display_name.toLowerCase().includes(q) || String(it.sku).toLowerCase().includes(q))
-  }, [items, query])
+    let rows = enriched
+    if (q) rows = rows.filter((it) => it.display_name.toLowerCase().includes(q) || String(it.sku).toLowerCase().includes(q))
+    if (onlyRecommended) rows = rows.filter((it) => (it.recommendedOrder || 0) > 0)
+    return [...rows].sort((a, b) => {
+      const rankA = ABC_RANK[a.abc] ?? 3
+      const rankB = ABC_RANK[b.abc] ?? 3
+      if (rankA !== rankB) return rankA - rankB
+      if (b.units90 !== a.units90) return b.units90 - a.units90
+      return a.display_name.localeCompare(b.display_name, 'th')
+    })
+  }, [enriched, query, onlyRecommended])
 
   const saveItem = async (payload) => {
     setSaving(true)
@@ -155,7 +184,11 @@ export default function Inventory() {
       <div style={{ background: 'var(--payi-surface)', border: '1px solid var(--payi-border)', borderRadius: 18, padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--payi-text-strong)' }}>สินค้า ({filtered.length} รายการ)</div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--payi-text-muted)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={onlyRecommended} onChange={(e) => setOnlyRecommended(e.target.checked)} />
+              เฉพาะที่แนะนำสั่ง
+            </label>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาสินค้า..." style={{ ...inputStyle, width: 220 }} />
             <button
               onClick={() => setItemModal('new')}
@@ -175,6 +208,7 @@ export default function Inventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--payi-text-muted)', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <th style={{ padding: '8px 10px' }}>ABC</th>
                   <th style={{ padding: '8px 10px' }}>สินค้า</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>คงเหลือ</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>ขั้นต่ำ</th>
@@ -186,19 +220,27 @@ export default function Inventory() {
               </thead>
               <tbody>
                 {filtered.map((it) => {
-                  const dailyAvg = dailyAvgBySku.get(String(it.sku).toUpperCase()) || 0
-                  const leadTimeTotal = (it.lead_time_production || 0) + (it.lead_time_transport || 0)
-                  const recommendedOrder = it.status !== 'ปกติ' && dailyAvg && leadTimeTotal
-                    ? calcRecommendedOrder(it.safety_stock, it.balance, dailyAvg, leadTimeTotal)
-                    : null
+                  const recommendedOrder = it.recommendedOrder
+                  const autoSafety = it.computedSafety !== null && it.computedSafety !== it.safety_stock
                   return (
                   <tr key={it.sku} style={{ borderTop: '1px solid var(--payi-border)' }}>
+                    <td style={{ padding: '10px' }}>
+                      {it.abc && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--payi-text-faint)' }}>{it.abc}</span>}
+                    </td>
                     <td style={{ padding: '10px' }}>
                       <div style={{ fontWeight: 700, color: 'var(--payi-text-strong)' }}>{it.display_name}</div>
                       <div style={{ fontSize: 11, color: 'var(--payi-text-faint)', fontFamily: 'monospace' }}>{it.sku}</div>
                     </td>
                     <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: it.balance <= 0 ? 'var(--payi-danger)' : 'var(--payi-text-strong)' }}>{fmt(it.balance)}</td>
-                    <td style={{ padding: '10px', textAlign: 'right', color: 'var(--payi-text-muted)' }}>{fmt(it.safety_stock)}</td>
+                    <td style={{ padding: '10px', textAlign: 'right' }}>
+                      <button
+                        onClick={() => setItemModal(it)}
+                        title="กดเพื่อแก้ไข"
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, color: autoSafety ? 'var(--payi-mint-strong)' : 'var(--payi-text-muted)', fontWeight: autoSafety ? 800 : 400 }}
+                      >
+                        {fmt(it.effectiveSafety)}{autoSafety && <span style={{ fontSize: 10, marginLeft: 3 }}>(สูตร)</span>}
+                      </button>
+                    </td>
                     <td style={{ padding: '10px', color: 'var(--payi-text-muted)' }}>{it.unit}</td>
                     <td style={{ padding: '10px' }}>
                       <StatusBadge status={it.status} />
@@ -234,7 +276,7 @@ export default function Inventory() {
       {itemModal && (
         <ItemModal
           initial={itemModal === 'new' ? null : itemModal}
-          dailyAvg={itemModal === 'new' ? 0 : dailyAvgBySku.get(String(itemModal.sku).toUpperCase()) || 0}
+          dailyAvg={itemModal === 'new' ? 0 : itemModal.dailyAvg || 0}
           saving={saving}
           onClose={() => setItemModal(null)}
           onSave={saveItem}
@@ -264,13 +306,16 @@ function ItemModal({ initial, dailyAvg, saving, onClose, onSave }) {
   const [sku, setSku] = useState(initial?.sku || '')
   const [displayName, setDisplayName] = useState(initial?.display_name || '')
   const [unit, setUnit] = useState(initial?.unit || 'ชิ้น')
-  const [safetyStock, setSafetyStock] = useState(initial?.safety_stock ?? '')
-  const [openingBalance, setOpeningBalance] = useState(isEdit ? '' : '0')
-  const [reorderDate, setReorderDate] = useState(initial?.reorder_date || '')
-  const [expectedArrival, setExpectedArrival] = useState(initial?.expected_arrival || '')
   const [leadProd, setLeadProd] = useState(initial?.lead_time_production ?? '')
   const [leadTransport, setLeadTransport] = useState(initial?.lead_time_transport ?? '')
   const [shipFreight, setShipFreight] = useState(initial?.ship_freight ?? false)
+  // เปิดมาแล้วมี lead time เดิมอยู่แล้ว = ใช้ค่าที่สูตรคำนวณให้เลยตั้งแต่เปิด ไม่ต้องรอแก้ lead time ก่อน
+  const [safetyStock, setSafetyStock] = useState(
+    initial?.computedSafety ?? initial?.safety_stock ?? ''
+  )
+  const [openingBalance, setOpeningBalance] = useState(isEdit ? '' : '0')
+  const [reorderDate, setReorderDate] = useState(initial?.reorder_date || '')
+  const [expectedArrival, setExpectedArrival] = useState(initial?.expected_arrival || '')
 
   // แก้ lead time/ทางเรือแล้ว คำนวณขั้นต่ำแนะนำให้ใหม่อัตโนมัติ (ยังแก้เลขเองทับได้เสมอ)
   const leadTimeTotal = (Number(leadProd) || 0) + (Number(leadTransport) || 0)
