@@ -58,7 +58,6 @@ const input = { width: 76, border: '1px solid #cfe0f3', borderRadius: 8, padding
 export default function PlannerControl({ onNavigate }) {
   const currentUser = (() => { try { return JSON.parse(localStorage.getItem('payi-user') || 'null') } catch { return null } })()
   const [products, setProducts] = useState(loadProducts)
-  const [filter, setFilter] = useState('ทั้งหมด')
   const [message, setMessage] = useState('')
   const [modal, setModal] = useState(null)
   const [manageOpen, setManageOpen] = useState(false)
@@ -81,7 +80,8 @@ export default function PlannerControl({ onNavigate }) {
     catch { return null }
   })
   const [selectedDate, setSelectedDate] = useState(todayBangkok)
-  const [todoSnapshot, setTodoSnapshot] = useState(() => new Set())
+  const [masterOrder, setMasterOrder] = useState(() => [])
+  const [mergedOnce, setMergedOnce] = useState(false)
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(products)) }, [products])
   useEffect(() => { localStorage.setItem(EXCLUDED_PRODUCTS_KEY, JSON.stringify(excludedSkus)) }, [excludedSkus])
@@ -89,6 +89,7 @@ export default function PlannerControl({ onNavigate }) {
   useEffect(() => {
     let active = true
     setPlannerStatus('loading')
+    setMergedOnce(false)
     fetch(`/api/sheet-tools?op=planner&date=${selectedDate}`)
       .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
       .then(({ ok, data }) => {
@@ -204,6 +205,7 @@ export default function PlannerControl({ onNavigate }) {
         })
       })
     })
+    if (plannerData) setMergedOnce(true)
   }, [salesSnapshot?.productMapping, plannerData, selectedDate])
   useEffect(() => {
     const fetchedAt = Number(manpowerSnapshot?.fetchedAt || 0)
@@ -265,16 +267,22 @@ export default function PlannerControl({ onNavigate }) {
   }), [products, demandMode, salesByName])
 
   const activeRows = rows.filter((item) => !excludedSkus.includes(item.masterSku))
-  // รายการ "ต้องทำวันนี้" ล็อคไว้ ณ ตอนโหลดข้อมูล/เปลี่ยนวันที่ — กันไม่ให้แถวที่เพิ่งเติม FG จนครบ
-  // หายวับออกจากลิสต์ต่อหน้าคนกำลังกรอก (อาการ "เด้งไปเด้งมา" ที่บอสแจ้ง) แถวจะโชว์ "ครบ" ค้างไว้แทน
+  // ล็อคทั้งรายชื่อและลำดับของทุกแถวไว้ ณ ตอนโหลดข้อมูล/เปลี่ยนวันที่ — กันไม่ให้แถวที่เพิ่งเติม
+  // FG จนครบหายวับออกจากลิสต์ หรือลำดับขยับเด้งไปมาต่อหน้าคนกำลังกรอก (บอสแจ้งว่างงมาก อยากให้อยู่กับที่)
+  // เรียงตาม master SKU (PY001, PY002, ...) เป๊ะๆ แบบเดียวกับหน้า Inventory.jsx
+  // (บรรทัด `String(a.sku).localeCompare(String(b.sku), undefined, { numeric: true })`)
   useEffect(() => {
-    if (plannerStatus !== 'ready') return
-    setTodoSnapshot(new Set(activeRows.filter((item) => item.remaining > 0).map((item) => item.id)))
+    // รอให้ merge ค่า FG/stock จริงจากเซิร์ฟเวอร์เสร็จก่อน (mergedOnce) ไม่ใช่แค่ plannerStatus พร้อม —
+    // เคยพลาด: plannerStatus เป็น 'ready' ก่อน products จะอัปเดตค่าจริงหนึ่ง render เสมอ (คนละ effect กัน)
+    // ถ้าล็อคลำดับตอนนั้นเลย ค่า need/remaining ที่ใช้จัดลำดับจะเป็นค่าเก่า/ค่า default ยังไม่ใช่ของจริง
+    if (!mergedOnce) return
+    const sorted = [...activeRows].sort((a, b) => String(a.masterSku).localeCompare(String(b.masterSku), undefined, { numeric: true }))
+    setMasterOrder(sorted.map((item) => item.id))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, plannerStatus])
-  const visible = activeRows
-    .filter((item) => filter === 'ทั้งหมด' || (filter === 'ต้องทำ' ? (todoSnapshot.has(item.id) || item.remaining > 0) : filter === 'Claim Watch' ? item.claimRate >= 1 : item.group === filter))
-    .sort((a, b) => b.need - a.need || b.remaining - a.remaining || a.name.localeCompare(b.name, 'th'))
+  }, [selectedDate, mergedOnce])
+  const orderIndex = new Map(masterOrder.map((id, index) => [id, index]))
+  const indexOf = (item) => orderIndex.has(item.id) ? orderIndex.get(item.id) : masterOrder.length
+  const visible = [...activeRows].sort((a, b) => indexOf(a) - indexOf(b) || a.name.localeCompare(b.name, 'th'))
   const totalRemaining = activeRows.reduce((sum, item) => sum + item.remaining, 0)
   const urgent = activeRows.filter((item) => item.remaining > 0).length
 
@@ -354,8 +362,6 @@ export default function PlannerControl({ onNavigate }) {
       <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div><b style={{ color: '#102a43', fontSize: 17 }}>สิ่งที่ต้องทำวันนี้</b><div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>ใส่จำนวนผลิตวันนี้ แล้วดูว่ายังต้องเปิด OT หรือไม่</div></div>
         <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-          <button onClick={() => setFilter('ต้องทำ')} style={simpleTab(filter === 'ต้องทำ')}>ต้องทำวันนี้</button>
-          <button onClick={() => setFilter('ทั้งหมด')} style={simpleTab(filter === 'ทั้งหมด')}>สินค้าทั้งหมด</button>
           <button type="button" onClick={() => setManageOpen(true)} style={secondaryButton}>จัดการสินค้า</button>
         </div>
       </div>
