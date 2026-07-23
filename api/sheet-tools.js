@@ -1508,9 +1508,10 @@ export default async function handler(req, res) {
   const op = String(req.query.op || '')
   if (op === 'line-webhook') return opLineWebhook(req, res)
   if (!requireAuth(req, res)) return
-  // Staff only needs the data behind its four operational areas. Raw sheet
-  // tools, HR and settings data remain restricted even if called directly.
-  if (authEnabled() && !canManageOperations(req.user?.role) && !['summary', 'workforce', 'planner'].includes(op)) {
+  // Staff only needs the data behind its operational areas (now includes
+  // inventory, per owner request to open Inventory/Stock Movement to staff).
+  // Raw sheet tools, HR and settings data remain restricted even if called directly.
+  if (authEnabled() && !canManageOperations(req.user?.role) && !['summary', 'workforce', 'planner', 'inventory'].includes(op)) {
     return res.status(403).json({ success: false, error: 'ไม่มีสิทธิ์เข้าถึงส่วนนี้' })
   }
   if (op === 'summary') return opSummary(req, res)
