@@ -201,6 +201,13 @@ const td = { padding: '11px 12px', color: '#334155', verticalAlign: 'middle' }
 
 function CalendarPlanner({ rows, manpower, events, history = [], names, preview, onSaved, error, setError, otLimits = {}, closeRows, deleteRows, edits = {}, setEdits, saving, groupByName = {}, officePeople = [], officeAbsences = [], inactiveNames = new Set(), schedulePeople = [], canEditManpower = false }) {
   const [month, setMonth] = useState(today().slice(0, 7))
+  // มือถือ: ปฏิทินตาราง 7 คอลัมน์บีบจนอ่านไม่ออก — สลับเป็นรายการรายวันแทน (owner ขอ)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 700)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState([])
   const [start, setStart] = useState('17:30')
@@ -316,6 +323,32 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     } catch (e) { setError(e.message) }
   }
 
+  // สรุปข้อมูลของวันเดียว — ใช้ร่วมกันทั้งช่องปฏิทินตาราง (desktop) และการ์ดรายวัน (มือถือ) กันคำนวณซ้ำสองที่
+  const computeDayInfo = (date) => {
+    const dayRows = rows.filter((r) => r.date === date && r.status !== 'cancelled'); const dayManpower = manpower.filter((r) => r.date === date); const isPromo = promoDates.has(date); const isFeed = feedRangeDates.has(date); const partTime = dayRows.filter((r) => groupByName[r.employee] === 'พาร์ทไทม์'); const packers = dayRows.filter((r) => groupByName[r.employee] !== 'พาร์ทไทม์')
+    const distinctDayManpower = [...new Map(dayManpower.map((r) => [String(r.code || r.employee).toUpperCase(), r])).values()]
+    const feedManpower = distinctDayManpower.filter((r) => {
+      const code = String(r.code || '').toUpperCase()
+      const employee = String(r.employee || '').trim().toUpperCase()
+      return r.group === 'คนฟีด' || ['PANID', 'MOM'].includes(code) || ['PANID', 'MOM', 'ป้านิด', 'แม่'].includes(employee)
+    })
+    const regularManpower = distinctDayManpower.filter((r) => !feedManpower.includes(r))
+    const feedNames = feedManpower.map((r) => { const identity = String(r.code || r.employee || '').trim().toUpperCase(); return identity === 'PANID' ? 'ป้านิด' : identity === 'MOM' ? 'แม่' : r.employee })
+    const regularNames = regularManpower.map((r) => r.employee === 'มะปราง' ? 'ปราง' : r.employee)
+    const regularHeadcount = regularManpower.reduce((s, r) => s + Number(r.fraction || 1), 0)
+    const officeAbsentCodes = new Set(officeAbsences.filter((a) => a.date === date).map((a) => a.code))
+    const officePresentNames = officePeople.filter((p) => !officeAbsentCodes.has(p.code)).map((p) => p.name)
+    const lowPackingManpower = regularHeadcount <= 2
+    const isToday = date === today()
+    const promoTitleForDate = events.filter((e) => e.date === date)
+    return { isPromo, isFeed, partTime, packers, feedNames, regularNames, officePresentNames, lowPackingManpower, isToday, promoEvents: promoTitleForDate }
+  }
+  const monthDates = cells.filter(Boolean)
+  const defaultMobileDate = monthDates.includes(today()) ? today() : (monthDates[0] || today())
+  const [mobileSelectedDate, setMobileSelectedDate] = useState(defaultMobileDate)
+  const activeMobileDate = monthDates.includes(mobileSelectedDate) ? mobileSelectedDate : defaultMobileDate
+  const WEEKDAY_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
+
   return <section style={{ ...card, width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', overflow: 'hidden', borderRadius: 22, background: 'linear-gradient(180deg,#ffffff,#f7fbff)' }}>
     <div style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
       <div><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>ปฏิทิน Manpower & OT</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>ปุ่ม “คน” ใช้แก้รายชื่อมาทำงาน · ปุ่ม + ใช้เพิ่ม OT</div></div>
@@ -323,7 +356,20 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     </div>
     {warning && <div style={{ margin: '0 18px 12px', padding: '10px 14px', background: '#fef6da', color: '#8a6d1f', border: '1px solid #fbe6a8', borderRadius: 10, fontSize: 12, fontWeight: 800 }}>{warning}</div>}
     <div style={{ padding: '9px 16px', display: 'flex', gap: 14, flexWrap: 'wrap', background: '#f8fbff', fontSize: 11, color: '#64748b' }}><Legend color="#d3c2f2" text="วันโปร"/><Legend color="#f0eafb" text="ช่วงเตรียมฟีด (กำหนดเองได้)"/></div>
-    <div style={{ width: '100%', minWidth: 0, overflow: 'hidden', boxSizing: 'border-box', padding: '4px 8px 12px' }}><div style={{ width: '100%', minWidth: 0 }}>
+    {isMobile && (
+      <MobileDayAgenda
+        monthDates={monthDates}
+        activeDate={activeMobileDate}
+        onSelectDate={setMobileSelectedDate}
+        computeDayInfo={computeDayInfo}
+        weekdayLabels={WEEKDAY_TH}
+        canEditManpower={canEditManpower}
+        openSchedule={openSchedule}
+        openOT={openOT}
+        deleteEvent={deleteEvent}
+      />
+    )}
+    {!isMobile && <div style={{ width: '100%', minWidth: 0, overflow: 'hidden', boxSizing: 'border-box', padding: '4px 8px 12px' }}><div style={{ width: '100%', minWidth: 0 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', background: 'linear-gradient(180deg,#eef6ff,#f7fbff)', borderRadius: 12 }}>{['อา','จ','อ','พ','พฤ','ศ','ส'].map((d) => <div key={d} style={{ padding: 7, textAlign: 'center', fontSize: 11, fontWeight: 900, color: '#7a94b8' }}>{d}</div>)}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 5, marginTop: 5 }}>{cells.map((date, i) => {
         if (!date) return <div key={`blank-${i}`} style={{ minWidth: 0, minHeight: 132, borderRadius: 12, background: 'transparent' }} />
@@ -367,7 +413,7 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
           {packers.length > 0 && <DayGroup label="OT คนแพ็ก" rows={packers} />}{partTime.length > 0 && <DayGroup label="OT พาร์ทไทม์" rows={partTime} />}
         </div>
       })}</div>
-    </div></div>
+    </div></div>}
     {modal && (() => { const modalDayRows = modal.type === 'ot' ? rows.filter((r) => r.date === modal.date && r.status !== 'cancelled') : []; return <div onMouseDown={() => setModal(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(15,23,42,.28)', backdropFilter: 'blur(3px)', display: 'grid', placeItems: 'center', padding: 18 }}><div onMouseDown={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: 'calc(100vw - 36px)', background: '#fff', borderRadius: 18, padding: 20, boxShadow: '0 24px 70px rgba(15,23,42,.22)', maxHeight: '86vh', overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}><div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div style={{ fontSize: 17, fontWeight: 900, color: '#102a43' }}>{modal.type === 'schedule' ? 'แก้ Manpower' : modal.type === 'ot' ? 'เพิ่มแผน OT' : 'เพิ่มวันโปร'}</div>{modalDayRows.length > 0 && <span style={{ background: '#fef3c7', color: '#633806', fontSize: 10, fontWeight: 900, padding: '3px 8px', borderRadius: 999 }}>แก้ไข</span>}</div><div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{modal.date}</div></div><button onClick={() => setModal(null)} aria-label="ปิด" style={{ width: 40, height: 40, display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: '#64748b', cursor: 'pointer', borderRadius: 10 }}><X size={18}/></button></div>
 
@@ -439,6 +485,97 @@ function ScheduleDayEditor({ people = [], draft = {}, setDraft }) {
 }
 
 function DayGroup({ label, rows }) { return <div style={{ marginTop: 7 }}><div style={{ fontSize: 9, fontWeight: 900, color: '#64748b' }}>{label}</div>{rows.map((r) => <div key={r.id} style={{ marginTop: 3, padding: '4px 6px', borderRadius: 8, background: '#fef6da', color: '#8a6d1f', fontSize: 10 }}><b>{r.employee}</b> {r.planned_start}-{r.planned_end}</div>)}</div> }
+
+// ปฏิทินมือถือ — สลับจากตาราง 7 คอลัมน์ (บีบจนอ่านไม่ออก) เป็นแถบเลือกวันแนวนอน + การ์ดรายวันเดียวด้านล่าง
+// (อ้างอิงสไตล์: แถบวันที่ด้านบน + timeline การ์ดมีแถบสีด้านซ้าย)
+function MobileDayAgenda({ monthDates, activeDate, onSelectDate, computeDayInfo, weekdayLabels, canEditManpower, openSchedule, openOT, deleteEvent }) {
+  const stripRef = useRef(null)
+  useEffect(() => {
+    const el = stripRef.current?.querySelector(`[data-date="${activeDate}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  }, [activeDate])
+
+  const info = computeDayInfo(activeDate)
+  const d = new Date(`${activeDate}T00:00:00`)
+  const dateLabel = `${weekdayLabels[d.getDay()]} ${d.getDate()} ${['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][d.getMonth()]}`
+  const sections = [
+    info.regularNames.length > 0 && { color: info.lowPackingManpower ? '#dc2626' : '#0369a1', bg: '#e0f2fe', label: 'บ้านล่าง', value: info.regularNames.join(', ') },
+    info.feedNames.length > 0 && { color: '#c2410c', bg: '#ffedd5', label: 'คนฟีด', value: info.feedNames.join(', ') },
+    info.officePresentNames.length > 0 && { color: '#047857', bg: '#ecfdf5', label: 'ออฟฟิศ', value: info.officePresentNames.join(', ') },
+  ].filter(Boolean)
+
+  return <div style={{ padding: '4px 0 14px' }}>
+    {/* แถบเลือกวันแนวนอน */}
+    <div ref={stripRef} style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '4px 14px 10px', scrollSnapType: 'x proximity' }}>
+      {monthDates.map((date) => {
+        const dd = new Date(`${date}T00:00:00`)
+        const isSel = date === activeDate
+        const isToday = date === today()
+        const dInfo = computeDayInfo(date)
+        const hasContent = dInfo.regularNames.length > 0 || dInfo.feedNames.length > 0 || dInfo.packers.length > 0 || dInfo.partTime.length > 0
+        return <button key={date} data-date={date} onClick={() => onSelectDate(date)} style={{
+          flexShrink: 0, scrollSnapAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+          border: 'none', background: 'transparent', cursor: 'pointer', padding: '2px 3px', width: 42,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: isSel ? 'var(--payi-mint-strong)' : '#94a3b8' }}>{weekdayLabels[dd.getDay()]}</span>
+          <span style={{
+            width: 32, height: 32, display: 'grid', placeItems: 'center', borderRadius: '50%', fontSize: 13, fontWeight: 900,
+            background: isSel ? 'var(--payi-gradient-primary)' : 'transparent',
+            color: isSel ? '#fff' : isToday ? 'var(--payi-mint-strong)' : '#334155',
+            border: !isSel && isToday ? '1.5px solid var(--payi-mint)' : 'none',
+            boxShadow: isSel ? '0 6px 14px rgba(37,99,235,.28)' : 'none',
+          }}>{dd.getDate()}</span>
+          <span style={{ width: 4, height: 4, borderRadius: '50%', background: hasContent ? (isSel ? 'var(--payi-mint-strong)' : '#94a3b8') : 'transparent' }} />
+        </button>
+      })}
+    </div>
+
+    {/* อาเจนดาของวันที่เลือก */}
+    <div style={{ padding: '6px 14px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#102a43' }}>{dateLabel}</div>
+          {(info.isPromo || info.isFeed) && <div style={{ fontSize: 11, fontWeight: 800, color: info.isPromo ? '#5b4b8a' : '#8a76c0', marginTop: 2 }}>{info.isPromo ? 'วันโปร' : 'เตรียมฟีด'}</div>}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {canEditManpower && <button type="button" onClick={() => openSchedule(activeDate)} style={{ minHeight: 36, display: 'inline-flex', alignItems: 'center', gap: 5, border: 0, borderRadius: 10, padding: '0 12px', background: '#eaf5ff', color: '#155f98', cursor: 'pointer', fontSize: 12, fontWeight: 900 }}><UserRoundPen size={14} /><span>คน</span></button>}
+          <button type="button" onClick={() => openOT(activeDate)} style={{ minHeight: 36, display: 'inline-flex', alignItems: 'center', gap: 5, border: 0, borderRadius: 10, padding: '0 12px', background: 'var(--payi-gradient-primary)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 900, boxShadow: '0 6px 14px rgba(37,99,235,.22)' }}><Plus size={14} /><span>OT</span></button>
+        </div>
+      </div>
+
+      {info.promoEvents.map((e) => <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '10px 12px', borderRadius: 12, background: '#fdf2f8', borderLeft: '4px solid #ec4899' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 900, color: '#be185d' }}>{e.title}</span>
+        <span role="button" aria-label={`ลบ ${e.title}`} onClick={() => deleteEvent(e)} style={{ cursor: 'pointer', color: '#be185d', opacity: .6, fontSize: 16, padding: '0 4px' }}>×</span>
+      </div>)}
+
+      {sections.length === 0 && info.packers.length === 0 && info.partTime.length === 0 && info.promoEvents.length === 0 && (
+        <div style={{ padding: '20px 0', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>ไม่มีคนลงวันนี้</div>
+      )}
+
+      {sections.map((s) => (
+        <div key={s.label} style={{ display: 'flex', gap: 10, marginBottom: 10, padding: '10px 12px', borderRadius: 12, background: s.bg, borderLeft: `4px solid ${s.color}` }}>
+          <div style={{ minWidth: 60, fontSize: 11, fontWeight: 900, color: s.color, opacity: .75 }}>{s.label}</div>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</div>
+        </div>
+      ))}
+
+      {info.packers.length > 0 && <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 900, color: '#64748b', marginBottom: 6 }}>OT คนแพ็ก</div>
+        {info.packers.map((r) => <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '9px 12px', marginBottom: 5, borderRadius: 12, background: '#fef6da', borderLeft: '4px solid #eab308' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#8a6d1f' }}>{r.employee}</span>
+          <span style={{ fontSize: 12, color: '#8a6d1f' }}>{r.planned_start}-{r.planned_end}</span>
+        </div>)}
+      </div>}
+      {info.partTime.length > 0 && <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 900, color: '#64748b', marginBottom: 6 }}>OT พาร์ทไทม์</div>
+        {info.partTime.map((r) => <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '9px 12px', marginBottom: 5, borderRadius: 12, background: '#fef6da', borderLeft: '4px solid #eab308' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#8a6d1f' }}>{r.employee}</span>
+          <span style={{ fontSize: 12, color: '#8a6d1f' }}>{r.planned_start}-{r.planned_end}</span>
+        </div>)}
+      </div>}
+    </div>
+  </div>
+}
 
 const validTime24 = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v)
 const timeToMinutes = (v) => { const [h, m] = String(v || '').split(':').map(Number); return (h * 60) + m }
