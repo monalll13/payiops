@@ -105,6 +105,7 @@ export default async function handler(req, res) {
     // (ซึ่งผูกกับ inDate) กัน Trending Up/Down หายไปตอนผู้ใช้เลือกช่วงวันที่แคบๆ (เช่นแค่เดือนเดียว)
     // ที่ทำให้ไม่มีข้อมูลเดือนก่อนหน้าเหลือให้เทียบเลย
     const latestMonth = latestDataDate ? latestDataDate.slice(0, 7) : null
+    const latestDay = latestDataDate ? Number(latestDataDate.slice(8, 10)) : 31
     const prevMonth = latestMonth ? (() => {
       const [y, m] = latestMonth.split('-').map(Number)
       const d = new Date(Date.UTC(y, m - 2, 1))
@@ -131,12 +132,16 @@ export default async function handler(req, res) {
 
         // Trending Up/Down (เดือนล่าสุดจริง vs เดือนก่อนหน้า) — ไม่ผูกกับตัวกรองวันที่หลัก (inDate) ตั้งใจ
         // ให้เห็นเทรนด์เสมอไม่ว่าผู้ใช้จะเลือกกรองช่วงวันที่แคบแค่ไหนอยู่บนหน้าจอ
+        // เทียบวันเท่ากัน (1-latestDay ทั้งคู่) — ไม่งั้นเดือนล่าสุดที่ข้อมูลยังไม่ครบเดือนจะดูตกหนักเกินจริง
         if (!excluded && keepBiz(biz) && keepPlat(plat)) {
           const rowMonth = date.slice(0, 7)
-          if (rowMonth === latestMonth || rowMonth === prevMonth) {
+          const rowDay = Number(date.slice(8, 10))
+          if (rowMonth === latestMonth) {
             const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
-            if (rowMonth === latestMonth) groupThisMonth.set(trendKey, (groupThisMonth.get(trendKey) || 0) + rev)
-            else groupLastMonth.set(trendKey, (groupLastMonth.get(trendKey) || 0) + rev)
+            groupThisMonth.set(trendKey, (groupThisMonth.get(trendKey) || 0) + rev)
+          } else if (rowMonth === prevMonth && rowDay <= latestDay) {
+            const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
+            groupLastMonth.set(trendKey, (groupLastMonth.get(trendKey) || 0) + rev)
           }
         }
 
@@ -241,7 +246,7 @@ export default async function handler(req, res) {
       businessBreakdown, platformBreakdown,
       topSkus,
       packBySku: [...packBySku.values()].sort((a, b) => b.qty - a.qty),
-      commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth },
+      commandCenter: { alerts, trendingUp, trendingDown, todayRevenue, revenueGrowth, trendCompare: { latestMonth, prevMonth, latestDay } },
       dataRange: { earliestDate: earliestDataDate, latestDate: latestDataDate },
     }
     dashboardCache.set(cacheKey, { data, at: Date.now() })

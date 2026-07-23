@@ -514,6 +514,7 @@ export default function App() {
   const alerts = commandCenter.alerts || []
   const trendingUp = commandCenter.trendingUp || []
   const trendingDown = commandCenter.trendingDown || []
+  const trendCompare = commandCenter.trendCompare || null
 
   // ─── Original KPI data ────────────────────────────────────────────────
   const totalRevenue = dashData?.revenue ?? 0
@@ -972,6 +973,11 @@ export default function App() {
             <AlertsSection alerts={alerts} />
 
             {/* 2. TRENDING ROW */}
+            {trendCompare && (trendingUp.length > 0 || trendingDown.length > 0) && (
+              <div style={{ fontSize: 12, color: 'var(--payi-text-faint)', marginBottom: 8, marginTop: -20 }}>
+                เทียบยอดขายวันที่ 1-{trendCompare.latestDay} ของ{monthLabel(trendCompare.latestMonth)} กับวันที่ 1-{trendCompare.latestDay} ของ{monthLabel(trendCompare.prevMonth)} (ช่วงวันเท่ากัน)
+              </div>
+            )}
             <div className="app-two-col" style={{ display: 'flex', gap: 18, marginBottom: 28, flexWrap: 'wrap' }}>
               {/* Trending Up Card */}
               <TrendingCard title="Trending Up 🔥" items={trendingUp} isUp={true} />
