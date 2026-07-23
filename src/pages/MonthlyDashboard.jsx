@@ -126,7 +126,13 @@ export default function MonthlyDashboard() {
   const cur = isAll
     ? trend.reduce((a, t) => ({ sales: a.sales + t.sales, orders: a.orders + t.orders, units: a.units + t.units }), { sales: 0, orders: 0, units: 0 })
     : (idx >= 0 ? trend[idx] : null)
-  const prev = isAll ? null : (idx > 0 ? trend[idx - 1] : null)
+  // เดือนล่าสุดที่ยังไม่ครบเดือน (เช่น อัพแค่ 1-19) เทียบเต็มเดือนก่อนหน้าจะดูตกหนักเกินจริงเพราะ
+  // จำนวนวันไม่เท่ากัน — ใช้ partialMonth.prevMonthCapped (เดือนก่อนนับแค่วันที่ 1..latestDay
+  // เท่ากัน) แทนเดือนก่อนแบบเต็มเดือน เฉพาะตอนกำลังดูเดือนที่ยังไม่ครบนี้เท่านั้น
+  const partial = !isAll && data?.partialMonth?.month === month ? data.partialMonth : null
+  const prev = isAll ? null : partial
+    ? { month: partial.prevMonthCapped.month, ...partial.prevMonthCapped.trend }
+    : (idx > 0 ? trend[idx - 1] : null)
   const mom = (c, p) => (p > 0 ? Math.round(((c - p) / p) * 100) : null)
 
   // "ทั้งหมด" = รวมยอดทุกเดือนต่อร้าน (byStore มีแยกรายเดือนอยู่แล้ว รวมเองฝั่ง client)
@@ -147,9 +153,9 @@ export default function MonthlyDashboard() {
   // ยอด/ออเดอร์เดือนก่อนหน้า ต่อร้าน — ไว้คำนวณ %MoM รายร้าน (ไม่มีถ้าเลือก "ทั้งหมด")
   const prevStoreMap = useMemo(() => {
     if (!prev) return new Map()
-    const list = data?.byStore?.[prev.month] || []
+    const list = partial ? partial.prevMonthCapped.byStore : (data?.byStore?.[prev.month] || [])
     return new Map(list.map((s) => [s.store, s]))
-  }, [data, prev])
+  }, [data, prev, partial])
   const platformShare = useMemo(() => {
     const m = {}
     for (const s of stores) m[s.platform] = (m[s.platform] || 0) + s.sales
@@ -183,16 +189,26 @@ export default function MonthlyDashboard() {
         </select>
       </div>
 
+      {partial && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--payi-warning-bg, #fffbeb)', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#92400e' }}>
+          <Info size={15} style={{ flexShrink: 0 }} />
+          <span>
+            ข้อมูลเดือนนี้อัพเดตถึงวันที่ {partial.latestDay} เท่านั้น (จาก {partial.daysInMonth} วัน) — %MoM ด้านล่างเทียบกับ{' '}
+            <b>วันที่ 1-{partial.latestDay} ของ{monthLabel(partial.prevMonthCapped.month)}</b> (ไม่ใช่ทั้งเดือน) เพื่อให้เทียบกันแบบยุติธรรม
+          </span>
+        </div>
+      )}
+
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
-        <KpiCard title="ยอดขายรวม" value={fmtBaht(cur?.sales || 0)} subtitle={prev ? `${monthLabel(prev.month)}: ${fmtBaht(prev.sales)}` : periodLabel(month)} icon={DollarSign} trend={salesMoM !== null ? `${salesMoM >= 0 ? '+' : ''}${salesMoM}%` : null} isPositive={salesMoM === null || salesMoM >= 0} />
-        <KpiCard title="จำนวนออเดอร์" value={fmt(cur?.orders || 0)} subtitle={prev ? `${monthLabel(prev.month)}: ${fmt(prev.orders)}` : periodLabel(month)} icon={ShoppingBag} trend={ordersMoM !== null ? `${ordersMoM >= 0 ? '+' : ''}${ordersMoM}%` : null} isPositive={ordersMoM === null || ordersMoM >= 0} />
-        <KpiCard title="จำนวนชิ้น" value={fmt(cur?.units || 0)} subtitle={prev ? `${monthLabel(prev.month)}: ${fmt(prev.units)}` : periodLabel(month)} icon={Package} trend={unitsMoM !== null ? `${unitsMoM >= 0 ? '+' : ''}${unitsMoM}%` : null} isPositive={unitsMoM === null || unitsMoM >= 0} />
+        <KpiCard title="ยอดขายรวม" value={fmtBaht(cur?.sales || 0)} subtitle={prev ? `${monthLabel(prev.month)}${partial ? ` (1-${partial.latestDay})` : ''}: ${fmtBaht(prev.sales)}` : periodLabel(month)} icon={DollarSign} trend={salesMoM !== null ? `${salesMoM >= 0 ? '+' : ''}${salesMoM}%` : null} isPositive={salesMoM === null || salesMoM >= 0} />
+        <KpiCard title="จำนวนออเดอร์" value={fmt(cur?.orders || 0)} subtitle={prev ? `${monthLabel(prev.month)}${partial ? ` (1-${partial.latestDay})` : ''}: ${fmt(prev.orders)}` : periodLabel(month)} icon={ShoppingBag} trend={ordersMoM !== null ? `${ordersMoM >= 0 ? '+' : ''}${ordersMoM}%` : null} isPositive={ordersMoM === null || ordersMoM >= 0} />
+        <KpiCard title="จำนวนชิ้น" value={fmt(cur?.units || 0)} subtitle={prev ? `${monthLabel(prev.month)}${partial ? ` (1-${partial.latestDay})` : ''}: ${fmt(prev.units)}` : periodLabel(month)} icon={Package} trend={unitsMoM !== null ? `${unitsMoM >= 0 ? '+' : ''}${unitsMoM}%` : null} isPositive={unitsMoM === null || unitsMoM >= 0} />
       </div>
 
       {/* Sales by store + Platform donut */}
       <div className="app-two-col-fixed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(240px, 1fr)', gap: 16, marginBottom: 20 }}>
-        <Card title="ยอดขายแยกร้าน" sub={`${periodLabel(month)} · เรียงจากมากไปน้อย${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}` : ''}`}>
+        <Card title="ยอดขายแยกร้าน" sub={`${periodLabel(month)} · เรียงจากมากไปน้อย${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}${partial ? ` (1-${partial.latestDay})` : ''}` : ''}`}>
           <ResponsiveContainer width="100%" height={Math.max(200, stores.length * 42)}>
             <BarChart data={stores} layout="vertical" margin={{ left: 8, right: 95, top: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
@@ -254,7 +270,7 @@ export default function MonthlyDashboard() {
       </Card>
 
       {/* Orders by store — ใช้วางแผนแพ็กของ/OT ต่อร้าน */}
-      <Card title="จำนวนออเดอร์แยกร้าน" sub={`${periodLabel(month)} · ไว้วางแผนแพ็กของ/OT${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}` : ''}`}>
+      <Card title="จำนวนออเดอร์แยกร้าน" sub={`${periodLabel(month)} · ไว้วางแผนแพ็กของ/OT${prev ? ` · %MoM เทียบ ${monthLabel(prev.month)}${partial ? ` (1-${partial.latestDay})` : ''}` : ''}`}>
         <ResponsiveContainer width="100%" height={Math.max(180, storesByOrders.length * 42)}>
           <BarChart data={storesByOrders} layout="vertical" margin={{ left: 8, right: 95, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />

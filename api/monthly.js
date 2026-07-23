@@ -34,6 +34,7 @@ export default async function handler(req, res) {
     const trend = new Map()        // 'YYYY-MM' -> { sales, units, orderIds:Set }
     const store = new Map()        // 'YYYY-MM' -> Map(storeKey -> { business, platform, sales, units, orderIds:Set })
     const yearsSet = new Set()
+    let latestDate = null          // วันที่ล่าสุดจริงในข้อมูลทั้งหมด (ไม่ผูก year filter) — ใช้เช็คว่าเดือนล่าสุดข้อมูลครบเดือนหรือยัง
 
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
@@ -44,6 +45,7 @@ export default async function handler(req, res) {
         const orderId = l[0], date = l[2], platform = l[3] || '', business = l[4] || ''
         const qty = parseInt(r[0], 10) || 0, rev = num(r[1]), status = r[2]
         if (!date) continue
+        if (!latestDate || date > latestDate) latestDate = date
         // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ
         const excluded = isCancelled(status) || isReturned(status)
         const ym = String(date).slice(0, 7)
@@ -65,6 +67,54 @@ export default async function handler(req, res) {
       }
     }
 
+    // ---- partial-month fairness: ถ้าเดือนล่าสุดข้อมูลยังไม่ครบเดือน (เช่น อัพแค่ 1-19) ----
+    // %MoM เทียบเต็มเดือนก่อนหน้าจะดูตกหนักเกินจริงเพราะเทียบวันไม่เท่ากัน (19 วัน vs 30 วัน)
+    // สแกนรอบสองจำกัดแค่เดือนก่อนหน้า นับเฉพาะวันที่ 1..latestDay ให้เทียบกันแบบวันเท่ากัน (fair pace)
+    let partialMonth = null
+    if (latestDate) {
+      const latestMonth = latestDate.slice(0, 7)
+      const latestDay = Number(latestDate.slice(8, 10))
+      const [ly, lm] = latestMonth.split('-').map(Number)
+      const daysInLatestMonth = new Date(Date.UTC(ly, lm, 0)).getUTCDate()
+      // ข้ามถ้า year filter ตัดเดือนล่าสุดออกไปแล้ว (partialMonth ต้องอยู่ในช่วงที่ frontend เห็นจริง)
+      if (latestDay < daysInLatestMonth && (!year || latestMonth.startsWith(year))) {
+        const pd = new Date(Date.UTC(ly, lm - 2, 1))
+        const prevMonth = `${pd.getUTCFullYear()}-${String(pd.getUTCMonth() + 1).padStart(2, '0')}`
+        const prevTrend = { sales: 0, units: 0, orderIds: new Set() }
+        const prevStore = new Map()
+        for (let i = 0; i < tabs.length; i++) {
+          const left = vr[2 * i].values || []
+          const right = vr[2 * i + 1].values || []
+          const n = Math.max(left.length, right.length)
+          for (let j = 1; j < n; j++) {
+            const l = left[j] || [], r = right[j] || []
+            const orderId = l[0], date = l[2], platform = l[3] || '', business = l[4] || ''
+            const qty = parseInt(r[0], 10) || 0, rev = num(r[1]), status = r[2]
+            if (!date || date.slice(0, 7) !== prevMonth) continue
+            if (Number(date.slice(8, 10)) > latestDay) continue
+            const excluded = isCancelled(status) || isReturned(status)
+            if (orderId) prevTrend.orderIds.add(orderId)
+            if (!excluded) { prevTrend.sales += rev; prevTrend.units += qty }
+            const key = `${business} ${platShort(platform)}`
+            let s = prevStore.get(key)
+            if (!s) prevStore.set(key, (s = { store: key, business, platform, sales: 0, units: 0, orderIds: new Set() }))
+            if (orderId) s.orderIds.add(orderId)
+            if (!excluded) { s.sales += rev; s.units += qty }
+          }
+        }
+        partialMonth = {
+          month: latestMonth,
+          latestDay,
+          daysInMonth: daysInLatestMonth,
+          prevMonthCapped: {
+            month: prevMonth,
+            trend: { sales: round2(prevTrend.sales), orders: prevTrend.orderIds.size, units: prevTrend.units },
+            byStore: [...prevStore.values()].map((s) => ({ store: s.store, business: s.business, platform: s.platform, sales: round2(s.sales), orders: s.orderIds.size, units: s.units })),
+          },
+        }
+      }
+    }
+
     const trendArr = [...trend.entries()]
       .map(([month, v]) => ({ month, sales: round2(v.sales), orders: v.orderIds.size, units: v.units }))
       .sort((a, b) => a.month.localeCompare(b.month))
@@ -83,6 +133,7 @@ export default async function handler(req, res) {
       months: trendArr.map((t) => t.month),
       trend: trendArr,
       byStore,
+      partialMonth,
     }
     monthlyCache.set(year, { data, at: Date.now() })
     res.setHeader('Cache-Control', cacheable('public, s-maxage=300, stale-while-revalidate=1800'))
