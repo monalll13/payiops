@@ -342,8 +342,12 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
         const officeAbsentCodes = new Set(officeAbsences.filter((a) => a.date === date).map((a) => a.code))
         const officePresentNames = officePeople.filter((p) => !officeAbsentCodes.has(p.code)).map((p) => p.name)
         const lowPackingManpower = regularHeadcount <= 2
-        return <div key={date} style={{ minWidth: 0, minHeight: 132, padding: 7, textAlign: 'left', borderRadius: 12, border: `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', overflow: 'visible' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 900, color: '#334155' }}><span>{Number(date.slice(-2))}</span><span style={{ color: isPromo ? '#5b4b8a' : '#8a76c0', fontSize: 9 }}>{isPromo ? 'วันโปร' : isFeed ? 'เตรียมฟีด' : ''}</span></div>
+        const isToday = date === today()
+        return <div key={date} style={{ minWidth: 0, minHeight: 132, padding: 7, textAlign: 'left', borderRadius: 12, border: isToday ? '2px solid var(--payi-mint)' : `1px solid ${isPromo ? '#c3b1ea' : isFeed ? '#e4d9f7' : '#eef2f9'}`, background: isPromo ? 'linear-gradient(135deg,#ede7fb,#f5f1fd)' : isFeed ? 'linear-gradient(180deg,#f5f1fd,#faf8fe)' : 'linear-gradient(180deg,#ffffff,#fbfdff)', boxShadow: isToday ? '0 4px 16px rgba(37,99,235,.18)' : '0 2px 10px rgba(100,140,200,.06)', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', overflow: 'visible' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, fontWeight: 900, color: '#334155' }}>
+            <span style={isToday ? { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 18, height: 18, borderRadius: 6, background: 'var(--payi-gradient-primary)', color: '#fff', fontSize: 11 } : undefined}>{Number(date.slice(-2))}</span>
+            <span style={{ color: isPromo ? '#5b4b8a' : '#8a76c0', fontSize: 9 }}>{isPromo ? 'วันโปร' : isFeed ? 'เตรียมฟีด' : ''}</span>
+          </div>
           {events.filter((e) => e.date === date).map((e) => <div key={e.id} style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, minWidth: 0, color: '#be185d', fontSize: 10, fontWeight: 900 }}><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.title}>{e.title}</span><span role="button" aria-label={`ลบ ${e.title}`} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e) }} style={{ flexShrink: 0, cursor: 'pointer', color: '#be185d', opacity: .6, padding: '0 3px' }}>×</span></div>)}
           <div style={{ marginTop: 4, display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
             {canEditManpower && <button type="button" onClick={() => openSchedule(date)} aria-label={`แก้ Manpower วันที่ ${date}`} title="แก้คนมาทำงาน" style={{ minWidth: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, border: 0, borderRadius: 8, padding: '0 8px', background: '#eaf5ff', color: '#155f98', cursor: 'pointer', fontSize: 9, fontWeight: 900 }}><UserRoundPen size={13} /><span>คน</span></button>}
@@ -351,13 +355,13 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
           </div>
           <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
             {regularManpower.length > 0 && <div style={{ borderRadius: 7, padding: '3px 5px', background: '#e0f2fe', border: '1px solid #7dd3fc' }}>
-              {regularNames.map((n, idx) => <div key={`${n}-${idx}`} style={{ fontSize: 9, lineHeight: '13px', fontWeight: lowPackingManpower ? 900 : 700, color: lowPackingManpower ? '#dc2626' : '#0369a1' }}>{n}</div>)}
+              <div style={{ fontSize: 9, lineHeight: '13px', fontWeight: lowPackingManpower ? 900 : 700, color: lowPackingManpower ? '#dc2626' : '#0369a1' }}>{regularNames.join(', ')}</div>
             </div>}
             {feedManpower.length > 0 && <div style={{ borderRadius: 7, padding: '3px 5px', background: '#ffedd5', border: '1px solid #fb923c' }}>
-              {feedNames.map((n, idx) => <div key={`${n}-${idx}`} style={{ fontSize: 9, lineHeight: '13px', fontWeight: 900, color: '#c2410c' }}>{n}</div>)}
+              <div style={{ fontSize: 9, lineHeight: '13px', fontWeight: 900, color: '#c2410c' }}>{feedNames.join(', ')}</div>
             </div>}
             {officePresentNames.length > 0 && <div style={{ borderRadius: 7, padding: '3px 5px', background: '#ecfdf5', border: '1px solid #6ee7b7' }}>
-              {officePresentNames.map((n, idx) => <div key={`${n}-${idx}`} style={{ fontSize: 9, lineHeight: '13px', fontWeight: 700, color: '#047857' }}>{n}</div>)}
+              <div style={{ fontSize: 9, lineHeight: '13px', fontWeight: 700, color: '#047857' }}>{officePresentNames.join(', ')}</div>
             </div>}
           </div>
           {packers.length > 0 && <DayGroup label="OT คนแพ็ก" rows={packers} />}{partTime.length > 0 && <DayGroup label="OT พาร์ทไทม์" rows={partTime} />}
