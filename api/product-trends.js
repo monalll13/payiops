@@ -5,6 +5,7 @@
 import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
+import { getSkuRedirectMap, getSetRecipeKeySet, resolveSalesSku } from './_lib/skuMapping.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 const isReturned = (s = '') => s.toLowerCase().includes('return')
@@ -38,12 +39,13 @@ export default async function handler(req, res) {
     try {
       overrideMap = buildOverrideMap(await getSheet('product_aliases'))
     } catch { /* ไม่มี sheet — ใช้ auto-strip แทน */ }
+    const [redirectMap, recipeKeySet] = await Promise.all([getSkuRedirectMap(), getSetRecipeKeySet()])
 
     const meta = await getMeta()
     const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
 
-    // B:F = order_id, order_item_id, date, platform, business ; J:N = master_sku, display_name, qty, revenue, status
-    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`])
+    // B:F = order_id, order_item_id, date, platform, business ; I:N = variation_name, master_sku, display_name, qty, revenue, status
+    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!I:N`])
     const vr = await batchGetValues(ranges)
 
     const groups = new Map()  // key -> { key, label, totalRev, monthly:Map(ym->{units,revenue}), skus:Map }
@@ -63,7 +65,8 @@ export default async function handler(req, res) {
       for (let j = 1; j < n; j++) {
         const l = left[j] || [], r = right[j] || []
         const date = l[2], plat = l[3] || '', biz = l[4] || ''
-        const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
+        const variationName = r[0], rawMasterSku = r[1], name = r[2], qty = parseInt(r[3], 10) || 0, rev = num(r[4]), status = r[5]
+        const masterSku = resolveSalesSku(rawMasterSku, variationName, redirectMap, recipeKeySet)
         if (!date || isCancelled(status) || isReturned(status)) continue
         if (!keepBiz(biz) || !keepPlat(plat)) continue
 

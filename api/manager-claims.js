@@ -5,6 +5,7 @@
 import { requireManager, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
+import { getSkuRedirectMap, getSetRecipeKeySet, resolveSalesSku, resolveRedirect } from './_lib/skuMapping.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 const isReturned = (s = '') => s.toLowerCase().includes('return')
@@ -39,17 +40,19 @@ export default async function handler(req, res) {
   try {
     let overrideMap = new Map()
     try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+    const [redirectMap, recipeKeySet] = await Promise.all([getSkuRedirectMap(), getSetRecipeKeySet()])
 
-    // 1) ยอดขาย (units) ต่อกลุ่มสินค้า จาก raw_orders (J:N = master_sku, display_name, qty, revenue, status)
+    // 1) ยอดขาย (units) ต่อกลุ่มสินค้า จาก raw_orders (I:N = variation_name, master_sku, display_name, qty, revenue, status)
     const meta = await getMeta()
     const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
-    const vr = await batchGetValues(tabs.map((t) => `${t}!J:N`))
+    const vr = await batchGetValues(tabs.map((t) => `${t}!I:N`))
     const units = new Map() // key -> units
     for (let i = 0; i < tabs.length; i++) {
       const rows = vr[i].values || []
       for (let j = 1; j < rows.length; j++) {
         const r = rows[j] || []
-        const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, status = r[4]
+        const variationName = r[0], rawMasterSku = r[1], name = r[2], qty = parseInt(r[3], 10) || 0, status = r[5]
+        const masterSku = resolveSalesSku(rawMasterSku, variationName, redirectMap, recipeKeySet)
         if (isCancelled(status) || isReturned(status)) continue
         const { key } = deriveGroup(name, masterSku, overrideMap)
         units.set(key, (units.get(key) || 0) + qty)
@@ -64,7 +67,8 @@ export default async function handler(req, res) {
     const monthly = new Map() // 'YYYY-MM' -> count
     for (const c of claims) {
       // เคลมบางแถวมีแต่ product_name (display_name ว่าง) — fallback กันจับคู่ยอดขายไม่ติด
-      const { key, label } = deriveGroup(c.display_name || c.product_name, c.master_sku, overrideMap)
+      const claimSku = resolveRedirect(c.master_sku, redirectMap) || c.master_sku
+      const { key, label } = deriveGroup(c.display_name || c.product_name, claimSku, overrideMap)
       let x = g.get(key)
       if (!x) g.set(key, (x = { key, label, claims: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0 }))
       x.claims++

@@ -3,6 +3,7 @@
 import { requireAuth, cacheable } from './_lib/auth.js'
 import { getMeta, batchGetValues, getSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
+import { getSkuRedirectMap, getSetRecipeKeySet, resolveSalesSku } from './_lib/skuMapping.js'
 
 const isCancelled = (s = '') => s.includes('ยกเลิก') || s.toLowerCase().includes('cancel')
 // "returned" ในภาษาอังกฤษเท่านั้น (ไม่ใช่ substring "คืน" ภาษาไทย) — สถานะ "ผู้ซื้อได้รับสินค้าแล้ว
@@ -42,12 +43,15 @@ export default async function handler(req, res) {
     // override รายชื่อกลุ่มจาก product_aliases (เหมือน products.js/product-trends.js) — ไม่มีก็ข้าม
     let overrideMap = new Map()
     try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ไม่มี sheet — ใช้การ strip อัตโนมัติแทน */ }
+    // sku_redirects/set_recipes แก้ได้จากชีทตรงๆ ไม่ต้องแก้โค้ด — ดู resolveSalesSku ตอนใช้งาน
+    const [redirectMap, recipeKeySet] = await Promise.all([getSkuRedirectMap(), getSetRecipeKeySet()])
 
     const meta = await getMeta()
     const tabs = meta.sheets.map((s) => s.properties.title).filter((t) => t.startsWith('raw_orders'))
 
-    // อ่าน B:F (order_id, order_item_id, date, platform, business) และ J:N (master_sku, display_name, qty, revenue, status)
-    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`])
+    // อ่าน B:F (order_id, order_item_id, date, platform, business) และ I:N (variation_name, master_sku,
+    // display_name, qty, revenue, status) — variation_name ใช้เช็คว่าแถวนี้ตรง set_recipes (ปนโค้ด) ไหม
+    const ranges = tabs.flatMap((t) => [`${t}!B:F`, `${t}!I:N`])
     const vr = await batchGetValues(ranges)
 
     // ---- PASS 1: หา distinct dates ที่ผ่าน filter เพื่อกำหนด "today / yesterday" ----
@@ -125,7 +129,10 @@ export default async function handler(req, res) {
       for (let j = 1; j < n; j++) {
         const l = left[j] || [], r = right[j] || []
         const orderId = l[0], date = l[2], plat = l[3] || '', biz = l[4] || ''
-        const masterSku = r[0], name = r[1], qty = parseInt(r[2], 10) || 0, rev = num(r[3]), status = r[4]
+        const variationName = r[0], rawMasterSku = r[1], name = r[2], qty = parseInt(r[3], 10) || 0, rev = num(r[4]), status = r[5]
+        // SKU ที่ย้าย/ปนโค้ดกัน (แก้ได้จากชีท sku_redirects/set_recipes โดยตรง ไม่ต้องแก้โค้ด) —
+        // ดู resolveSalesSku: ถ้าแถวนี้ตรง set_recipes (เป็น Set/ปนโค้ด) จะคงค่าเดิมไว้ ไม่ redirect
+        const masterSku = resolveSalesSku(rawMasterSku, variationName, redirectMap, recipeKeySet)
         if (!date) continue
         // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ (ไม่ใช่รายได้จริง)
         const excluded = isCancelled(status) || isReturned(status)

@@ -5,6 +5,7 @@
 // ต้องแยกนับ ไม่รวมแบบ deriveGroup ที่ใช้กับหน้า Products/Claims (นั่นไว้แค่ดูภาพรวมยอดขาย)
 import { getSheet, appendRows, overwriteSheet, ensureSheet } from './sheets.js'
 import { isoDate } from './dates.js'
+import { getSkuRedirectMap, resolveRedirect } from './skuMapping.js'
 
 const ITEMS_SHEET = 'inventory_items'
 const MOVEMENTS_SHEET = 'stock_movements'
@@ -33,10 +34,23 @@ function statusOf(balance, safetyStock) {
 
 async function loadItemsWithBalance({ includeHidden = false } = {}) {
   await ensureInventorySheets()
-  const [items, movements] = await Promise.all([getSheet(ITEMS_SHEET), getSheet(MOVEMENTS_SHEET)])
+  const [items, movements, redirectMap] = await Promise.all([getSheet(ITEMS_SHEET), getSheet(MOVEMENTS_SHEET), getSkuRedirectMap()])
+
+  // sku_redirects (แก้ได้จากชีทตรงๆ ไม่ต้องแก้โค้ด) — ของเก่าที่ย้ายโค้ดสต็อกไปแล้ว (เช่น PY075→PY077)
+  // จะถูกรวมยอด opening_balance + movement เข้ากับ sku ใหม่โดยอัตโนมัติ ไม่ต้อง migrate ข้อมูลด้วยมือ
+  const openingBySku = new Map()
+  const metaBySku = new Map() // canonicalSku -> แถว item ตัวแทน (แถวที่ sku ตรง canonical เองชนะเสมอ)
+  for (const it of items) {
+    if (!it.sku) continue
+    const canonical = resolveRedirect(it.sku, redirectMap)
+    openingBySku.set(canonical, (openingBySku.get(canonical) || 0) + num(it.opening_balance))
+    const isCanonicalRow = String(it.sku).trim().toUpperCase() === canonical
+    if (!metaBySku.has(canonical) || isCanonicalRow) metaBySku.set(canonical, it)
+  }
+
   const bySku = new Map()
   for (const m of movements) {
-    const sku = String(m.sku || '')
+    const sku = resolveRedirect(m.sku, redirectMap)
     if (!sku) continue
     bySku.set(sku, (bySku.get(sku) || 0) + num(m.qty))
   }
@@ -45,13 +59,14 @@ async function loadItemsWithBalance({ includeHidden = false } = {}) {
 
   // ซ่อนสินค้าที่ไม่ได้ใช้ track สต็อกจริง (active=0) ออกจากรายการ/ยอดรวมปกติ —
   // ยังกู้คืนได้เสมอ ไม่ใช่ลบทิ้ง (includeHidden=1 ไว้ดู/กู้คืนจากหน้า Inventory)
-  const visibleItems = items.filter((it) => it.sku && (includeHidden || truthyActive(it.active)))
-  const rows = visibleItems.map((it) => {
-    const balance = num(it.opening_balance) + (bySku.get(String(it.sku)) || 0)
+  const visibleCanonicalSkus = [...metaBySku.keys()].filter((sku) => includeHidden || truthyActive(metaBySku.get(sku).active))
+  const rows = visibleCanonicalSkus.map((sku) => {
+    const it = metaBySku.get(sku)
+    const balance = (openingBySku.get(sku) || 0) + (bySku.get(sku) || 0)
     const safetyStock = num(it.safety_stock)
     return {
-      sku: it.sku,
-      display_name: it.display_name || it.sku,
+      sku,
+      display_name: it.display_name || sku,
       unit: it.unit || 'ชิ้น',
       safety_stock: safetyStock,
       balance,
@@ -171,8 +186,11 @@ async function addMovement(body, actorName) {
   if (!Number.isFinite(qtyInput) || qtyInput === 0) throw new Error('ต้องระบุจำนวน')
 
   await ensureInventorySheets()
-  const items = await getSheet(ITEMS_SHEET)
-  if (!items.some((it) => String(it.sku) === sku)) throw new Error('ไม่พบสินค้านี้ในระบบ')
+  const [items, redirectMap] = await Promise.all([getSheet(ITEMS_SHEET), getSkuRedirectMap()])
+  // ยอมรับ sku ที่เป็น "โค้ดใหม่" (canonical หลัง redirect) แม้ยังไม่มีแถว item จริงของโค้ดนั้น
+  // เอง — แค่ต้องมีแถวเก่าที่ redirect มาถึงโค้ดเดียวกัน (ดู loadItemsWithBalance/sku_redirects)
+  const canonical = resolveRedirect(sku, redirectMap)
+  if (!items.some((it) => it.sku && resolveRedirect(it.sku, redirectMap) === canonical)) throw new Error('ไม่พบสินค้านี้ในระบบ')
 
   // in/out รับจำนวนเป็นบวกจาก UI เสมอ แล้วกำหนดเครื่องหมายเองตามประเภท —
   // adjust (ปรับยอด) ผู้ใช้พิมพ์เลขติดลบ/บวกเองตรงๆ เพราะเป็นการแก้ยอดให้ตรงของจริง

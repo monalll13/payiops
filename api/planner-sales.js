@@ -2,6 +2,7 @@
 // ABC และยอดเฉลี่ยต่อวันจากจำนวนชิ้นขาย 90 วันล่าสุด (ยึดวันล่าสุดที่มีข้อมูล)
 import { requireAuth } from './_lib/auth.js'
 import { batchGetValues, getMeta, getSheet, ensureSheet } from './_lib/sheets.js'
+import { getSkuRedirectMap, resolveRedirect } from './_lib/skuMapping.js'
 
 // สินค้า Set (เช่น PY067 [Set สุดคุ้ม]) ไม่ใช่ของจริงที่ track สต็อก — ต้อง "แตก" ยอดขาย Set
 // ไปเป็นยอดของ SKU จริงที่อยู่ข้างในตาม variation_name ของออเดอร์ (บอกไซส์/สูตรผสม) ก่อนคำนวณ
@@ -12,9 +13,9 @@ import { batchGetValues, getMeta, getSheet, ensureSheet } from './_lib/sheets.js
 // ของเก้าอี้มหัศจรรย์ติดโค้ดผิดมาด้วย) — กรณีนี้ไม่ใช่ Set จริง ไม่ต้องนับเข้า SKU ที่แตกออกไปเลย
 const SET_RECIPES_SHEET = 'set_recipes'
 const SET_RECIPES_HEADERS = ['set_sku', 'variation_name', 'component_sku', 'qty_per_unit', 'keep_set_sales']
-// SKU ที่ย้าย/เปลี่ยนโค้ดแล้ว แต่ raw_orders เก่า+ใหม่จาก Shopee/TikTok ยังส่งโค้ดเดิมมาอยู่ —
-// map ให้ยอดขายทั้งหมดของโค้ดเดิมไปนับใต้โค้ดใหม่แทน (ไม่ต้องแก้ raw_orders ย้อนหลัง)
-const SKU_REDIRECTS = { PY065: 'PY041' } // ถุงเท้าสปาสีชมพู ย้ายจาก PY065 → PY041 (2026-07-22)
+// SKU ที่ย้าย/เปลี่ยนโค้ดแล้ว แต่ raw_orders เก่า+ใหม่จาก Shopee/TikTok ยังส่งโค้ดเดิมมาอยู่ — map ให้
+// ยอดขายทั้งหมดของโค้ดเดิมไปนับใต้โค้ดใหม่แทน (ไม่ต้องแก้ raw_orders ย้อนหลัง) — แก้ได้จากชีท sku_redirects
+// ตรงๆ ไม่ต้องแก้โค้ด/deploy ใหม่ทุกครั้งที่มีการย้ายโค้ด (ดู api/_lib/skuMapping.js)
 
 // ABC ไม่จำเป็นต้องไล่อ่าน raw_orders ทุกครั้งที่เปิดหน้า — 6 ชม. ลดทั้งเวลาและ Sheets quota
 const CACHE_MS = 6 * 60 * 60 * 1000
@@ -36,7 +37,7 @@ export default async function handler(req, res) {
 
   try {
     await ensureSheet(SET_RECIPES_SHEET, SET_RECIPES_HEADERS)
-    const [meta, aliases, setRecipeRows] = await Promise.all([getMeta(), getSheet('product_aliases'), getSheet(SET_RECIPES_SHEET)])
+    const [meta, aliases, setRecipeRows, redirectMap] = await Promise.all([getMeta(), getSheet('product_aliases'), getSheet(SET_RECIPES_SHEET), getSkuRedirectMap()])
     const recipesByKey = new Map() // `${set_sku}|${variation_name}` -> [{component_sku, qty_per_unit}]
     const keepSetSalesByKey = new Map() // same key -> true/false
     for (const row of setRecipeRows) {
@@ -90,11 +91,8 @@ export default async function handler(req, res) {
         if (!date || !name || qty <= 0) continue
         if (date > anchor) anchor = date
 
-        // โค้ดที่ย้ายไปแล้ว แต่ raw_orders (เก่า+ใหม่) ยังส่งโค้ดเดิมมาอยู่ — นับรวมใต้โค้ดใหม่
-        masterSku = SKU_REDIRECTS[masterSku] || masterSku
-
-        // สินค้า Set — แตกเป็นยอดของ SKU จริงข้างในตาม variation ถ้ามีสูตรอยู่ ไม่งั้นนับเป็น
-        // Set เองตามเดิม (กันเคส variation ใหม่ที่ยังไม่ได้เพิ่มสูตร ไม่ให้ข้อมูลหายไปเฉยๆ)
+        // เช็ค set_recipes ด้วยโค้ด "เดิม" ก่อนเสมอ (สูตรอ้างอิงโค้ดเดิมที่ปนกัน เช่น PY075) — ต้องทำ
+        // ก่อน redirect ไม่งั้นโค้ดจะเปลี่ยนไปแล้วหาสูตรไม่เจอ (เช่น PY075→PY077 จะทำให้หา 'PY077|...' ไม่เจอ)
         const key = `${masterSku}|${variationName}`
         const recipe = recipesByKey.get(key)
         if (recipe) {
@@ -106,7 +104,9 @@ export default async function handler(req, res) {
             raw.push({ date, masterSku: componentSku, name: componentName, qty: qty * qtyPerUnit })
           }
         } else {
-          raw.push({ date, masterSku, name, qty })
+          // ไม่ตรงสูตร Set — เป็นยอดขายจริงของ SKU นี้ ค่อย redirect โค้ดที่ย้ายไปแล้ว (แก้ได้จากชีท sku_redirects)
+          const redirectedSku = resolveRedirect(masterSku, redirectMap)
+          raw.push({ date, masterSku: redirectedSku, name, qty })
         }
       }
     }

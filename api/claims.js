@@ -3,6 +3,7 @@
 import { requireAuth } from './_lib/auth.js'
 import { getSheet, getMeta, batchGetValues, appendRows, overwriteSheet, ensureSheet } from './_lib/sheets.js'
 import { deriveGroup, buildOverrideMap } from './_lib/productGroup.js'
+import { getSkuRedirectMap, getSetRecipeKeySet, resolveSalesSku, resolveRedirect } from './_lib/skuMapping.js'
 import { buildClaimAliasLookup, resolveClaimAlias } from './_lib/claimMapping.js'
 import { calculateClaimRate, sourceFileName } from './_lib/claimImport.js'
 import { CLAIMS_HEADERS } from './_lib/claimsSchema.js'
@@ -15,7 +16,7 @@ const isReturned = (s = '') => String(s).toLowerCase().includes('return')
 // เคลมบางแถวไม่ได้ติ๊กประเภทไหนเลย (เสีย/ส่งไม่ครบ/ส่งผิด) — ถ้าไม่นับแยกไว้ ยอดรวม 3 ประเภทจะน้อยกว่ายอดเคลมทั้งหมดโดยไม่มีอะไรเตือน
 const noneFlagged = (r) => !truthy(r.is_damaged) && !truthy(r.is_incomplete) && !truthy(r.is_wrong_item)
 // เคลมบางแถวมีแต่ product_name (display_name/master_sku ว่าง) — ไม่ fallback จะรวมเป็น "(ไม่ระบุ)" กลุ่มเดียวทั้งที่เป็นคนละสินค้า
-const claimGroup = (r, overrideMap) => deriveGroup(r.display_name || r.product_name, r.master_sku, overrideMap)
+const claimGroup = (r, overrideMap, redirectMap) => deriveGroup(r.display_name || r.product_name, resolveRedirect(r.master_sku, redirectMap) || r.master_sku, overrideMap)
 
 // แถวเก่าที่ import ไว้ก่อนมีคอลัมน์ id จะไม่มี id — backfill ให้ครั้งแรกที่เจอ (ครั้งเดียวต่อแถว แล้วเขียนกลับ)
 // จำเป็นเพื่อให้ปุ่มแก้ไขรายแถวใช้อ้างอิงแถวที่ถูกต้องได้เสมอ ไม่ใช่ใช้ตำแหน่งแถว (ตำแหน่งเปลี่ยนได้ถ้ามีคนลบ/แก้พร้อมกัน)
@@ -231,12 +232,14 @@ export default async function handler(req, res) {
       const sku = req.query.sku
       const productKey = String(req.query.productKey || '').trim()
       let overrideMap = new Map()
+      let redirectMapSku = new Map()
       if (productKey) {
         try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+        redirectMapSku = await getSkuRedirectMap()
       }
       const recs = rows.filter((r) => {
         if (!inDate(r.date) || !keepBiz(r.business)) return false
-        if (productKey) return claimGroup(r, overrideMap).key === productKey
+        if (productKey) return claimGroup(r, overrideMap, redirectMapSku).key === productKey
         return (r.master_sku || 'UNMAPPED') === sku
       })
       const bizMap = new Map()
@@ -275,11 +278,12 @@ export default async function handler(req, res) {
       // เคลมรวมเป็น "รายกลุ่มสินค้า" (product family) — ใช้ util เดียวกับ Dashboard สินค้า
       let overrideMap = new Map()
       try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+      const redirectMapSku = await getSkuRedirectMap()
 
       const recs = rows.filter((r) => inDate(r.date) && keepBiz(r.business))
       const groupMap = new Map() // key -> { key, label, count, value, damaged, incomplete, wrong, unspecified, skus:Set }
       for (const r of recs) {
-        const { key, label } = claimGroup(r, overrideMap)
+        const { key, label } = claimGroup(r, overrideMap, redirectMapSku)
         let g = groupMap.get(key)
         if (!g) groupMap.set(key, (g = { key, label, count: 0, value: 0, damaged: 0, incomplete: 0, wrong: 0, unspecified: 0, skus: new Set() }))
         g.count++
@@ -309,6 +313,7 @@ export default async function handler(req, res) {
     let claimValue = 0, damageCount = 0, incompleteCount = 0, wrongItemCount = 0, unspecifiedCount = 0
     let overrideMap = new Map()
     try { overrideMap = buildOverrideMap(await getSheet('product_aliases')) } catch { /* ข้ามได้ */ }
+    const redirectMapSummary = await getSkuRedirectMap()
     const productMap = new Map()
     const dateMap = new Map()
     const unmappedMap = new Map()
@@ -318,7 +323,7 @@ export default async function handler(req, res) {
       if (truthy(r.is_incomplete)) incompleteCount++
       if (truthy(r.is_wrong_item)) wrongItemCount++
       if (noneFlagged(r)) unspecifiedCount++
-      const { key, label } = claimGroup(r, overrideMap)
+      const { key, label } = claimGroup(r, overrideMap, redirectMapSummary)
       if (!productMap.has(key)) productMap.set(key, { product_key: key, master_sku: '', display_name: label, count: 0, mappedCount: 0, value: 0, skus: new Set() })
       const s = productMap.get(key); s.count++; s.value += val
       if (r.master_sku) { s.skus.add(r.master_sku); s.mappedCount++ }
@@ -333,15 +338,17 @@ export default async function handler(req, res) {
     const unitsByProduct = new Map()
     const meta = await getMeta()
     const orderTabs = meta.sheets.map((x) => x.properties.title).filter((t) => t.startsWith('raw_orders_'))
+    const recipeKeySetClaims = await getSetRecipeKeySet()
     if (orderTabs.length) {
-      const orderData = await batchGetValues(orderTabs.flatMap((t) => [`${t}!B:F`, `${t}!J:N`]))
+      const orderData = await batchGetValues(orderTabs.flatMap((t) => [`${t}!B:F`, `${t}!I:N`]))
       for (let i = 0; i < orderTabs.length; i++) {
         const left = orderData[i * 2].values || [], right = orderData[i * 2 + 1].values || []
         for (let j = 1; j < Math.max(left.length, right.length); j++) {
           const l = left[j] || [], r = right[j] || []
-          if (!inDate(String(l[2] || '')) || !keepBiz(l[4] || '') || isCancelled(r[4]) || isReturned(r[4])) continue
-          const { key } = deriveGroup(r[1], r[0], overrideMap)
-          unitsByProduct.set(key, (unitsByProduct.get(key) || 0) + (parseInt(r[2], 10) || 0))
+          if (!inDate(String(l[2] || '')) || !keepBiz(l[4] || '') || isCancelled(r[5]) || isReturned(r[5])) continue
+          const masterSku = resolveSalesSku(r[1], r[0], redirectMapSummary, recipeKeySetClaims)
+          const { key } = deriveGroup(r[2], masterSku, overrideMap)
+          unitsByProduct.set(key, (unitsByProduct.get(key) || 0) + (parseInt(r[3], 10) || 0))
         }
       }
     }
