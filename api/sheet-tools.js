@@ -733,10 +733,36 @@ async function opHrInner(req, res) {
     const code = String(body.code || '').trim().toUpperCase()
     const group = String(body.group || '').trim()
     if (!code || !group) return res.status(400).json({ success: false, error: 'กรุณาระบุรหัสและกลุ่ม' })
-    const current = await getSheet('workforce_people')
-    if (!current.some((r) => String(r.code).toUpperCase() === code)) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้ (แก้กลุ่มได้เฉพาะบ้านล่าง)' })
-    const next = current.map((r) => String(r.code).toUpperCase() === code ? { ...r, group } : r)
-    await overwriteSheet('workforce_people', PEOPLE_HEADERS, next.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
+    const officeRows = await getSheet('hr_office_people')
+    const officeExisting = officeRows.find((r) => String(r.code).toUpperCase() === code && String(r.active) !== '0')
+    const peopleRows = await getSheet('workforce_people')
+    const peopleExisting = peopleRows.find((r) => String(r.code).toUpperCase() === code && String(r.active) !== '0')
+    if (!officeExisting && !peopleExisting) return res.status(404).json({ success: false, error: 'ไม่พบพนักงานนี้' })
+    const name = (officeExisting || peopleExisting).name
+
+    if (group === 'ออฟฟิศ') {
+      if (peopleExisting) {
+        const nextPeople = peopleRows.map((r) => String(r.code).toUpperCase() === code ? { ...r, active: '0' } : r)
+        await overwriteSheet('workforce_people', PEOPLE_HEADERS, nextPeople.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
+      }
+      if (officeExisting) {
+        const nextOffice = officeRows.map((r) => String(r.code).toUpperCase() === code ? { ...r, name, active: '1' } : r)
+        await overwriteSheet('hr_office_people', OFFICE_HEADERS, nextOffice.map((r) => OFFICE_HEADERS.map((h) => r[h] ?? '')))
+      } else {
+        await appendRows('hr_office_people', [[code, name, '1']])
+      }
+    } else {
+      if (officeExisting) {
+        const nextOffice = officeRows.map((r) => String(r.code).toUpperCase() === code ? { ...r, active: '0' } : r)
+        await overwriteSheet('hr_office_people', OFFICE_HEADERS, nextOffice.map((r) => OFFICE_HEADERS.map((h) => r[h] ?? '')))
+      }
+      if (peopleExisting) {
+        const nextPeople = peopleRows.map((r) => String(r.code).toUpperCase() === code ? { ...r, group } : r)
+        await overwriteSheet('workforce_people', PEOPLE_HEADERS, nextPeople.map((r) => PEOPLE_HEADERS.map((h) => r[h] ?? '')))
+      } else {
+        await appendRows('workforce_people', [[code, name, group, '1']])
+      }
+    }
     clearHrCache(); clearWorkforceCache()
     return res.status(200).json({ success: true })
   }

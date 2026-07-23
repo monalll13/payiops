@@ -81,6 +81,7 @@ export default function PlannerControl({ onNavigate }) {
     catch { return null }
   })
   const [selectedDate, setSelectedDate] = useState(todayBangkok)
+  const [todoSnapshot, setTodoSnapshot] = useState(() => new Set())
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(products)) }, [products])
   useEffect(() => { localStorage.setItem(EXCLUDED_PRODUCTS_KEY, JSON.stringify(excludedSkus)) }, [excludedSkus])
@@ -264,8 +265,15 @@ export default function PlannerControl({ onNavigate }) {
   }), [products, demandMode, salesByName])
 
   const activeRows = rows.filter((item) => !excludedSkus.includes(item.masterSku))
+  // รายการ "ต้องทำวันนี้" ล็อคไว้ ณ ตอนโหลดข้อมูล/เปลี่ยนวันที่ — กันไม่ให้แถวที่เพิ่งเติม FG จนครบ
+  // หายวับออกจากลิสต์ต่อหน้าคนกำลังกรอก (อาการ "เด้งไปเด้งมา" ที่บอสแจ้ง) แถวจะโชว์ "ครบ" ค้างไว้แทน
+  useEffect(() => {
+    if (plannerStatus !== 'ready') return
+    setTodoSnapshot(new Set(activeRows.filter((item) => item.remaining > 0).map((item) => item.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, plannerStatus])
   const visible = activeRows
-    .filter((item) => filter === 'ทั้งหมด' || (filter === 'ต้องทำ' ? item.remaining > 0 : filter === 'Claim Watch' ? item.claimRate >= 1 : item.group === filter))
+    .filter((item) => filter === 'ทั้งหมด' || (filter === 'ต้องทำ' ? (todoSnapshot.has(item.id) || item.remaining > 0) : filter === 'Claim Watch' ? item.claimRate >= 1 : item.group === filter))
     .sort((a, b) => b.need - a.need || b.remaining - a.remaining || a.name.localeCompare(b.name, 'th'))
   const totalRemaining = activeRows.reduce((sum, item) => sum + item.remaining, 0)
   const urgent = activeRows.filter((item) => item.remaining > 0).length
@@ -307,17 +315,23 @@ export default function PlannerControl({ onNavigate }) {
     } catch (error) { setPlannerStatus('offline'); setMessage(error.message) }
     finally { setPlannerSaving(false) }
   }
+  // แก้ตารางแล้วเซฟให้อัตโนมัติ (ไม่ต้องกดปุ่ม) — รอ 1.2s หลังหยุดพิมพ์ค่อยยิง กันยิง API รัวทุกตัวอักษร
+  useEffect(() => {
+    if (!dirty || plannerStatus === 'loading' || !products.length) return undefined
+    const timer = setTimeout(() => { savePlanner() }, 1200)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, products, excludedSkus, demandMode, selectedDate, plannerStatus])
 
   return <div className="planner-control-page" style={{ display: 'grid', gap: 14 }}>
     <div style={{ ...panel, padding: 18, background: 'linear-gradient(135deg,#eef8ff,#ffffff 70%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>{selectedDate === todayBangkok() ? 'แผนผลิตวันนี้' : 'แผนผลิต'}</b><span style={{ borderRadius: 999, padding: '4px 9px', background: plannerStatus === 'offline' ? '#fff1f2' : '#e7f7f2', color: plannerStatus === 'offline' ? '#be123c' : '#087765', fontSize: 11, fontWeight: 900 }}>{plannerStatus === 'loading' ? 'กำลังเชื่อมต่อ' : plannerStatus === 'offline' ? 'ยังไม่บันทึกส่วนกลาง' : dirty ? 'มีการแก้ไข' : 'บันทึกส่วนกลางแล้ว'}</span></div>
-        <div style={{ color: '#64748b', fontSize: 13, marginTop: 5 }}>ยอดเฉลี่ยย้อนหลัง + ของกันพุ่ง − FG → ระบบแนะนำจำนวนฟีดให้</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 21, color: '#102a43' }}>{selectedDate === todayBangkok() ? 'แผนผลิตวันนี้' : 'แผนผลิต'}</b><span style={{ borderRadius: 999, padding: '4px 9px', background: plannerStatus === 'offline' ? '#fff1f2' : '#e7f7f2', color: plannerStatus === 'offline' ? '#be123c' : '#087765', fontSize: 11, fontWeight: 900 }}>{plannerSaving ? 'กำลังบันทึก…' : plannerStatus === 'loading' ? 'กำลังเชื่อมต่อ' : plannerStatus === 'offline' ? 'ยังไม่บันทึกส่วนกลาง' : dirty ? 'มีการแก้ไข · รอบันทึกอัตโนมัติ' : 'บันทึกส่วนกลางแล้ว'}</span></div>
+        <div style={{ color: '#64748b', fontSize: 13, marginTop: 5 }}>ยอดเฉลี่ยย้อนหลัง + ของกันพุ่ง − FG → ระบบแนะนำจำนวนฟีดให้ · แก้แล้วบันทึกให้อัตโนมัติ</div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input type="date" value={selectedDate} onChange={(event) => event.target.value && setSelectedDate(event.target.value)} style={{ ...formInput, width: 150 }} />
         {selectedDate !== todayBangkok() && <button type="button" onClick={() => setSelectedDate(todayBangkok())} style={secondaryButton}>วันนี้</button>}
-        <button type="button" onClick={savePlanner} disabled={plannerSaving || !products.length} style={{ ...primaryButton, padding: '10px 16px', opacity: plannerSaving || !products.length ? .55 : 1 }}>{plannerSaving ? 'กำลังบันทึก…' : dirty ? 'บันทึก Planner' : 'บันทึกอีกครั้ง'}</button>
       </div>
     </div>
 
