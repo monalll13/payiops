@@ -13,6 +13,7 @@ export const STAFF_TABS = Object.freeze([
   'Products', 'ProductTrends',
   'Planner Control', 'FeedProducts',
   'Workforce OT', 'Claims',
+  'Inventory', 'Stock Movement',
 ])
 
 const BOSS_HIDDEN_TABS = new Set(['Import Orders', 'Dev Hub', 'Settings'])

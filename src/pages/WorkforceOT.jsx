@@ -278,12 +278,6 @@ function CalendarPlanner({ rows, manpower, events, history = [], names, preview,
     if (modal.type === 'ot' && (!validTime24(start) || !validTime24(end))) return setError('กรอกเวลาเป็น HH:MM เช่น 17:30')
     if (modal.type === 'ot' && timeToMinutes(end) <= timeToMinutes(start)) return setError('เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน')
     if (modal.type === 'ot') {
-      const dayManpower = manpower.filter((r) => r.date === modal.date)
-      if (dayManpower.length) {
-        const working = dayManpower.map((r) => r.employee)
-        const absent = selected.filter((name) => !working.some((w) => w === name || (name === 'ป้า' && w.startsWith('ป้า'))))
-        if (absent.length) return setError(`ไม่ได้อยู่ใน Manpower วันนี้: ${absent.join(', ')}`)
-      }
       const conflicts = selected.filter((employee) => rows.some((r) => r.date === modal.date && r.employee === employee && r.status !== 'cancelled' && timeToMinutes(start) < timeToMinutes(r.planned_end) && timeToMinutes(r.planned_start) < timeToMinutes(end)))
       if (conflicts.length) return setError(`มีแผนซ้ำหรือเวลาชนกัน: ${conflicts.join(', ')}`)
     }

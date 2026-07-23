@@ -311,7 +311,7 @@ export default function PlannerControl({ onNavigate }) {
       }) })
       const data = await response.json()
       if (!response.ok || !data.success) throw new Error(data.error || 'บันทึก Planner ไม่สำเร็จ')
-      setDirty(false); setPlannerStatus('saved'); setMessage(`บันทึกส่วนกลางแล้ว ${data.dailySaved} รายการ · ${new Date(data.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`)
+      setDirty(false); setPlannerStatus('saved')
     } catch (error) { setPlannerStatus('offline'); setMessage(error.message) }
     finally { setPlannerSaving(false) }
   }
@@ -341,7 +341,7 @@ export default function PlannerControl({ onNavigate }) {
       <QuickStat label="ต้องทำวันนี้" value={`${urgent} SKU`} color="#dc2626" />
       <QuickStat label="ยังขาด" value={`${fmt(totalRemaining)} ชิ้น`} color="#d97706" />
       <QuickStat label="Manpower" value="4 คน" color="#2563eb" />
-      <div style={{ marginLeft: 'auto', color: '#64748b', fontSize: 12 }}>{salesSnapshot?.anchor ? `ABC จากยอดขาย ${salesSnapshot.start} ถึง ${salesSnapshot.anchor}` : 'ยังไม่มีประวัติยอดขาย · สินค้าจะแสดง NEW'}</div>
+      {!salesSnapshot?.anchor && <div style={{ marginLeft: 'auto', color: '#64748b', fontSize: 12 }}>ยังไม่มีประวัติยอดขาย · สินค้าจะแสดง NEW</div>}
     </div>
 
     <div style={{ ...panel, padding: '12px 15px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

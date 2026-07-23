@@ -467,7 +467,6 @@ const minutesBetween = (start, end) => {
 const validTime = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''))
 const clockMinutes = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + m }
 const overlaps = (aStart, aEnd, bStart, bEnd) => clockMinutes(aStart) < clockMinutes(bEnd) && clockMinutes(bStart) < clockMinutes(aEnd)
-const manpowerNameMatches = (planned, scheduled) => planned === scheduled || (planned === 'ป้า' && String(scheduled).startsWith('ป้า'))
 
 async function opWorkforce(req, res) {
   try {
@@ -541,14 +540,7 @@ async function opWorkforceInner(req, res) {
     const employees = Array.isArray(body.employees) ? body.employees.filter(Boolean) : []
     if (!body.date || !employees.length || !body.planned_start || !body.planned_end) return res.status(400).json({ error: 'กรุณาระบุวันที่ รายชื่อ และเวลา OT' })
     if (!validTime(body.planned_start) || !validTime(body.planned_end) || clockMinutes(body.planned_end) <= clockMinutes(body.planned_start)) return res.status(400).json({ error: 'เวลาจบต้องมากกว่าเวลาเริ่มและอยู่ในวันเดียวกัน' })
-    try {
-      const personMap = await getPersonMap()
-      const dayManpower = (await getCalendarPresence(personMap)).filter((r) => r.date === body.date)
-      if (dayManpower.length) {
-        const absent = employees.filter((employee) => !dayManpower.some((r) => manpowerNameMatches(employee, r.employee)))
-        if (absent.length) return res.status(400).json({ error: `วันนี้ลาอยู่ (หรือไม่มีในรายชื่อ): ${absent.join(', ')}` })
-      }
-    } catch (e) { return res.status(503).json({ error: `ตรวจสอบ Manpower ไม่สำเร็จ กรุณาลองใหม่: ${e.message}` }) }
+    // ไม่บล็อกคนที่ไม่อยู่ใน Manpower วันนั้น (มาทำ OT เฉยๆ หรือสลับวันแต่ HR ยังไม่อัปเดต) — ฝั่งหน้าเว็บเตือนแบบไม่บล็อกแทนแล้ว
     const current = await getSheet('workforce_ot')
     const conflicts = employees.filter((employee) => current.some((r) => r.date === body.date && r.employee === employee && r.status !== 'cancelled' && overlaps(body.planned_start, body.planned_end, r.planned_start, r.planned_end)))
     if (conflicts.length) return res.status(409).json({ error: `แผน OT ซ้ำหรือเวลาชนกัน: ${conflicts.join(', ')}` })
