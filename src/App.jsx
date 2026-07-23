@@ -732,7 +732,7 @@ export default function App() {
             <div
               key={group.title}
               style={{
-                display: 'flex', flexDirection: 'column', gap: 1, flex: `${group.items.length} 1 0`, minHeight: group.items.length * 32 + 14,
+                display: 'flex', flexDirection: 'column', gap: 1, flex: '0 0 auto',
                 // เส้นคั่นบางๆ ระหว่างหมวด — ตอนย่อไม่มี label กลุ่มให้ดู ต้องมีเส้นคั่นแทนกันมองเป็นเมนูก้อนเดียว
                 borderTop: gi > 0 ? '1px solid #eef2f7' : 'none', paddingTop: gi > 0 ? 6 : 0, marginTop: gi > 0 ? 5 : 0,
               }}
