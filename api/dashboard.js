@@ -53,6 +53,9 @@ export default async function handler(req, res) {
     // ---- PASS 1: หา distinct dates ที่ผ่าน filter เพื่อกำหนด "today / yesterday" ----
     const availableDateSet = new Set()
     const dateSet = new Set()
+    // แต่ละร้าน (business×platform) อัพไฟล์คนละวันกัน — เก็บวันล่าสุดจริงแยกรายร้านต่อเดือน ใช้ cap
+    // การเทียบเดือนก่อนหน้าให้ยุติธรรม (ร้านที่อัพช้ากว่าไม่ควรโดนเทียบเกินวันที่ตัวเองมีข้อมูลจริง)
+    const storeMonthMaxDay = new Map() // `${biz}|${plat}|${ym}` -> maxDay
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
       for (let j = 1; j < left.length; j++) {
@@ -62,6 +65,9 @@ export default async function handler(req, res) {
         if (!date || !keepBiz(biz) || !keepPlat(plat)) continue
         availableDateSet.add(date)
         if (inDate(date)) dateSet.add(date)
+        const mmKey = `${biz}|${plat}|${date.slice(0, 7)}`
+        const day = Number(date.slice(8, 10))
+        if (day > (storeMonthMaxDay.get(mmKey) || 0)) storeMonthMaxDay.set(mmKey, day)
       }
     }
     const sortedAvailableDates = [...availableDateSet].sort()
@@ -139,9 +145,13 @@ export default async function handler(req, res) {
           if (rowMonth === latestMonth) {
             const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
             groupThisMonth.set(trendKey, (groupThisMonth.get(trendKey) || 0) + rev)
-          } else if (rowMonth === prevMonth && rowDay <= latestDay) {
-            const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
-            groupLastMonth.set(trendKey, (groupLastMonth.get(trendKey) || 0) + rev)
+          } else if (rowMonth === prevMonth) {
+            // cap ตามวันล่าสุดที่ "ร้านนี้" (biz+plat ของแถวนี้) มีข้อมูลจริงในเดือนล่าสุด ไม่ใช่ latestDay รวมทุกร้าน
+            const storeCapDay = storeMonthMaxDay.get(`${biz}|${plat}|${latestMonth}`) || 0
+            if (storeCapDay > 0 && rowDay <= storeCapDay) {
+              const { key: trendKey } = deriveGroup(name, masterSku, overrideMap)
+              groupLastMonth.set(trendKey, (groupLastMonth.get(trendKey) || 0) + rev)
+            }
           }
         }
 

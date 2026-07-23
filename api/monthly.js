@@ -35,6 +35,9 @@ export default async function handler(req, res) {
     const store = new Map()        // 'YYYY-MM' -> Map(storeKey -> { business, platform, sales, units, orderIds:Set })
     const yearsSet = new Set()
     let latestDate = null          // วันที่ล่าสุดจริงในข้อมูลทั้งหมด (ไม่ผูก year filter) — ใช้เช็คว่าเดือนล่าสุดข้อมูลครบเดือนหรือยัง
+    // แต่ละร้าน (business×platform) อัพไฟล์คนละวันกัน — เก็บวันล่าสุดจริงแยกรายร้านต่อเดือน
+    // ไม่ใช้ latestDay ตัวเดียวรวมทุกร้าน เพราะร้านที่อัพช้ากว่าจะโดนเทียบกับเดือนก่อนแบบไม่แฟร์ (นับวันเกินที่ร้านนั้นมีจริง)
+    const storeMonthMaxDay = new Map() // `${storeKey}|${ym}` -> maxDay
 
     for (let i = 0; i < tabs.length; i++) {
       const left = vr[2 * i].values || []
@@ -49,6 +52,10 @@ export default async function handler(req, res) {
         // จำนวนออเดอร์นับรวมยกเลิก/ตีคืน (งานแพ็คเกิดขึ้นแล้ว) ยอดขาย/จำนวนชิ้นไม่นับ
         const excluded = isCancelled(status) || isReturned(status)
         const ym = String(date).slice(0, 7)
+        const key = `${business} ${platShort(platform)}`
+        const day = Number(date.slice(8, 10))
+        const mmKey = `${key}|${ym}`
+        if (day > (storeMonthMaxDay.get(mmKey) || 0)) storeMonthMaxDay.set(mmKey, day)
         yearsSet.add(String(date).slice(0, 4))
         if (year && !ym.startsWith(year)) continue
 
@@ -59,7 +66,6 @@ export default async function handler(req, res) {
 
         let sm = store.get(ym)
         if (!sm) store.set(ym, (sm = new Map()))
-        const key = `${business} ${platShort(platform)}`
         let s = sm.get(key)
         if (!s) sm.set(key, (s = { store: key, business, platform, sales: 0, units: 0, orderIds: new Set() }))
         if (orderId) s.orderIds.add(orderId)
@@ -91,13 +97,16 @@ export default async function handler(req, res) {
             const orderId = l[0], date = l[2], platform = l[3] || '', business = l[4] || ''
             const qty = parseInt(r[0], 10) || 0, rev = num(r[1]), status = r[2]
             if (!date || date.slice(0, 7) !== prevMonth) continue
-            if (Number(date.slice(8, 10)) > latestDay) continue
+            const key = `${business} ${platShort(platform)}`
+            // ร้านนี้ต้องมีข้อมูลเดือนล่าสุดจริงก่อนถึงจะนับเทียบได้ — cap ตามวันล่าสุดที่ "ร้านนี้" มีจริง ไม่ใช่วันล่าสุดรวมทุกร้าน
+            const storeCapDay = storeMonthMaxDay.get(`${key}|${latestMonth}`) || 0
+            if (storeCapDay === 0) continue
+            if (Number(date.slice(8, 10)) > storeCapDay) continue
             const excluded = isCancelled(status) || isReturned(status)
             if (orderId) prevTrend.orderIds.add(orderId)
             if (!excluded) { prevTrend.sales += rev; prevTrend.units += qty }
-            const key = `${business} ${platShort(platform)}`
             let s = prevStore.get(key)
-            if (!s) prevStore.set(key, (s = { store: key, business, platform, sales: 0, units: 0, orderIds: new Set() }))
+            if (!s) prevStore.set(key, (s = { store: key, business, platform, sales: 0, units: 0, orderIds: new Set(), capDay: storeCapDay }))
             if (orderId) s.orderIds.add(orderId)
             if (!excluded) { s.sales += rev; s.units += qty }
           }
@@ -109,7 +118,7 @@ export default async function handler(req, res) {
           prevMonthCapped: {
             month: prevMonth,
             trend: { sales: round2(prevTrend.sales), orders: prevTrend.orderIds.size, units: prevTrend.units },
-            byStore: [...prevStore.values()].map((s) => ({ store: s.store, business: s.business, platform: s.platform, sales: round2(s.sales), orders: s.orderIds.size, units: s.units })),
+            byStore: [...prevStore.values()].map((s) => ({ store: s.store, business: s.business, platform: s.platform, sales: round2(s.sales), orders: s.orderIds.size, units: s.units, capDay: s.capDay })),
           },
         }
       }

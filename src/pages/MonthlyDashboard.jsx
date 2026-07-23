@@ -25,18 +25,19 @@ const monthLabel = (ym) => (ym === 'all' ? 'ทั้งหมด' : THAI_MONTH[
 const periodLabel = (ym) => (ym === 'all' ? 'ทั้งหมด' : `เดือน${monthLabel(ym)}`)
 
 // ป้ายท้ายแท่ง: ค่า + %MoM (เทียบเดือนก่อนหน้า) — ใช้กับกราฟ "แยกร้าน" ทั้งยอดขายและออเดอร์
-function StoreBarLabel({ x, y, width, height, index, items, prevMap, dataKey, formatValue }) {
+function StoreBarLabel({ x, y, width, height, index, items, prevMap, dataKey, formatValue, globalLatestDay }) {
   const item = items?.[index]
   if (!item) return null
   const curVal = item[dataKey]
   const prevItem = prevMap.get(item.store)
   const pct = prevItem && prevItem[dataKey] > 0 ? Math.round(((curVal - prevItem[dataKey]) / prevItem[dataKey]) * 100) : null
+  const capDiffers = prevItem?.capDay && globalLatestDay && prevItem.capDay !== globalLatestDay
   return (
     <g>
       <text x={x + width + 8} y={y + height / 2} dy={4} fontSize={11} fontWeight={600} fill="var(--payi-text-muted)">{formatValue(curVal)}</text>
       {pct !== null && (
         <text x={x + width + 62} y={y + height / 2} dy={4} fontSize={10} fontWeight={800} fill={pct >= 0 ? '#16a34a' : '#dc2626'}>
-          {pct >= 0 ? '+' : ''}{pct}%
+          {pct >= 0 ? '+' : ''}{pct}%{capDiffers ? ` (1-${prevItem.capDay})` : ''}
         </text>
       )}
     </g>
@@ -195,6 +196,7 @@ export default function MonthlyDashboard() {
           <span>
             ข้อมูลเดือนนี้อัพเดตถึงวันที่ {partial.latestDay} เท่านั้น (จาก {partial.daysInMonth} วัน) — %MoM ด้านล่างเทียบกับ{' '}
             <b>วันที่ 1-{partial.latestDay} ของ{monthLabel(partial.prevMonthCapped.month)}</b> (ไม่ใช่ทั้งเดือน) เพื่อให้เทียบกันแบบยุติธรรม
+            แต่ละร้านอัพไฟล์คนละวันกันได้ — %MoM ต่อร้านจะเทียบตามวันล่าสุดที่ร้านนั้นมีข้อมูลจริง (ดูวงเล็บท้ายแท่งกราฟถ้าร้านไหนวันไม่ตรงกับข้างบน)
           </span>
         </div>
       )}
@@ -216,7 +218,7 @@ export default function MonthlyDashboard() {
               <YAxis type="category" dataKey="store" tick={{ fontSize: 12, fill: 'var(--payi-text)' }} axisLine={false} tickLine={false} width={110} />
               <Tooltip content={<TooltipBox moneyKeys={['sales']} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
               <Bar dataKey="sales" name="ยอดขาย" radius={[0, 6, 6, 0]} barSize={20}
-                label={<StoreBarLabel items={stores} prevMap={prevStoreMap} dataKey="sales" formatValue={fmtShort} />}>
+                label={<StoreBarLabel items={stores} prevMap={prevStoreMap} dataKey="sales" formatValue={fmtShort} globalLatestDay={partial?.latestDay} />}>
                 {stores.map((s, i) => <Cell key={i} fill={platColor(s.platform)} />)}
               </Bar>
             </BarChart>
@@ -278,7 +280,7 @@ export default function MonthlyDashboard() {
             <YAxis type="category" dataKey="store" tick={{ fontSize: 12, fill: 'var(--payi-text)' }} axisLine={false} tickLine={false} width={110} />
             <Tooltip content={<TooltipBox />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
             <Bar dataKey="orders" name="ออเดอร์" radius={[0, 6, 6, 0]} barSize={20}
-              label={<StoreBarLabel items={storesByOrders} prevMap={prevStoreMap} dataKey="orders" formatValue={fmt} />}>
+              label={<StoreBarLabel items={storesByOrders} prevMap={prevStoreMap} dataKey="orders" formatValue={fmt} globalLatestDay={partial?.latestDay} />}>
               {storesByOrders.map((s, i) => <Cell key={i} fill={platColor(s.platform)} />)}
             </Bar>
           </BarChart>
